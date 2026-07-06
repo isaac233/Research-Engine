@@ -44,7 +44,7 @@
 
 ## State of the Build
 - Phase: 2 (complete and merged)
-- Last passing commit: TBD after PR #7 merge
+- Last passing commit: `974d294`
 - Last PR: #7 (merged)
 
 ## Next Priority Tasks
