@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List
 
 from table_parser import RouteItem, parse_learned_log
 
 
-def contradictions(items: List[RouteItem]) -> List[tuple]:
+def contradictions(items: list[RouteItem]) -> list[tuple]:
     """Detect two confirmed items with same signal but mutually exclusive loads."""
     confirmed = [i for i in items if i.status == "CONFIRMED"]
-    pairs: List[tuple] = []
+    pairs: list[tuple] = []
     for i, a in enumerate(confirmed):
         for b in confirmed[i + 1 :]:
             if a.signal.lower() == b.signal.lower() and a.load != b.load:

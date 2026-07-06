@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List
 
 from gold_from_git import gold_commits
 from outcome_record import Outcome
 from router_sim import simulate_route
 
 
-def run_benchmark(router_dir: Path, repo_root: Path, max_commits: int = 20) -> Dict[str, float]:
+def run_benchmark(router_dir: Path, repo_root: Path, max_commits: int = 20) -> dict[str, float]:
     commits = gold_commits(repo_root, max_count=max_commits)
-    f1s: List[float] = []
+    f1s: list[float] = []
     for commit in commits:
         if not commit.files:
             continue

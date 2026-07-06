@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Set
 
 
-def estimate_tokens(file_paths: Set[str], root: Path) -> int:
+def estimate_tokens(file_paths: set[str], root: Path) -> int:
     """Crude token estimate: ~0.25 tokens per byte for source code."""
     total_bytes = 0
     for p in file_paths:

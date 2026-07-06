@@ -3,24 +3,23 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Set
 
 from table_parser import parse_routers
 
 
-def simulate_route(task: str, router_dir: Path) -> Dict[str, List[str]]:
+def simulate_route(task: str, router_dir: Path) -> dict[str, list[str]]:
     """Return a mapping of router name → predicted load files for a task."""
     task_lower = task.lower()
     routers = parse_routers(router_dir)
-    predictions: Dict[str, List[str]] = {}
+    predictions: dict[str, list[str]] = {}
     for name, rf in routers.items():
         for signal, loads in rf.keyword_table.items():
             if any(word.strip(".,;:!?()[]") in task_lower for word in signal.lower().split()):
                 predictions.setdefault(name, []).extend(loads)
     # De-duplicate while preserving order.
     for name in predictions:
-        seen: Set[str] = set()
-        unique: List[str] = []
+        seen: set[str] = set()
+        unique: list[str] = []
         for item in predictions[name]:
             if item not in seen:
                 seen.add(item)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List
 
 
 @dataclass
@@ -24,13 +23,13 @@ class RouteItem:
 @dataclass
 class RouterFile:
     path: Path
-    keyword_table: Dict[str, List[str]] = field(default_factory=dict)
-    learned_items: List[RouteItem] = field(default_factory=list)
+    keyword_table: dict[str, list[str]] = field(default_factory=dict)
+    learned_items: list[RouteItem] = field(default_factory=list)
 
 
-def parse_routers(router_dir: Path) -> Dict[str, RouterFile]:
+def parse_routers(router_dir: Path) -> dict[str, RouterFile]:
     """Parse every `*-router.md` under `router_dir`."""
-    result: Dict[str, RouterFile] = {}
+    result: dict[str, RouterFile] = {}
     if not router_dir.exists():
         return result
     for p in router_dir.glob("*-router.md"):
@@ -54,9 +53,9 @@ def parse_routers(router_dir: Path) -> Dict[str, RouterFile]:
     return result
 
 
-def parse_learned_log(log_path: Path) -> List[RouteItem]:
+def parse_learned_log(log_path: Path) -> list[RouteItem]:
     """Parse `.claude/research-engine-routes.md` learned items."""
-    items: List[RouteItem] = []
+    items: list[RouteItem] = []
     if not log_path.exists():
         return items
     for line in log_path.read_text(encoding="utf-8").splitlines():
