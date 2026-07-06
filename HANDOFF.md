@@ -29,14 +29,14 @@
   - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 2 discovery/screening.
 
 ## State of the Build
-- Phase: 1 (complete, awaiting PR merge)
-- Last passing commit: TBD after PR #4 merge
-- Last PR: #4 (open)
+- Phase: 1 (complete and merged)
+- Last passing commit: `8e8797c`
+- Last PR: #4 (merged)
 
 ## Next Priority Tasks
-1. Merge PR #4 to `main`.
-2. Implement Phase 2: AI-only browser subsystem.
-3. Update routers with Phase 2 keyword rows and learned-route deltas.
+1. Implement Phase 2: AI-only browser subsystem.
+2. Update routers with Phase 2 keyword rows and learned-route deltas.
+3. Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.
