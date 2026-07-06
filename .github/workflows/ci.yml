@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type check
+        run: mypy src/research_engine
+
+      - name: Test
+        run: pytest
+
+      - name: Router eval self-checks
+        run: |
+          python .claude/router_eval/table_parser.py
+          python .claude/router_eval/router_sim.py
+          python .claude/router_eval/capture_outcome.py
+          python .claude/router_eval/test_log_robustness.py
