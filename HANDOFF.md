@@ -7,7 +7,8 @@
   - Researched current open-source patterns for research agents, browser automation, and multi-agent orchestration.
   - Used the `planner` agent to produce `docs/plan/master_plan.md`.
   - Created full project directory tree and Phase 0 scaffold (README, HANDOFF, .gitignore, pyproject.toml, routers, eval harness skeleton, GitHub templates).
-  - Initialized GitHub repo `isaac233/Research-Engine` and opened Pull Request #1.
+  - Fixed `router_sim.py` keyword matching and added a load table to `research-engine-router.md` so all `.claude/router_eval/` self-checks pass.
+  - Initialized GitHub repo `isaac233/Research-Engine`, opened Pull Request #1, merged it to `main`, and deleted the feature branch.
 - Open:
   - Implement Phase 1: core orchestrator + model-agnostic LLM layer.
   - Populate `src/research_engine/__init__.py` and stub modules.
@@ -18,14 +19,14 @@
   - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 1.
 
 ## State of the Build
-- Phase: 0 (scaffold complete, awaiting PR merge)
-- Last passing commit: TBD after PR merge
-- Last PR: #1
+- Phase: 0 (scaffold complete and merged)
+- Last passing commit: `4738931`
+- Last PR: #1 (merged)
 
 ## Next Priority Tasks
-1. Merge PR #1 to `main`.
-2. Implement Phase 1 tasks 1.1–1.9.
-3. Update routers with Phase 1 keyword rows and learned-route deltas.
+1. Implement Phase 1 tasks 1.1–1.9.
+2. Update routers with Phase 1 keyword rows and learned-route deltas.
+3. Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.
