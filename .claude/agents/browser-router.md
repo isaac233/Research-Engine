@@ -74,6 +74,7 @@ COMMIT: <suggested message>
 | robots.txt, crawl policy | `src/research_engine/browser/robots.py` |
 | SSRF, URL policy, private IP, blocklist | `src/research_engine/browser/policy.py` |
 | fingerprint, headers, rotation, stealth | `src/research_engine/browser/fingerprint.py` |
+| unblock, blocker, "cannot find", "no free", missing source, solution search | `src/research_engine/browser/unblock_probe.py`, `src/research_engine/browser/raw_http.py` |
 | browser config, rate limits | `config/default.yaml` |
 
 # REMINDERS

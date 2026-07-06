@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from research_engine.browser.ai_browser import AIBrowser
 from research_engine.events import EventBus
 from research_engine.state import (
     Campaign,
@@ -29,19 +30,46 @@ class Orchestrator:
         CampaignStage.FINALIZE,
     )
 
-    def __init__(self, store: CampaignStore, event_bus: EventBus | None = None) -> None:
+    def __init__(
+        self,
+        store: CampaignStore,
+        event_bus: EventBus | None = None,
+        browser: AIBrowser | None = None,
+    ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
+        self.browser = browser
+
+    BLOCKER_KEYWORDS = {
+        "cannot find",
+        "can't find",
+        "no free",
+        "no public",
+        "missing data",
+        "need a source",
+        "need an api",
+        "unknown api",
+        "failing dependency",
+        "how to",
+        "find a library",
+        "find a source",
+    }
 
     def start_campaign(self, request: ResearchRequest) -> Campaign:
         """Create and persist a new campaign."""
         campaign = self.store.create_campaign(request)
+        if self._is_blocker(request.query):
+            campaign = self.store.update_campaign(campaign.with_meta("campaign_type", "unblocking"))
         self.event_bus.emit(
             campaign.id,
             "stage_enter",
             {"stage": campaign.stage.value, "status": campaign.status.value},
         )
         return campaign
+
+    def _is_blocker(self, query: str) -> bool:
+        query_lower = query.lower()
+        return any(keyword in query_lower for keyword in self.BLOCKER_KEYWORDS)
 
     def run_campaign(self, campaign_id: str) -> Campaign:
         """Run or resume a campaign from its current stage to completion."""
@@ -151,7 +179,19 @@ class Orchestrator:
 
     _run_init = _run_stub
     _run_plan = _run_stub
-    _run_discover = _run_stub
+    def _run_discover(self, campaign: Campaign) -> dict[str, Any]:
+        """Dispatch discovery or unblocking probe depending on campaign type."""
+        if campaign.meta.get("campaign_type") == "unblocking" and self.browser is not None:
+            result = self.browser.unblock(campaign.request.query)
+            return {
+                "ok": result.ok,
+                "action": result.action.value,
+                "content_preview": result.content[:500] if result.content else "",
+                "error": result.error,
+                "meta": result.meta,
+            }
+        return self._run_stub(campaign)
+
     _run_screen = _run_stub
     _run_extract = _run_stub
     _run_adversarial = _run_stub

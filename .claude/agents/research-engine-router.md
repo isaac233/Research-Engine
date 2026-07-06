@@ -114,6 +114,7 @@ NEXT: <one action or closed>
 | orchestrator, campaign state, events, bus | `src/research_engine/orchestrator.py`, `src/research_engine/state.py`, `src/research_engine/events.py` |
 | LLM, model, Ollama, Anthropic, provider, model_registry.yaml, models.yaml | `src/research_engine/llm/`, `config/models.yaml` |
 | telemetry, monitoring, progress, ETA | `src/research_engine/monitoring/telemetry.py` |
+| unblock, blocker, cannot find, missing source, find a source, find an API | `src/research_engine/browser/unblock_probe.py` |
 | storage, sources_db, cache_db, artifacts, cleanup, janitor | `src/research_engine/storage/` |
 | MCP | `src/research_engine/mcp/` |
 

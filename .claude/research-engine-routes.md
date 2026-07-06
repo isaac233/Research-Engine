@@ -17,6 +17,11 @@
 | R005 | orchestrator | SQLite, CampaignStore, ResearchRequest | `src/research_engine/state.py` | Read dataclasses + store first | phase-1 | 1 | 2026-07-06 | PROVISIONAL |
 | R006 | orchestrator | LLMProvider, Ollama, Anthropic, model registry | `src/research_engine/llm/`, `config/models.yaml` | Read provider + registry first | phase-1 | 1 | 2026-07-06 | PROVISIONAL |
 | R007 | orchestrator | telemetry, EventBus, stage receipts | `src/research_engine/events.py`, `src/research_engine/monitoring/telemetry.py` | Read event bus + telemetry first | phase-1 | 1 | 2026-07-06 | PROVISIONAL |
+| R008 | browser | CDP, Playwright, Chromium, accessibility tree | `src/research_engine/browser/cdp_driver.py` | Read driver first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
+| R009 | browser | raw HTTP, retry, backoff, headers | `src/research_engine/browser/raw_http.py`, `src/research_engine/browser/fingerprint.py` | Read HTTP client + fingerprints first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
+| R010 | browser | robots.txt, SSRF, URL policy | `src/research_engine/browser/robots.py`, `src/research_engine/browser/policy.py` | Read policy guards first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
+| R011 | browser | GraphQL, API query | `src/research_engine/browser/graphql_client.py` | Read GraphQL helper first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
+| R012 | browser | unblock, blocker, cannot find, missing source | `src/research_engine/browser/unblock_probe.py`, `src/research_engine/orchestrator.py` | Read probe + orchestrator integration first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
 
 ## LEARNED — empty
 

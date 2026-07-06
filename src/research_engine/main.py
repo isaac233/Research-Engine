@@ -7,6 +7,8 @@ from pathlib import Path
 
 import click
 
+from research_engine.browser.raw_http import RawHTTPBrowser
+from research_engine.browser.unblock_probe import UnblockProbe
 from research_engine.config import EngineConfig
 from research_engine.events import EventBus
 from research_engine.orchestrator import Orchestrator
@@ -17,7 +19,9 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     config = EngineConfig(project_root)
     config.engine_data_dir.mkdir(parents=True, exist_ok=True)
     store = CampaignStore(config.state_db_path())
-    return Orchestrator(store, EventBus(store))
+    http = RawHTTPBrowser()
+    browser = UnblockProbe(http)
+    return Orchestrator(store, EventBus(store), browser=browser)
 
 
 @click.group()

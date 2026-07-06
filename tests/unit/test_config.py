@@ -7,7 +7,7 @@ from pathlib import Path
 from research_engine.config import EngineConfig
 
 
-def test_default_paths_use_cwd(tmp_path) -> None:
+def test_default_paths_use_cwd(tmp_path: Path) -> None:
     config = EngineConfig(tmp_path)
     assert config.project_root == tmp_path
     assert config.research_dir == tmp_path / "Research"
