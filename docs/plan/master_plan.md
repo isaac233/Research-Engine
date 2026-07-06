@@ -148,6 +148,7 @@ Research Engine/
 5. **Ethical hard floor.** No credential bypass, no unauthorized access, no anti-bot evasion, no law breaking. "Stealth" means polite rotation, rate limiting, proper headers, robots.txt respect.
 6. **Append-only state.** Every action produces a receipt. Nothing is deleted until the janitor explicitly prunes it at session end.
 7. **Project-native deliverables.** When the engine is invoked inside another project, it writes human-readable results into a surface-level `Research/` folder owned by that project. Campaign outputs are differentiated by folder name so users and AI registry searches never confuse a campaign brief with the master brief.
+8. **No dead ends.** If the main AI presents a blocker, missing resource, or an "I cannot find…" problem, the engine treats it as a research campaign and does not stop until it returns actionable solutions with sources, docs, and next steps. The engine is never allowed to give up and hand the problem back to the user.
 
 ---
 
@@ -199,18 +200,19 @@ Research Engine/
 
 | # | Task | Files | Acceptance Criteria | Complexity | Dependencies |
 |---|---|---|---|---|---|
-| 2.1 | Define `AIBrowser` interface and `BrowserAction` schema. | `src/research_engine/browser/ai_browser.py` | Interface supports `fetch`, `click`, `fill`, `evaluate`, `snapshot`, `graphql`, `api`. | Medium | 1.3 |
+| 2.1 | Define `AIBrowser` interface and `BrowserAction` schema; include `unblocker` mode for problem-solving research. | `src/research_engine/browser/ai_browser.py` | Interface supports `fetch`, `click`, `fill`, `evaluate`, `snapshot`, `graphql`, `api`, `unblock`. | Medium | 1.3 |
 | 2.2 | Implement CDP/Playwright driver with accessibility-DOM-first perception. | `src/research_engine/browser/cdp_driver.py` | Can fetch a page and return a semantic tree; headless by default; no human UI chrome. | High | 2.1 |
 | 2.3 | Implement raw HTTP client with pooled sessions, backoff, jitter, and header rotation. | `src/research_engine/browser/raw_http.py` | 429/503 retried; 404 distinguished; respects `User-Agent` rotation list from config. | Medium | 2.1 |
+| 2.3a | Add browser-based unblocking probe: given a blocker query, search public pages and APIs for concrete solutions, availability, and links. | `src/research_engine/browser/unblock_probe.py` | Returns ranked solution candidates with URLs and access terms; used by unblocking campaigns. | Medium | 2.3, 2.4 |
 | 2.4 | Implement GraphQL and JSON API client helpers. | `src/research_engine/browser/graphql_client.py` | Can introspect a GraphQL endpoint and run a query; validates JSON responses. | Medium | 2.3 |
 | 2.5 | Build robots.txt parser and policy enforcer. | `src/research_engine/browser/robots.py` | Blocks disallowed paths; caches robots.txt per host; logs allowed/disallowed decisions. | Medium | 2.1 |
 | 2.6 | Build ethical URL policy and SSRF guard. | `src/research_engine/browser/policy.py` | Blocks private IP ranges, file://, localhost by default; logs every allow decision. | High | 2.3 |
 | 2.7 | Implement legitimate fingerprint rotation (headers, TLS JA3, viewport) without deception. | `src/research_engine/browser/fingerprint.py` | Fingerprint rotates per request; no forged signatures or stolen credentials. | Medium | 2.3 |
 | 2.8 | Integrate browser with orchestrator as a tool. | `src/research_engine/orchestrator.py` | Orchestrator can dispatch browser actions and store receipts. | Medium | 1.5, 2.2 |
 | 2.9 | Add browser-router keyword rows and R### deltas. | `.claude/agents/browser-router.md`, `.claude/research-engine-routes.md` | Router routes "cdp", "playwright", "graphql", "robots" to the correct files. | Low | 0.4, 2.8 |
-| 2.10 | Tests and PR #3. | PR #3 | Unit tests mock HTTP; integration test uses `httpbin.org` via raw HTTP only. | Medium | 2.1–2.9 |
+| 2.10 | Tests and PR #3. | PR #3 | Unit tests mock HTTP; integration test uses `httpbin.org` via raw HTTP only; unblock probe tested with a known public resource query. | Medium | 2.1–2.9 |
 
-**Order gate:** 2.1 → 2.3 → 2.5/2.6 → 2.2 → 2.4 → 2.7 → 2.8 → 2.9 → 2.10.
+**Order gate:** 2.1 → 2.3 → 2.3a → 2.5/2.6 → 2.2 → 2.4 → 2.7 → 2.8 → 2.9 → 2.10.
 
 ---
 
@@ -261,7 +263,7 @@ Research Engine/
 
 | # | Task | Files | Acceptance Criteria | Complexity | Dependencies |
 |---|---|---|---|---|---|
-| 5.1 | Implement `Devil` adversarial agent: challenges every insight for evidence, soundness, and coverage. | `src/research_engine/adversarial/devil.py` | Takes a claim + sources; outputs challenge list with severity and requested evidence. | High | 1.3 |
+| 5.1 | Implement `Devil` adversarial agent: challenges every insight for evidence, soundness, and coverage; in unblocking mode, challenges whether each solution actually solves the stated blocker. | `src/research_engine/adversarial/devil.py` | Takes a claim + sources; outputs challenge list with severity and requested evidence; blocker mode never accepts "no solution found". | High | 1.3 |
 | 5.2 | Implement `Verifier`: re-runs the source lookups the main agent claims to have done. | `src/research_engine/adversarial/verifier.py` | Verifies URL reachability, quote presence, and DOI resolution; flags hallucinated citations. | High | 2.3, 4.5 |
 | 5.3 | Implement `Challenge` dispatcher: routes challenged claims back to the main agent for response. | `src/research_engine/adversarial/challenge.py` | Ensures every challenge gets a response or an escalation to frontier model. | Medium | 5.1, 5.2 |
 | 5.4 | Implement evaluation harness: compares campaign output to rubric and prior runs. | `src/research_engine/evaluation/harness.py` | Computes precision, recall, coverage, citation quality; stores results. | High | 4.7 |
@@ -320,7 +322,7 @@ Research Engine/
 
 | # | Task | Files | Acceptance Criteria | Complexity | Dependencies |
 |---|---|---|---|---| ---|
-| 8.1 | Implement main program loop: parse request → plan → discover → screen → extract → challenge → evaluate → deliver. | `src/research_engine/main.py`, `src/research_engine/orchestrator.py` | Running `research-engine run "..."` completes a full campaign end-to-end. | High | 3.8, 4.7, 5.8 |
+| 8.1 | Implement main program loop: parse request → plan → discover → screen → extract → challenge → evaluate → deliver; detect blocker queries and dispatch unblocking campaigns. | `src/research_engine/main.py`, `src/research_engine/orchestrator.py` | Running `research-engine run "..."` completes a full campaign end-to-end; blocker queries trigger unblocking probe and deliver solutions. | High | 3.8, 4.7, 5.8 |
 | 8.2 | Implement deliverable formatter: insight brief + evidence map for main AI; create `Research/` layout in host project with `<campaign>_Insights.MD` files and folded master `Research/Insights.MD`. | `src/research_engine/storage/artifacts.py`, `src/research_engine/main.py` | `Research/<campaign-slug>/<campaign-slug>_Insights.MD` exists; `Research/Insights.MD` aggregates all campaign briefs with a TOC. | Medium | 7.3 |
 | 8.3 | Implement status query command for main AI. | `src/research_engine/main.py` | `research-engine status <id>` returns JSON or human summary. | Low | 6.4 |
 | 8.4 | Implement kill/pause/resume commands. | `src/research_engine/main.py`, `src/research_engine/orchestrator.py` | Signals are persisted in state DB; campaign resumes correctly. | Medium | 1.5 |
@@ -385,6 +387,7 @@ Research Engine/
 ### 4.2 Orchestrator
 
 - Campaign lifecycle: `INIT → PLAN → DISCOVER → SCREEN → EXTRACT → ADVERSARIAL → EVALUATE → DELIVER → FINALIZE`.
+- Supports a dedicated **Unblocking** campaign type: when the main AI reports a blocker (`cannot find data`, `no free source`, `unknown API`, `failing dependency`, etc.), the engine treats it as a research request and does not stop until it returns actionable solutions.
 - State machine persisted in SQLite; append-only event bus.
 - Supports pause/resume/kill and idempotent retries.
 - Each stage emits telemetry receipts.
@@ -486,6 +489,23 @@ Rules:
 - Internal engine state (SQLite, DuckDB, cache, temp files) stays inside the engine's own `data/` directory and is never dumped into `Research/`.
 - The janitor only removes duplicates and temp files; it never deletes `Research/` or its briefs unless explicitly requested by the user.
 
+### 4.14 Unblocking Research Campaigns
+
+The engine must be able to take a blocker from the main AI and run a focused campaign until it returns a solution. Examples: "find a free data source for X", "identify an API that provides Y", "locate a library that handles Z", "find documentation or examples for W".
+
+Flow:
+
+1. Main AI sends a blocker query, e.g. `research-engine run "Find free public databases for U.S. county-level health statistics"`.
+2. The engine classifies it as an `unblocking` campaign type and runs the standard lifecycle with extra emphasis on source availability, access terms, and concrete next steps.
+3. The deliverable brief is titled by the campaign slug and contains:
+   - A restatement of the problem.
+   - A ranked list of solutions/resources with URLs, access terms, and key constraints.
+   - Exact commands, API endpoints, or sign-up links where applicable.
+   - A "next action" recommendation.
+   - Confidence label and caveats per item.
+4. The `Devil` agent specifically challenges whether each solution actually solves the blocker and whether the source is still reachable.
+5. The engine is not allowed to return a brief that says "no solution found"; it must either find solutions or escalate to a frontier model with a detailed evidence log.
+
 ---
 
 ## 5. Risk + Mitigation Table
@@ -564,6 +584,7 @@ At the end of **every** session, update `docs/HANDOFF.md` with this structure:
 - [ ] Document conversion handles HTML and PDF without corrupting originals.
 - [ ] Storage uses SQLite/DuckDB; cleanup deduplicates and vacuums at session end.
 - [ ] `research-engine run <query>` completes an end-to-end research campaign and writes `Research/<campaign-slug>/<campaign-slug>_Insights.MD` plus `Research/Insights.MD` in the host project.
+- [ ] `research-engine run "Find a solution for <blocker>"` returns actionable solutions with sources, access terms, and next steps; the engine never reports "no solution found" without a full evidence log and escalation path.
 - [ ] Claude Code can call the engine via MCP/stdio tools.
 - [ ] 80%+ test coverage; CI green; security review complete.
 - [ ] `README.md`, architecture docs, and runbooks are complete.

@@ -20,13 +20,15 @@
     - `src/research_engine/config.py`: project path resolution (including `Research/` layout).
     - Tests: 21 unit/integration tests, 80% coverage.
   - Updated routers with Phase 1 keyword rows and R005–R007 learned-route deltas.
+  - Amended `docs/plan/master_plan.md` and `README.md` to add the "no dead ends" requirement: the engine must run unblocking research campaigns when the main AI presents a blocker, missing resource, or "I cannot find…" problem, and deliver actionable solutions with sources and next steps (never report "no solution found" without a full evidence log).
 - Open:
-  - Implement Phase 2: AI-only browser (CDP/Playwright, raw HTTP, GraphQL, robots.txt, SSRF policy).
+  - Implement Phase 2: AI-only browser (CDP/Playwright, raw HTTP, GraphQL, robots.txt, SSRF policy, unblock probe).
   - Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
 - Blocked: none.
 - Risks:
   - Ethical/legal boundary for "advanced penetration techniques" must be pinned to authorized/defensive/public-only scope before Phase 2 browser work.
   - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 2 discovery/screening.
+  - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
 - Phase: 1 (complete and merged)
