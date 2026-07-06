@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.env
+.env.*
+
+# Secrets
+*.key
+*.pem
+secrets/
+config/secrets.yaml
+
+# Data and caches
+data/cache/
+data/sources/*/
+data/deliverables/*/
+*.duckdb
+*.duckdb.wal
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Router eval scratch
+.claude/router_eval/__pycache__/
+.claude/router_eval/*.pyc
