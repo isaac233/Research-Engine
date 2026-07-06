@@ -19,26 +19,38 @@
     - `src/research_engine/main.py`: `research-engine run/status/pause/resume/kill` CLI.
     - `src/research_engine/config.py`: project path resolution (including `Research/` layout).
     - Tests: 21 unit/integration tests, 80% coverage.
-  - Updated routers with Phase 1 keyword rows and R005–R007 learned-route deltas.
+  - Implemented Phase 2: AI-only browser subsystem.
+    - `src/research_engine/browser/ai_browser.py`: `AIBrowser` ABC, `BrowserAction`, `BrowserResult`, `BrowserActionType` enum.
+    - `src/research_engine/browser/cdp_driver.py`: Playwright/Chromium driver with policy + robots.txt guards.
+    - `src/research_engine/browser/raw_http.py`: pooled httpx client with retries, backoff, jitter, header rotation.
+    - `src/research_engine/browser/policy.py`: SSRF/ethical URL policy (private IP, localhost, file:// block).
+    - `src/research_engine/browser/robots.py`: per-host robots.txt fetcher/cache.
+    - `src/research_engine/browser/fingerprint.py`: legitimate header/viewport rotation.
+    - `src/research_engine/browser/graphql_client.py`: GraphQL-aware POST helper.
+    - `src/research_engine/browser/unblock_probe.py`: browser-based unblocking research probe; never reports "no solution" without an evidence log.
+    - `src/research_engine/orchestrator.py`: blocker detection + unblocking campaign dispatch during discovery.
+    - `src/research_engine/main.py`: wires `UnblockProbe` as the default browser.
+    - Tests: 38 new browser unit tests, total 59 tests, 80% coverage.
+  - Updated routers with Phase 1 and Phase 2 keyword rows and R005–R012 learned-route deltas.
   - Amended `docs/plan/master_plan.md` and `README.md` to add the "no dead ends" requirement: the engine must run unblocking research campaigns when the main AI presents a blocker, missing resource, or "I cannot find…" problem, and deliver actionable solutions with sources and next steps (never report "no solution found" without a full evidence log).
 - Open:
-  - Implement Phase 2: AI-only browser (CDP/Playwright, raw HTTP, GraphQL, robots.txt, SSRF policy, unblock probe).
+  - Implement Phase 3: discovery + academic search.
   - Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
 - Blocked: none.
 - Risks:
-  - Ethical/legal boundary for "advanced penetration techniques" must be pinned to authorized/defensive/public-only scope before Phase 2 browser work.
-  - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 2 discovery/screening.
+  - Ethical/legal boundary for "advanced penetration techniques" must remain pinned to authorized/defensive/public-only scope as browser capabilities grow.
+  - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 3 discovery/screening.
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 1 (complete and merged)
-- Last passing commit: `8e8797c`
-- Last PR: #4 (merged)
+- Phase: 2 (complete and merged)
+- Last passing commit: TBD after PR #7 merge
+- Last PR: #7 (merged)
 
 ## Next Priority Tasks
-1. Implement Phase 2: AI-only browser subsystem.
-2. Update routers with Phase 2 keyword rows and learned-route deltas.
-3. Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
+1. Implement Phase 3: discovery + academic search.
+2. Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
+3. Continue adversarial review of browser policy and unblocking flow.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.
