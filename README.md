@@ -2,7 +2,7 @@
 
 A model-agnostic, locally-driven research apparatus that turns a natural-language research request from a main AI (Claude Code / Opus / Kimi) into a fully executed internet research campaign—delivering structured insights, evidence maps, and status updates while consuming minimal premium-AI tokens.
 
-> **Status:** Phase 0 scaffold. The master plan lives in [`docs/plan/master_plan.md`](docs/plan/master_plan.md).
+> **Status:** Phase 0 scaffold complete and merged to `main` via PR #1. The master plan lives in [`docs/plan/master_plan.md`](docs/plan/master_plan.md).
 
 ## What it does
 
