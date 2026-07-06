@@ -2,7 +2,7 @@
 
 A model-agnostic, locally-driven research apparatus that turns a natural-language research request from a main AI (Claude Code / Opus / Kimi) into a fully executed internet research campaign—delivering structured insights, evidence maps, and status updates while consuming minimal premium-AI tokens.
 
-> **Status:** Phase 0 scaffold complete and merged to `main` via PR #1. The master plan lives in [`docs/plan/master_plan.md`](docs/plan/master_plan.md).
+> **Status:** Phase 1 core orchestrator + model-agnostic LLM layer merged to `main` via PR #4. Phase 2 (AI-only browser) is next. The master plan lives in [`docs/plan/master_plan.md`](docs/plan/master_plan.md).
 
 ## What it does
 
@@ -11,7 +11,8 @@ A model-agnostic, locally-driven research apparatus that turns a natural-languag
 3. Adversarially verifies every insight so hallucinated claims never reach the main AI.
 4. Reports progress %, ETA, current stage, and remaining steps on demand.
 5. Delivers a Markdown insight brief with numbered claims, source links, and confidence labels.
-6. Cleans up caches and duplicates at the end of every session, then opens a GitHub PR.
+6. **Never gives up on a blocker:** if the main AI says "I can't find…" or hits a missing resource, the engine runs an unblocking research campaign and returns actionable solutions with sources, access terms, and next steps.
+7. Cleans up caches and duplicates at the end of every session, then opens a GitHub PR.
 
 ## Project norms
 
