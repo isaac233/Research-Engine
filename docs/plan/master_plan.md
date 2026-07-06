@@ -147,6 +147,7 @@ Research Engine/
 4. **Non-self-poisoning memory.** Learned routes are itemized deltas (R###), provisional until confirmed, negative items re-tested, never wholesale rewritten.
 5. **Ethical hard floor.** No credential bypass, no unauthorized access, no anti-bot evasion, no law breaking. "Stealth" means polite rotation, rate limiting, proper headers, robots.txt respect.
 6. **Append-only state.** Every action produces a receipt. Nothing is deleted until the janitor explicitly prunes it at session end.
+7. **Project-native deliverables.** When the engine is invoked inside another project, it writes human-readable results into a surface-level `Research/` folder owned by that project. Campaign outputs are differentiated by folder name so users and AI registry searches never confuse a campaign brief with the master brief.
 
 ---
 
@@ -320,7 +321,7 @@ Research Engine/
 | # | Task | Files | Acceptance Criteria | Complexity | Dependencies |
 |---|---|---|---|---| ---|
 | 8.1 | Implement main program loop: parse request → plan → discover → screen → extract → challenge → evaluate → deliver. | `src/research_engine/main.py`, `src/research_engine/orchestrator.py` | Running `research-engine run "..."` completes a full campaign end-to-end. | High | 3.8, 4.7, 5.8 |
-| 8.2 | Implement deliverable formatter: insight brief + evidence map for main AI. | `src/research_engine/storage/artifacts.py` | Output is Markdown with numbered claims, source links, and confidence labels. | Medium | 7.3 |
+| 8.2 | Implement deliverable formatter: insight brief + evidence map for main AI; create `Research/` layout in host project with `<campaign>_Insights.MD` files and folded master `Research/Insights.MD`. | `src/research_engine/storage/artifacts.py`, `src/research_engine/main.py` | `Research/<campaign-slug>/<campaign-slug>_Insights.MD` exists; `Research/Insights.MD` aggregates all campaign briefs with a TOC. | Medium | 7.3 |
 | 8.3 | Implement status query command for main AI. | `src/research_engine/main.py` | `research-engine status <id>` returns JSON or human summary. | Low | 6.4 |
 | 8.4 | Implement kill/pause/resume commands. | `src/research_engine/main.py`, `src/research_engine/orchestrator.py` | Signals are persisted in state DB; campaign resumes correctly. | Medium | 1.5 |
 | 8.5 | Add MCP/stdio adapter so Claude Code can call the engine as a tool. | `src/research_engine/mcp_adapter.py` | Exposes `research_engine_run` and `research_engine_status` tools. | Medium | 8.1, 8.3 |
@@ -460,6 +461,31 @@ Research Engine/
 - `scripts/end_session.py`: cleanup → update `HANDOFF.md` → commit → push → open PR.
 - Every session ends with a PR; no work stays uncommitted on a local branch.
 
+### 4.13 Consuming-Project Deliverable Layout
+
+When `research-engine` runs inside a host project, it creates a surface-level `Research/` folder and writes every campaign's public output there. The layout guarantees that campaign briefs are unambiguous and that a master brief always reflects the latest combined results.
+
+```
+Host Project/
+├── Research/
+│   ├── Insights.MD                         # folded aggregation of all campaign briefs
+│   ├── <campaign-slug>/
+│   │   ├── <campaign-slug>_Insights.MD     # e.g. LLM_SLR_Insights.MD
+│   │   ├── sources/                        # markdown + PDF cache for this campaign
+│   │   └── evidence_map.json
+│   └── <another-campaign-slug>/
+│       └── <another-campaign-slug>_Insights.MD
+```
+
+Rules:
+
+- `Research/` is created at the host project root when the first campaign is launched.
+- Each campaign sub-folder is named with a URL-safe slug derived from the campaign query/topic.
+- The campaign brief inside a sub-folder is always named `<folder-name>_Insights.MD` so file-name search and project-registry indexing include the topic identifier.
+- `Research/Insights.MD` is regenerated at `DELIVER` stage by folding in every `<slug>_Insights.MD`. It contains a table of contents linking to each campaign brief and a dated header.
+- Internal engine state (SQLite, DuckDB, cache, temp files) stays inside the engine's own `data/` directory and is never dumped into `Research/`.
+- The janitor only removes duplicates and temp files; it never deletes `Research/` or its briefs unless explicitly requested by the user.
+
 ---
 
 ## 5. Risk + Mitigation Table
@@ -537,7 +563,7 @@ At the end of **every** session, update `docs/HANDOFF.md` with this structure:
 - [ ] Monitoring reports progress %, ETA, stage, and remaining steps; self-calibrates.
 - [ ] Document conversion handles HTML and PDF without corrupting originals.
 - [ ] Storage uses SQLite/DuckDB; cleanup deduplicates and vacuums at session end.
-- [ ] `research-engine run <query>` completes an end-to-end research campaign.
+- [ ] `research-engine run <query>` completes an end-to-end research campaign and writes `Research/<campaign-slug>/<campaign-slug>_Insights.MD` plus `Research/Insights.MD` in the host project.
 - [ ] Claude Code can call the engine via MCP/stdio tools.
 - [ ] 80%+ test coverage; CI green; security review complete.
 - [ ] `README.md`, architecture docs, and runbooks are complete.
