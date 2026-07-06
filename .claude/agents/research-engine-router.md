@@ -111,7 +111,9 @@ NEXT: <one action or closed>
 | Signal (task mentions…) | Load these (+ test) |
 |---|---|
 | main.py, launch, campaign, status, pause, resume, kill | `src/research_engine/main.py` |
-| orchestrator, campaign state, events, bus | `src/research_engine/orchestrator/campaign.py` |
+| orchestrator, campaign state, events, bus | `src/research_engine/orchestrator.py`, `src/research_engine/state.py`, `src/research_engine/events.py` |
+| LLM, model, Ollama, Anthropic, provider, model_registry.yaml, models.yaml | `src/research_engine/llm/`, `config/models.yaml` |
+| telemetry, monitoring, progress, ETA | `src/research_engine/monitoring/telemetry.py` |
 | storage, sources_db, cache_db, artifacts, cleanup, janitor | `src/research_engine/storage/` |
 | MCP | `src/research_engine/mcp/` |
 

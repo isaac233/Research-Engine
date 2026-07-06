@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Set
 
 
 @dataclass
 class Outcome:
     task: str
-    predicted: Set[str] = field(default_factory=set)
-    actual: Set[str] = field(default_factory=set)
+    predicted: set[str] = field(default_factory=set)
+    actual: set[str] = field(default_factory=set)
 
-    def misses(self) -> Set[str]:
+    def misses(self) -> set[str]:
         return self.actual - self.predicted
 
-    def over_fetch(self) -> Set[str]:
+    def over_fetch(self) -> set[str]:
         return self.predicted - self.actual
 
     def precision(self) -> float:

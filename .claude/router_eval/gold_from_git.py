@@ -5,17 +5,16 @@ from __future__ import annotations
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Set
 
 
 @dataclass
 class GoldCommit:
     commit_hash: str
     message: str
-    files: Set[str] = field(default_factory=set)
+    files: set[str] = field(default_factory=set)
 
 
-def gold_commits(repo_root: Path, max_count: int = 50) -> List[GoldCommit]:
+def gold_commits(repo_root: Path, max_count: int = 50) -> list[GoldCommit]:
     result = subprocess.run(
         ["git", "log", f"--max-count={max_count}", "--pretty=format:%H|%s"],
         cwd=repo_root,
@@ -23,7 +22,7 @@ def gold_commits(repo_root: Path, max_count: int = 50) -> List[GoldCommit]:
         text=True,
         check=False,
     )
-    commits: List[GoldCommit] = []
+    commits: list[GoldCommit] = []
     for line in result.stdout.splitlines():
         if "|" not in line:
             continue

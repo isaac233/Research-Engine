@@ -26,9 +26,16 @@ data/deliverables/*/
 *.db
 *.db-journal
 
+# Research output in the engine repo (consuming projects keep their own Research/)
+Research/
+
 # Logs
 *.log
 logs/
+
+# Test coverage
+.coverage
+htmlcov/
 
 # IDE
 .vscode/

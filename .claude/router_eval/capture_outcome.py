@@ -4,18 +4,17 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Dict, Set
 
 from outcome_record import Outcome
 
 
-def load_prediction(pred_path: Path) -> Dict[str, list]:
+def load_prediction(pred_path: Path) -> dict[str, list]:
     if not pred_path.exists():
         return {"task": "", "core": [], "support": [], "probe": []}
     return json.loads(pred_path.read_text(encoding="utf-8"))
 
 
-def files_from_git_diff(repo_root: Path) -> Set[str]:
+def files_from_git_diff(repo_root: Path) -> set[str]:
     """Return repo-relative .py files touched since base branch."""
     import subprocess
 
