@@ -1,0 +1,124 @@
+"""SERP / web search adapter for non-academic sources."""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+from research_engine.browser.policy import URLPolicy
+from research_engine.browser.raw_http import RawHTTPBrowser
+from research_engine.browser.robots import RobotsChecker
+from research_engine.discovery.schema import Paper, SearchResult
+from research_engine.discovery.sources.base import SourceAdapter
+
+
+class SERPAdapter(SourceAdapter):
+    """Generic web search adapter that calls a configured search endpoint.
+
+    No hard-coded Google/Bing scraping is provided by default; the caller must
+    supply an endpoint URL template such as a SearXNG instance or a paid API.
+    """
+
+    name = "serp"
+    default_limit = 10
+
+    def __init__(
+        self,
+        endpoint: str | None = None,
+        browser: RawHTTPBrowser | None = None,
+        robots: RobotsChecker | None = None,
+        policy: URLPolicy | None = None,
+    ) -> None:
+        self.endpoint = endpoint
+        self.browser = browser or RawHTTPBrowser(policy=policy, fingerprints=None)
+        self.robots = robots or RobotsChecker()
+
+    def search(self, query: str, limit: int | None = None, offset: int = 0) -> SearchResult:
+        limit = limit or self.default_limit
+        if not self.endpoint:
+            return SearchResult(
+                source=self.name,
+                query=query,
+                error="No search endpoint configured. Set a SearXNG/API endpoint.",
+            )
+
+        url = self.endpoint.format(query=query.replace(" ", "+"), limit=limit, offset=offset)
+        robots_ok, robots_reason = self.robots.can_fetch(url)
+        if not robots_ok:
+            return SearchResult(
+                source=self.name,
+                query=query,
+                error=f"robots.txt disallows: {robots_reason}",
+            )
+
+        result = self.browser.fetch(url)
+        if not result.ok:
+            return SearchResult(
+                source=self.name,
+                query=query,
+                error=result.error or f"HTTP {result.status}",
+            )
+
+        papers = self._parse(result.content, limit)
+        return SearchResult(
+            source=self.name,
+            query=query,
+            papers=papers,
+            total=len(papers),
+            next_offset=None,
+            meta={"robots": robots_reason, "endpoint": self.endpoint},
+        )
+
+    def fetch_by_id(self, source_id: str) -> Paper | None:
+        # source_id is treated as a URL; fetch and snapshot.
+        robots_ok, _ = self.robots.can_fetch(source_id)
+        if not robots_ok:
+            return None
+        result = self.browser.fetch(source_id)
+        if not result.ok:
+            return None
+        title = self._extract_title(result.content)
+        return Paper(
+            title=title or source_id,
+            url=source_id,
+            source=self.name,
+            source_id=source_id,
+            meta={"content_length": len(result.content)},
+        )
+
+    def _parse(self, html: str, limit: int) -> list[Paper]:
+        """Naive result extraction: finds title + link pairs."""
+        papers: list[Paper] = []
+        # Look for anchor tags with preceding heading or title tag.
+        for match in re.finditer(
+            r"(?:<h[123][^>]*>|\"title\"\s*:\s*\")([^<\"]+)(?:</h[123]|\").*?<a[^>]+href=\"(https?://[^\"]+)\"",
+            html,
+            re.IGNORECASE | re.DOTALL,
+        ):
+            title = match.group(1).strip()
+            url = match.group(2)
+            papers.append(
+                Paper(
+                    title=title,
+                    url=url,
+                    source=self.name,
+                    source_id=url,
+                    meta={"extracted": True},
+                )
+            )
+            if len(papers) >= limit:
+                break
+        return papers
+
+    def _extract_title(self, html: str) -> str | None:
+        match = re.search(r"<title>([^<]+)</title>", html, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        return None
+
+    def health(self) -> dict[str, Any]:
+        return {
+            "ok": bool(self.endpoint),
+            "source": self.name,
+            "endpoint_configured": bool(self.endpoint),
+        }

@@ -52,3 +52,51 @@ def test_resume_clears_pause_signal() -> None:
 
     resumed = orch.resume_campaign(campaign.id)
     assert resumed.status == CampaignStatus.COMPLETED
+
+
+def test_discovery_stage_runs_pipeline() -> None:
+    from research_engine.discovery.pipeline import DiscoveryPipeline
+    from research_engine.discovery.schema import (
+        DiscoveryResult,
+        DuplicateGroup,
+        Paper,
+        ResolveResult,
+    )
+
+    class FakeDiscoveryPipeline(DiscoveryPipeline):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, query: str, context: str = "", max_sources: int = 50) -> DiscoveryResult:
+            return DiscoveryResult(
+                query=query,
+                plan={"queries": [], "keywords": []},
+                search_results=[],
+                deduped_groups=[
+                    DuplicateGroup(
+                        canonical=Paper(title="Found Paper", source="fake", source_id="1", doi="10.1/1")
+                    )
+                ],
+                snowball_papers=[],
+                resolved=[
+                    ResolveResult(
+                        paper_key="10.1/1",
+                        url="https://example.com/paper.pdf",
+                        is_oa=True,
+                        source="fake",
+                        reason="test",
+                    )
+                ],
+            )
+
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(store, EventBus(store), discovery=FakeDiscoveryPipeline())
+    campaign = orch.start_campaign(ResearchRequest(query="discovery test"))
+    final = orch.run_campaign(campaign.id)
+
+    assert final.status == CampaignStatus.COMPLETED
+    events = store.get_events(campaign.id, "stage_exit")
+    discover_event = next((e for e in events if e["payload"].get("stage") == "discover"), None)
+    assert discover_event is not None
+    assert discover_event["payload"]["result"]["canonical_count"] == 1
+    assert discover_event["payload"]["result"]["resolved_count"] == 1
