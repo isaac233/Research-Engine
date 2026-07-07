@@ -57,9 +57,9 @@
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 3 (complete; PR #9 pending)
-- Last passing commit: TBD after PR #9 merge
-- Last PR: #9 (Phase 3 discovery + academic search)
+- Phase: 3 (complete; PR #9 open)
+- Last passing commit: `18b4826`
+- Last PR: #9 (Phase 3 discovery + academic search) — https://github.com/isaac233/Research-Engine/pull/9
 
 ## Next Priority Tasks
 1. Implement Phase 4: screening + structured extraction.
