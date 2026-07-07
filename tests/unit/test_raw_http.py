@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import socket
+
 import httpx
 import pytest
 
@@ -16,11 +18,17 @@ class FakeResponse:
         text: str = "",
         headers: dict[str, str] | None = None,
         url: str = "https://example.com",
+        is_redirect: bool = False,
     ) -> None:
         self.status_code = status_code
         self.text = text
         self.headers = httpx.Headers(headers or {})
         self.url = httpx.URL(url)
+        self.is_redirect = is_redirect
+
+    @property
+    def content(self) -> bytes:
+        return self.text.encode("utf-8")
 
 
 class FakeHTTPClient:
@@ -50,6 +58,12 @@ class FakeHTTPClient:
 @pytest.fixture
 def browser(monkeypatch: pytest.MonkeyPatch) -> RawHTTPBrowser:
     monkeypatch.setattr("time.sleep", lambda _s: None)
+    monkeypatch.setattr(
+        "socket.getaddrinfo",
+        lambda host, port, *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 0, "", ("93.184.216.34", port or 80))
+        ],
+    )
     return RawHTTPBrowser()
 
 
@@ -101,7 +115,7 @@ def test_fetch_max_retries_exceeded(browser: RawHTTPBrowser, monkeypatch: pytest
     action = BrowserAction(action=BrowserActionType.FETCH, url="https://example.com")
     result = browser.act(action)
     assert result.ok is False
-    assert "retries" in (result.error or "").lower()
+    assert "server error" in (result.error or "").lower()
 
 
 def test_api_action_returns_parsed_result(browser: RawHTTPBrowser, monkeypatch: pytest.MonkeyPatch) -> None:

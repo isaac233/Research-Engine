@@ -5,18 +5,16 @@ from __future__ import annotations
 import urllib.robotparser
 from urllib.parse import urlparse
 
-import httpx
-
-from research_engine.browser.fingerprint import FingerprintRotator
+from research_engine.browser.ai_browser import AIBrowser
+from research_engine.browser.raw_http import RawHTTPBrowser
 
 
 class RobotsChecker:
     """Fetch, parse, and cache robots.txt per host."""
 
-    def __init__(self, timeout: float = 10.0) -> None:
-        self.timeout = timeout
+    def __init__(self, browser: AIBrowser | None = None) -> None:
+        self.browser = browser or RawHTTPBrowser()
         self._cache: dict[str, urllib.robotparser.RobotFileParser] = {}
-        self._fingerprints = FingerprintRotator()
 
     def can_fetch(self, url: str, user_agent: str = "*") -> tuple[bool, str]:
         """Return (allowed, reason)."""
@@ -37,16 +35,17 @@ class RobotsChecker:
             return True, "robots.txt allows"
         return False, "robots.txt disallows"
 
-    def _fetch_robots(self, robots_url: str) -> urllib.robotparser.RobotFileParser | None:
+    def _fetch_robots(
+        self, robots_url: str
+    ) -> urllib.robotparser.RobotFileParser | None:
         try:
-            headers = self._fingerprints.next_headers()
-            with httpx.Client(timeout=self.timeout, follow_redirects=True, headers=headers) as client:
-                response = client.get(robots_url)
-            if response.status_code == 404:
+            result = self.browser.fetch(robots_url)
+            if not result.ok:
                 return None
-            response.raise_for_status()
+            if result.status == 404:
+                return None
             parser = urllib.robotparser.RobotFileParser()
-            parser.parse(response.text.splitlines())
+            parser.parse(result.content.splitlines())
             return parser
         except Exception:  # noqa: BLE001
             return None

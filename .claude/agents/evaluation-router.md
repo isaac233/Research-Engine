@@ -65,9 +65,15 @@ NEXT: <one action or closed>
 COMMIT: <suggested message>
 ```
 
+## FROZEN EVAL
+
+Read-only evaluation mode. Inspect files, run tests, and report findings, but
+NEVER edit source files or mutate `.claude/research-engine-routes.md`. Switch
+to ROUTE or EXECUTE for any changes.
+
 # KEYWORD TABLE
 
-| Signal (task mentions…) | Load these (+ test) |
+| Signal (task mentions…) | Load these (+ test under `tests/`) |
 |---|---|
 | devil, adversarial, challenge claims | `src/research_engine/adversarial/devil.py` |
 | verifier, hallucination, cite check, DOI check | `src/research_engine/adversarial/verifier.py` |
@@ -76,7 +82,9 @@ COMMIT: <suggested message>
 | reporter, report, verifiable report | `src/research_engine/evaluation/reporter.py` |
 | improvement, R### delta, propose fix | `src/research_engine/evaluation/improvement.py` |
 | deep audit, Opus audit, anomaly | `src/research_engine/evaluation/deep_audit.py` |
-| progress, ETA, estimator, calibrator | `src/research_engine/monitoring/progress.py`, `src/research_engine/monitoring/estimator.py`, `src/research_engine/monitoring/calibrator.py` |
+| orchestrator, ADVERSARIAL stage, EVALUATE stage, DELIVER stage | `src/research_engine/orchestrator.py`, `src/research_engine/adversarial/devil.py`, `src/research_engine/adversarial/verifier.py`, `src/research_engine/evaluation/harness.py`, `src/research_engine/evaluation/reporter.py` |
+| main.py, CLI, launch full campaign | `src/research_engine/main.py` |
+| state, CampaignStore, campaign meta | `src/research_engine/state.py` |
 | telemetry, anomaly detection, stuck stage | `src/research_engine/monitoring/telemetry.py` |
 | evaluation config | `config/default.yaml`, `config/models.yaml` |
 

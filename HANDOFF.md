@@ -31,26 +31,92 @@
     - `src/research_engine/orchestrator.py`: blocker detection + unblocking campaign dispatch during discovery.
     - `src/research_engine/main.py`: wires `UnblockProbe` as the default browser.
     - Tests: 38 new browser unit tests, total 59 tests, 80% coverage.
-  - Updated routers with Phase 1 and Phase 2 keyword rows and R005–R012 learned-route deltas.
-  - Amended `docs/plan/master_plan.md` and `README.md` to add the "no dead ends" requirement: the engine must run unblocking research campaigns when the main AI presents a blocker, missing resource, or "I cannot find…" problem, and deliver actionable solutions with sources and next steps (never report "no solution found" without a full evidence log).
+  - Implemented Phase 3: discovery + academic search.
+    - `src/research_engine/discovery/schema.py`: normalized `Paper`, `SourceQuery`, `SearchResult`, `DuplicateGroup`, `ResolveResult`, `DiscoveryResult` dataclasses.
+    - `src/research_engine/discovery/query_planner.py`: decomposes a request into source-specific `SourceQuery` objects.
+    - `src/research_engine/discovery/sources/base.py`: `SourceAdapter` ABC.
+    - `src/research_engine/discovery/sources/semantic_scholar.py`, `crossref.py`, `arxiv.py`, `openalex.py`, `serp.py`, `web_crawl.py`: academic + web source adapters.
+    - `src/research_engine/discovery/dedup.py`: DOI/URL exact match + title fuzzy deduplication with different-DOI guard.
+    - `src/research_engine/discovery/snowball.py`: forward/backward citation expansion via source adapters.
+    - `src/research_engine/discovery/resolver.py`: full-text resolution through pdf_url, arXiv, Unpaywall, and DOI landing page; never paywalls.
+    - `src/research_engine/discovery/source_registry.py`: builds and dispatches adapters by source name.
+    - `src/research_engine/discovery/pipeline.py`: end-to-end `DiscoveryPipeline` (plan → search → dedup → snowball → resolve).
+    - `src/research_engine/orchestrator.py`: `DISCOVER` stage runs `DiscoveryPipeline`; unblocking campaigns still dispatch browser probe.
+    - `src/research_engine/main.py`: constructs `SourceRegistry` + `DiscoveryPipeline` and passes to `Orchestrator`.
+    - `pyproject.toml`: added `feedparser>=6.0` dependency.
+    - Tests: 56 new discovery unit tests, total 115 tests, 86% coverage.
+  - Updated routers with Phase 3 keyword rows and R013–R019 learned-route deltas in `.claude/research-engine-routes.md`.
+  - Updated `.claude/agents/discovery-router.md` keyword table for pipeline, schema, registry, orchestrator integration, and main.py.
+  - Implemented Phase 4: screening + structured extraction.
+    - `src/research_engine/screening/criteria.py`: `BooleanCriterion`, `NumericCriterion`, `LLMRubricCriterion`, `MatchMode`, `CriterionType`, plus factory + default academic criteria.
+    - `src/research_engine/screening/ranker.py`: `SourceRanker` applies criteria with optional LLM scorer, returns sorted `SourceScorecard`s; supports must/should/optional weights and `build_llm_scorer` helper.
+    - `src/research_engine/extraction/markdownify.py`: HTML → markdown conversion (headings, bold/italic, links, lists, tables) with nav/footer/script/style removal.
+    - `src/research_engine/extraction/pdf_converter.py`: `PDFConverter` tries `pdfplumber` then `pypdf`, keeps original on failure.
+    - `src/research_engine/extraction/structured.py`: `StructuredExtractor` extracts methodology, data summary, results summary, claims, citations, and conflict detection; abstract fallback when no full text.
+    - `src/research_engine/extraction/citation.py`: `extract_citations()`, `normalize_doi()`, `citations_to_dict()`.
+    - `src/research_engine/orchestrator.py`: added `SCREEN` and `EXTRACT` stage handlers; persists `scorecards`, `included_papers`, `extracted_sources` to campaign meta; fixed stage-to-stage campaign state freshness.
+    - `src/research_engine/main.py`: wires `SourceRanker` and `StructuredExtractor` into `Orchestrator`.
+    - `src/research_engine/discovery/schema.py`: added `Paper.to_dict()` / `Paper.from_dict()` for JSON-safe SQLite meta serialization.
+    - `src/micro_tools/pdf_to_md/`: standalone PDF → markdown micro-tool with CLI entry point.
+    - Tests: 19 new screening/extraction unit tests, total 134 tests, 87% coverage.
+  - Updated `.claude/agents/extraction-router.md` keyword table for screening, extraction, orchestrator integration, main.py, and state.
+  - Added R020–R027 learned-route deltas to `.claude/research_engine-routes.md` for Phase 4 subsystems.
+  - Implemented Phase 5: adversarial verification + evaluation apparatus.
+    - `src/research_engine/adversarial/challenge.py`: `Challenge`, `VerificationResult`, `ChallengeDispatcher`, plus dict helpers.
+    - `src/research_engine/adversarial/devil.py`: `DevilAgent` rule-based challenger with optional frontier-model deep audit.
+    - `src/research_engine/adversarial/verifier.py`: `Verifier` checks quoted evidence, DOI shape, source locators, and URL reachability.
+    - `src/research_engine/evaluation/harness.py`: `EvaluationHarness` computes claim, challenge, verification, citation, coverage, and quality metrics.
+    - `src/research_engine/evaluation/reporter.py`: `Reporter` produces a Markdown insight brief with claims, evidence, challenges, and caveats.
+    - `src/research_engine/evaluation/improvement.py`: `ImprovementProposer` emits candidate R### deltas (never auto-applies).
+    - `src/research_engine/evaluation/deep_audit.py`: `DeepAuditor` stub with frontier-model audit path.
+    - `src/research_engine/orchestrator.py`: `ADVERSARIAL`, `EVALUATE`, and `DELIVER` stage handlers; persists challenges, verifications, evaluation report, and insight brief.
+    - `src/research_engine/extraction/structured.py`: added `paper` to `extracted_source_to_dict()` and `extracted_source_from_dict()` so adversarial stages can reconstruct sources.
+    - Tests: 14 new adversarial/evaluation unit tests, total 148 tests, 85% coverage.
+  - Updated `.claude/agents/evaluation-router.md` keyword table for orchestrator integration, main.py, and state.
+  - Added R028–R033 learned-route deltas to `.claude/research_engine-routes.md` for Phase 5 subsystems.
+  - Implemented Phase 6 monitoring/telemetry/status + closed Phase 0–4 gaps.
+    - `src/research_engine/llm/__init__.py`: lazy `__getattr__` imports for `AnthropicClient` / `OllamaClient`; no hard runtime dependency on optional clients.
+    - `config/default.yaml`: conservative defaults for Unpaywall email, rate limits, browser timeout/retries, and enabled sources.
+    - `.claude/agents/{discovery,browser,extraction,evaluation}-router.md`: added `FROZEN EVAL` read-only mode to all four router agents.
+    - `src/research_engine/extraction/pdf_converter.py`: `convert_bytes()` for in-memory PDF conversion preserving original byte metadata.
+    - `src/research_engine/extraction/structured.py`: URLPolicy-gated full-text fetch with PDF conversion, markdownify HTML extraction, and abstract fallback; wired through `orchestrator.py` via `resolved_map`.
+    - `src/research_engine/monitoring/progress.py`: `StageProgressTracker` with uniform/custom weights.
+    - `src/research_engine/monitoring/estimator.py`: `TimeEstimator` using per-campaign stage history.
+    - `src/research_engine/monitoring/calibrator.py`: `Calibrator` normalizing stage weights from observed durations.
+    - `src/research_engine/monitoring/telemetry.py`: `TelemetryAnalyzer` with stuck-stage, stage-failure, and thrashing alerts.
+    - `src/research_engine/cleanup/janitor.py`: `CleanupJanitor` vacuums SQLite state DB without touching research artifacts.
+    - `src/research_engine/orchestrator.py`: `INIT`, `PLAN`, `FINALIZE` handlers; telemetry/estimator/progress/analyzer integration; `status_snapshot()`; `_run_adversarial` uses `ChallengeDispatcher`; `_run_evaluate` wires `ImprovementProposer` and optional `DeepAuditor`.
+    - `src/research_engine/main.py`: `_make_orchestrator` constructs `TimeEstimator`; `status` command prints progress, ETA, remaining stages, and alert count.
+    - Tests: 191 tests collected, 88% coverage (`python -m pytest -q`).
+  - Added R034–R041 learned-route deltas to `.claude/research-engine-routes.md` for Phase 6 / gap-closure subsystems.
+  - Implemented Phase 7: campaign analytics dashboard, model-stack validation, production config loading, and storage cache.
+    - `src/research_engine/dashboard.py`: `CampaignDashboard` aggregates campaign status/stage/duration metrics, per-campaign summaries with stage timings, and markdown report generation.
+    - `src/research_engine/main.py`: added `report` and `validate-models` CLI commands.
+    - `src/research_engine/llm/validator.py`: `ModelStackValidator` pings every configured provider, validates specific model availability, and checks for a small-capacity local model (Gemma/Qwen/Phi/Llama class).
+    - `src/research_engine/config.py`: loads `config/default.yaml` with `EngineConfig.get()` dotted access and optional `config_overrides`; added `cache_db_path()`.
+    - `src/research_engine/storage/cache.py`: `SourceCache` SQLite-backed cache for discovered `Paper` records keyed by query/source.
+    - `src/research_engine/llm/model_registry.py`: moved provider client imports inside `build_provider()` so importing the registry no longer requires optional runtime dependencies.
+    - Tests: 31 new unit tests for dashboard, config, validator, and cache; total 219 tests, 88% coverage.
 - Open:
-  - Implement Phase 3: discovery + academic search.
-  - Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
+  - Continue adversarial review of browser policy and unblocking flow.
+  - Wire `SourceCache` into `DiscoveryPipeline` for automatic cache hits/misses (module exists; integration pending).
+  - Expand integration tests for `report` and `validate-models` CLI commands.
 - Blocked: none.
 - Risks:
   - Ethical/legal boundary for "advanced penetration techniques" must remain pinned to authorized/defensive/public-only scope as browser capabilities grow.
-  - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 3 discovery/screening.
+  - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 4 screening/extraction.
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 2 (complete and merged)
-- Last passing commit: `974d294`
-- Last PR: #7 (merged)
+- Phase: 7 (implemented + committed/pushed on `phase-5-adversarial` branch)
+- Last passing commit: `45895b4`
+- Last PR: #11 (Phase 5-7: adversarial verification + monitoring/cleanup/storage + browser hardening + dashboard/model validation/config/cache) — https://github.com/isaac233/Research-Engine/pull/11
 
 ## Next Priority Tasks
-1. Implement Phase 3: discovery + academic search.
-2. Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
-3. Continue adversarial review of browser policy and unblocking flow.
+1. Continue adversarial review of browser policy and unblocking flow.
+2. Wire `SourceCache` into `DiscoveryPipeline` for automatic cache hits/misses.
+3. Expand integration tests for `report` and `validate-models` CLI commands.
+4. Prepare final release notes / documentation updates for Phase 7 completion.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.
@@ -62,3 +128,5 @@
 - The eval harness under `.claude/router_eval/` must remain isolated from `src/`.
 - `scripts/end_session.py` is a stub; do not run it for real until Phase 9.
 - The `Research/` folder layout is documented in `docs/plan/master_plan.md` section 4.13 and implemented in `src/research_engine/config.py`.
+- Discovery subsystem is fully wired into the orchestrator; start Phase 4 with `screening/criteria.py` and `screening/ranker.py`.
+- New Phase 7 modules: `dashboard.py`, `llm/validator.py`, `storage/cache.py`; CLI commands: `report`, `validate-models`.

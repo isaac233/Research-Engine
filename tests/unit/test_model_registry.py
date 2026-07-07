@@ -37,3 +37,57 @@ def test_registry_builds_anthropic_without_key() -> None:
     registry = ModelRegistry(Path("config/models.yaml"))
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         registry.build_provider("anthropic")
+
+
+def test_registry_rejects_non_dict_role_defaults(tmp_path: Path) -> None:
+    path = tmp_path / "models.yaml"
+    path.write_text(
+        "providers: {}\nrole_defaults: not_a_dict\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="role_defaults must be a mapping"):
+        ModelRegistry(path)
+
+
+def test_registry_rejects_unsafe_ollama_url(tmp_path: Path) -> None:
+    path = tmp_path / "models.yaml"
+    path.write_text(
+        """
+providers:
+  ollama:
+    default_model: m
+    roles: [worker]
+    context_window: 1000
+    cost_tier: local
+    rate_limit_rpm: 10
+    base_url: http://evil.com:11434
+role_defaults:
+  worker: [ollama]
+""",
+        encoding="utf-8",
+    )
+    registry = ModelRegistry(path)
+    with pytest.raises(ValueError, match="local origin"):
+        registry.build_provider("ollama")
+
+
+def test_registry_rejects_unsupported_api_key_env(tmp_path: Path) -> None:
+    path = tmp_path / "models.yaml"
+    path.write_text(
+        """
+providers:
+  anthropic:
+    default_model: m
+    roles: [auditor]
+    context_window: 1000
+    cost_tier: premium
+    rate_limit_rpm: 10
+    api_key_env: PATH
+role_defaults:
+  auditor: [anthropic]
+""",
+        encoding="utf-8",
+    )
+    registry = ModelRegistry(path)
+    with pytest.raises(ValueError, match="Unsupported Anthropic API key env var"):
+        registry.build_provider("anthropic")
