@@ -107,10 +107,42 @@
   - Local model capability assumption (Gemma/Qwen-class) must be validated during Phase 4 screening/extraction.
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
+## v0.1.0 Finish Session — 2026-07-07
+- Branch: `finish-v0.1.0` (cut from the `phase-5-adversarial` finish work).
+- Bundles A–D audit:
+  - ✅ SourceCache wired into `DiscoveryPipeline` (`src/research_engine/discovery/pipeline.py`).
+  - ✅ MCP adapter exposes `research_engine_run` and `research_engine_status` with query length / source caps and project-root traversal guard (`src/research_engine/mcp_adapter.py`).
+  - ✅ `scripts/github_pr.py` + `scripts/end_session.py` implemented with dry-run default, branch guards, and git-repo validation.
+  - ✅ `src/research_engine/cleanup/dedup_files.py` hash-based dedup wired into `CleanupJanitor`.
+  - ✅ Architecture docs populated under `docs/architecture/` and Main AI runbook at `docs/runbooks/main-ai-integration.md`.
+  - ✅ `Dockerfile` + `docker-compose.yml` added (multi-stage Python 3.12).
+  - ✅ E2E campaign test (`tests/e2e/test_campaign.py`) passes with mocked sources.
+- Security hardening applied:
+  - `URLPolicy._is_public_ip` now rejects multicast/reserved/private/loopback.
+  - `URLPolicy._decode_host` percent-decodes hostnames until stable; non-ASCII/IDNA hostnames blocked unless allow-listed.
+  - `ssrf_guard.safe_request` reconstructs the response with the original URL so the pinned-IP URL never leaks.
+  - `cdp_driver.py`: context-level request routing intercepts every page/popup; popup closes immediately after routing.
+  - `discovery/resolver.py`: Unpaywall OA URLs re-validated with `resolve_hosts=True`; RuntimeError from SSRF guard sanitized.
+  - `scripts/end_session.py` and `scripts/github_pr.py` validate git repo presence and refuse `main` without `--allow-main`.
+- Verification:
+  - `pytest -q` → all tests passing, 87% coverage.
+  - `mypy src/research_engine` → clean.
+  - `ruff check .` → clean.
+  - `.claude/router_eval/*.py` self-checks → all green.
+  - `bandit -r src` → 0 HIGH/CRITICAL findings.
+  - `scripts/end_session.py` dry-run → completes without touching remotes.
+  - `tests/e2e/test_campaign.py` and `tests/integration/test_mcp_adapter.py` pass.
+- Security/code review findings fixed in this session:
+  - Removed non-existent `WebSocket.close()` handler; HTTP upgrade is already blocked by context-level routing.
+  - Prevented internal-IP disclosure in policy / SSRF guard error messages.
+  - Fixed `end_session.py` so `github_pr.py` stages/commits/pushes/opens PR instead of committing twice.
+  - Added module-level mocked-DNS fixture to `tests/unit/discovery/test_resolver.py` so unit tests no longer hit real DNS.
+  - `CDPDriver._fetch` now applies per-action `BrowserAction.headers` via `page.set_extra_http_headers`.
+
 ## State of the Build
-- Phase: 7 (implemented + committed/pushed on `phase-5-adversarial` branch)
-- Last passing commit: `45895b4`
-- Last PR: #11 (Phase 5-7: adversarial verification + monitoring/cleanup/storage + browser hardening + dashboard/model validation/config/cache) — https://github.com/isaac233/Research-Engine/pull/11
+- Phase: v0.1.0 ready for tag
+- Last passing commit: to be recorded after final commit on `finish-v0.1.0`
+- Target PR: #12 (v0.1.0 finish: bundles A–D + security hardening + E2E/MCP integration)
 
 ## Next Priority Tasks
 1. Continue adversarial review of browser policy and unblocking flow.

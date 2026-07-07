@@ -20,16 +20,18 @@ from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.orchestrator import Orchestrator
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import CampaignStore, ResearchRequest
+from research_engine.storage.cache import SourceCache
 
 
 def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     config = EngineConfig(project_root)
     config.engine_data_dir.mkdir(parents=True, exist_ok=True)
     store = CampaignStore(config.state_db_path())
+    cache = SourceCache(config.cache_db_path())
     http = RawHTTPBrowser()
     browser = UnblockProbe(http)
     registry = SourceRegistry()
-    discovery = DiscoveryPipeline(registry=registry)
+    discovery = DiscoveryPipeline(registry=registry, cache=cache)
     ranker = SourceRanker()
     extractor = StructuredExtractor()
     event_bus = EventBus(store)
@@ -46,13 +48,30 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     )
 
 
+def _safe_cli_project_root(project_root: Path | None) -> Path | None:
+    """Resolve a CLI-supplied project root and reject relative escapes.
+
+    Absolute paths are accepted because the CLI is driven directly by the
+    local user; only relative ``..`` traversal is blocked.
+    """
+    if project_root is None:
+        return None
+    resolved = project_root.resolve()
+    if not resolved.is_absolute():
+        cwd = Path.cwd().resolve()
+        resolved = (cwd / project_root).resolve()
+        if not resolved.is_relative_to(cwd):
+            raise click.BadParameter(f"project-root must be inside {cwd}")
+    return resolved
+
+
 @click.group()
 @click.option("--project-root", type=click.Path(path_type=Path), default=None)
 @click.pass_context
 def cli(ctx: click.Context, project_root: Path | None) -> None:
     """Research Engine CLI."""
     ctx.ensure_object(dict)
-    ctx.obj["project_root"] = project_root
+    ctx.obj["project_root"] = _safe_cli_project_root(project_root)
 
 
 @cli.command()
@@ -137,13 +156,24 @@ def kill(ctx: click.Context, campaign_id: str) -> None:
 @click.pass_context
 def report(ctx: click.Context, output: Path | None, force: bool) -> None:
     """Generate an analytics report for all campaigns."""
-    if output is not None and output.exists() and not force:
-        click.echo(f"Report already exists: {output}; use --force to overwrite", err=True)
-        sys.exit(1)
     config = EngineConfig(ctx.obj.get("project_root"))
+    if output is not None:
+        try:
+            resolved_output = output.resolve()
+        except OSError as exc:
+            click.echo(f"Invalid output path: {exc}", err=True)
+            sys.exit(1)
+        if not resolved_output.is_relative_to(config.project_root.resolve()):
+            click.echo(
+                f"Report output must be inside project root {config.project_root}", err=True
+            )
+            sys.exit(1)
+        if output.exists() and not force:
+            click.echo(f"Report already exists: {output}; use --force to overwrite", err=True)
+            sys.exit(1)
     store = CampaignStore(config.state_db_path())
     dashboard = CampaignDashboard(store)
-    rendered = dashboard.generate_report(output)
+    rendered = dashboard.generate_report(output, project_root=config.project_root)
     if output is None:
         click.echo(rendered)
     else:

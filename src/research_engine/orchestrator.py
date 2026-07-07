@@ -87,7 +87,8 @@ class Orchestrator:
         self.verifier = verifier or Verifier()
         self.eval_harness = eval_harness or EvaluationHarness()
         self.reporter = reporter or Reporter()
-        self.config = EngineConfig(project_root)
+        resolved_root = Path(project_root) if project_root else Path(store.db_path).parent
+        self.config = EngineConfig(resolved_root)
         self.artifacts = ArtifactManager(self.config)
         self.progress_tracker = progress_tracker or StageProgressTracker()
         self.estimator = estimator
@@ -589,9 +590,13 @@ class Orchestrator:
         )
 
     def _run_finalize(self, campaign: Campaign) -> dict[str, Any]:
-        """Finalize a campaign: vacuum state DB and record cleanup receipt."""
+        """Finalize a campaign: deduplicate files and vacuum state DB."""
         now = datetime.now(UTC).isoformat()
-        janitor = CleanupJanitor(self.store.db_path)
+        janitor = CleanupJanitor(
+            self.store.db_path,
+            engine_data_dir=self.config.engine_data_dir,
+            project_root=self.config.project_root,
+        )
         cleanup = janitor.clean()
         updated = (
             campaign.with_meta("finalized_at", now)

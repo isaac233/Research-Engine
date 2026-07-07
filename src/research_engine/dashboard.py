@@ -133,8 +133,25 @@ class CampaignDashboard:
                 summaries.append(summary)
         return summaries
 
-    def generate_report(self, output_path: Path | str | None = None) -> str:
-        """Generate a markdown analytics report and optionally write it to disk."""
+    def generate_report(
+        self,
+        output_path: Path | str | None = None,
+        *,
+        project_root: Path | str | None = None,
+    ) -> str:
+        """Generate a markdown analytics report and optionally write it to disk.
+
+        If ``project_root`` is supplied, ``output_path`` must resolve inside it
+        to prevent path-traversal writes.
+        """
+        out: Path | None = None
+        if output_path is not None:
+            out = Path(output_path).resolve()
+            if project_root is None:
+                raise ValueError("project_root is required when writing a report to disk")
+            root = Path(project_root).resolve()
+            if not out.is_relative_to(root):
+                raise ValueError(f"report output must be inside project root {root}")
         metrics = self.metrics()
         summaries = self.list_summaries()
 
@@ -178,8 +195,8 @@ class CampaignDashboard:
                 lines.extend(self._render_summary(summary))
 
         report = "\n".join(lines)
-        if output_path is not None:
-            Path(output_path).write_text(report, encoding="utf-8")
+        if out is not None:
+            out.write_text(report, encoding="utf-8")
         return report
 
     def _render_summary(self, summary: CampaignSummary) -> list[str]:

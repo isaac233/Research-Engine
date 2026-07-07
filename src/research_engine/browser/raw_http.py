@@ -186,7 +186,7 @@ class RawHTTPBrowser(AIBrowser):
 
         All requests are pinned to pre-validated public IPs to close DNS-rebinding.
         """
-        allowed, reason = self.policy.allow(url)
+        allowed, reason = self.policy.allow(url, resolve_hosts=False)
         if not allowed:
             raise RuntimeError(f"URL blocked by policy: {reason}")
 
@@ -208,7 +208,7 @@ class RawHTTPBrowser(AIBrowser):
             redirect_url = safe_redirect_url(response, current_url)
             if redirect_url is not None:
                 current_url = redirect_url
-                allowed, reason = self.policy.allow(current_url)
+                allowed, reason = self.policy.allow(current_url, resolve_hosts=False)
                 if not allowed:
                     raise RuntimeError(f"Redirect blocked by policy: {reason}")
                 continue

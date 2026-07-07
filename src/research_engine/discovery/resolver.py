@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from research_engine.browser.policy import URLPolicy
 from research_engine.discovery.schema import Paper, ResolveResult
+from research_engine.discovery.sources.http import safe_get
+
+_DOI_RE = re.compile(r"^10\.\d{4,}\/.+$", re.IGNORECASE)
 
 
 class FullTextResolver:
@@ -28,7 +33,7 @@ class FullTextResolver:
         """Find an authorized open-access full-text URL for a paper."""
         # 1. Already known PDF URL.
         if paper.pdf_url:
-            allowed, reason = self.policy.allow(paper.pdf_url)
+            allowed, reason = self.policy.allow(paper.pdf_url, resolve_hosts=True)
             if allowed:
                 return ResolveResult(
                     paper_key=paper.key,
@@ -42,7 +47,7 @@ class FullTextResolver:
         arxiv_id = self._extract_arxiv_id(paper)
         if arxiv_id:
             pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
-            allowed, _ = self.policy.allow(pdf_url)
+            allowed, _ = self.policy.allow(pdf_url, resolve_hosts=True)
             if allowed:
                 return ResolveResult(
                     paper_key=paper.key,
@@ -60,8 +65,8 @@ class FullTextResolver:
 
         # 4. DOI landing page (not guaranteed OA, but authorized).
         if paper.doi:
-            doi_url = f"https://doi.org/{paper.doi}"
-            allowed, _ = self.policy.allow(doi_url)
+            doi_url = f"https://doi.org/{quote(paper.doi, safe='/')}"
+            allowed, _ = self.policy.allow(doi_url, resolve_hosts=True)
             if allowed:
                 return ResolveResult(
                     paper_key=paper.key,
@@ -85,22 +90,31 @@ class FullTextResolver:
         if paper.source == "arxiv" and paper.source_id:
             return paper.source_id.split("v")[0]
         if paper.url:
-            match = re.search(r"arxiv\.org/abs/(\d+\.\d+)", paper.url)
+            match = re.search(r"arxiv\.org/abs/([^?\s#]+)", paper.url)
             if match:
-                return match.group(1)
+                return match.group(1).strip("/")
         if paper.doi and paper.doi.startswith("10.48550/arXiv."):
             return paper.doi.replace("10.48550/arXiv.", "")
         return None
 
     def _unpaywall(self, doi: str) -> ResolveResult:
-        url = f"https://api.unpaywall.org/v2/{doi}"
+        if not _DOI_RE.match(doi):
+            return ResolveResult(
+                paper_key=doi,
+                url=None,
+                is_oa=False,
+                source="unpaywall",
+                reason="Invalid DOI format",
+                evidence={"doi": doi},
+            )
+        encoded = quote(doi, safe="/")
+        url = f"https://api.unpaywall.org/v2/{encoded}"
         params = {"email": self.email}
         try:
-            response = httpx.get(
+            response = safe_get(
                 url,
                 params=params,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             data = response.json()
@@ -113,13 +127,41 @@ class FullTextResolver:
                 reason=f"HTTP {exc.response.status_code}",
                 evidence={"doi": doi},
             )
-        except httpx.RequestError as exc:
+        except httpx.RequestError:
             return ResolveResult(
                 paper_key=doi,
                 url=None,
                 is_oa=False,
                 source="unpaywall",
-                reason=f"Request error: {exc}",
+                reason="Unpaywall request failed",
+                evidence={"doi": doi},
+            )
+        except json.JSONDecodeError:
+            return ResolveResult(
+                paper_key=doi,
+                url=None,
+                is_oa=False,
+                source="unpaywall",
+                reason="Invalid Unpaywall response",
+                evidence={"doi": doi},
+            )
+        except RuntimeError as exc:
+            reason = str(exc)
+            if "blocked" in reason.lower():
+                return ResolveResult(
+                    paper_key=doi,
+                    url=None,
+                    is_oa=False,
+                    source="unpaywall",
+                    reason="URL blocked by policy",
+                    evidence={"doi": doi},
+                )
+            return ResolveResult(
+                paper_key=doi,
+                url=None,
+                is_oa=False,
+                source="unpaywall",
+                reason="Unpaywall lookup failed",
                 evidence={"doi": doi},
             )
 
@@ -130,7 +172,9 @@ class FullTextResolver:
         resolved = oa_url_pdf or oa_url
 
         if resolved:
-            allowed, _ = self.policy.allow(resolved)
+            # Defense-in-depth: validate that the returned URL resolves to a
+            # public IP before accepting it into campaign metadata.
+            allowed, reason = self.policy.allow(resolved, resolve_hosts=True)
             if allowed:
                 return ResolveResult(
                     paper_key=doi,

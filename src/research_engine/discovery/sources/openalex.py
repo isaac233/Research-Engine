@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from research_engine.discovery.schema import Paper, SearchResult
 from research_engine.discovery.sources.base import SourceAdapter
+from research_engine.discovery.sources.http import safe_get
 
 
 class OpenAlexAdapter(SourceAdapter):
@@ -41,12 +43,11 @@ class OpenAlexAdapter(SourceAdapter):
         }
 
         try:
-            response = httpx.get(
+            response = safe_get(
                 self.base_url,
                 params=params,
                 headers=headers,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             data = response.json()
@@ -84,19 +85,34 @@ class OpenAlexAdapter(SourceAdapter):
         )
 
     def fetch_by_id(self, source_id: str) -> Paper | None:
-        # source_id may be an OpenAlex ID URL or a DOI.
-        work_id = source_id if source_id.startswith("https://") else f"https://openalex.org/W{source_id}"
+        """Fetch a single OpenAlex work by URL or work ID.
+
+        Accepts:
+        - an OpenAlex URL: ``https://openalex.org/W<...>``
+        - an OpenAlex work ID: ``W<...>``
+
+        Arbitrary URLs are rejected to prevent metadata-driven SSRF.
+        """
+        if source_id.startswith("https://"):
+            parsed = urlparse(source_id)
+            if parsed.scheme != "https" or parsed.netloc != "openalex.org":
+                return None
+            work_id = source_id
+        elif source_id.startswith("W") and source_id[1:].isalnum():
+            work_id = f"https://openalex.org/{source_id}"
+        else:
+            return None
+
         params: dict[str, Any] = {}
         if self.mailto:
             params["mailto"] = self.mailto
         headers = {"User-Agent": "mailto:research@example.com"}
         try:
-            response = httpx.get(
+            response = safe_get(
                 work_id,
                 params=params,
                 headers=headers,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             return self._normalize(response.json())

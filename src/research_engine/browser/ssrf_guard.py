@@ -9,23 +9,14 @@ from urllib.parse import urljoin
 
 import httpx
 
-
-def is_public_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Return True only for globally routable, non-special-use addresses."""
-    if not ip.is_global:
-        return False
-    if isinstance(ip, ipaddress.IPv6Address):
-        # site-local is deprecated but still returned by some libraries
-        if getattr(ip, "is_site_local", False):
-            return False
-    return True
+from research_engine.browser.policy import URLPolicy, _is_public_ip
 
 
 def resolve_public_ip(url: str, resolve_hosts: bool = True) -> tuple[str, str]:
     """Resolve a URL host to a public IP and return (ip_str, original_host).
 
-    Raises RuntimeError if the host cannot be resolved or resolves only to
-    non-public addresses.
+    Raises RuntimeError if the host cannot be resolved, if it is a numeric
+    non-public IP literal, or if *any* DNS response is non-public.
     """
     parsed = httpx.URL(url)
     host = parsed.host
@@ -34,22 +25,33 @@ def resolve_public_ip(url: str, resolve_hosts: bool = True) -> tuple[str, str]:
     if not resolve_hosts:
         return (host, host)
 
+    canonical = URLPolicy._canonicalize_numeric_host(host, parsed.port)
+    if canonical is not None:
+        if not _is_public_ip(canonical):
+            raise RuntimeError(f"Host {host!r} is a non-public IP literal")
+        ip_str = f"[{canonical}]" if isinstance(canonical, ipaddress.IPv6Address) else str(canonical)
+        return (ip_str, host)
+
     try:
         infos = socket.getaddrinfo(host, parsed.port or 0)
     except socket.gaierror as exc:
         raise RuntimeError(f"Could not resolve host {host!r}: {exc}") from exc
 
+    chosen_ip: str | None = None
     for _family, _type, _proto, _canon, sockaddr in infos:
         addr = sockaddr[0]
         try:
             ip = ipaddress.ip_address(addr)
         except ValueError:
             continue
-        if is_public_ip(ip):
-            ip_str = f"[{addr}]" if isinstance(ip, ipaddress.IPv6Address) else str(addr)
-            return (ip_str, host)
+        if not _is_public_ip(ip):
+            raise RuntimeError("Host resolves to a non-public address")
+        if chosen_ip is None:
+            chosen_ip = f"[{addr}]" if isinstance(ip, ipaddress.IPv6Address) else str(addr)
 
-    raise RuntimeError(f"Host {host!r} does not resolve to a public IP")
+    if chosen_ip is None:
+        raise RuntimeError(f"Host {host!r} does not resolve to a public IP")
+    return (chosen_ip, host)
 
 
 def _build_pinned_url(original: httpx.URL, ip_str: str, port: int | None) -> httpx.URL:
@@ -104,11 +106,42 @@ def safe_request(
     )
     content_length = response.headers.get("content-length")
     if content_length is not None and int(content_length) > max_body_size:
+        response.close()
         raise RuntimeError("Response exceeds maximum allowed size")
-    body = response.content
-    if len(body) > max_body_size:
-        raise RuntimeError("Response exceeds maximum allowed size")
-    return response
+
+    body = _read_body_with_limit(response, max_body_size)
+    # Always report the original hostname URL, never the pinned-IP URL.
+    request = httpx.Request(method=method, url=str(original_url))
+    return httpx.Response(
+        status_code=response.status_code,
+        headers=response.headers,
+        content=body,
+        request=request,
+    )
+
+
+def _read_body_with_limit(response: httpx.Response, max_bytes: int) -> bytes:
+    """Stream the response body and raise if it exceeds ``max_bytes``.
+
+    Falls back to ``response.content`` for response stand-ins used in tests
+    that do not implement the streaming API.
+    """
+    if not hasattr(response, "iter_bytes"):
+        body = response.content or b""
+        if len(body) > max_bytes:
+            raise RuntimeError("Response exceeds maximum allowed size")
+        return body
+
+    buffer = bytearray()
+    try:
+        for chunk in response.iter_bytes(chunk_size=8192):
+            buffer.extend(chunk)
+            if len(buffer) > max_bytes:
+                raise RuntimeError("Response exceeds maximum allowed size")
+    finally:
+        if hasattr(response, "close"):
+            response.close()
+    return bytes(buffer)
 
 
 def safe_redirect_url(response: httpx.Response, base_url: str) -> str | None:

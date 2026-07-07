@@ -116,7 +116,7 @@ class StructuredExtractor:
         """Load text content for a paper. Returns (text, tool, error)."""
         url = content_url or paper.pdf_url or paper.url
         if url and fetch_fn is not None:
-            allowed, reason = self.url_policy.allow(url)
+            allowed, reason = self.url_policy.allow(url, resolve_hosts=True)
             if not allowed:
                 return (
                     paper.abstract or "",

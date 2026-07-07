@@ -9,6 +9,7 @@ import httpx
 
 from research_engine.discovery.schema import Paper, SearchResult
 from research_engine.discovery.sources.base import SourceAdapter
+from research_engine.discovery.sources.http import safe_get
 
 
 class ArxivAdapter(SourceAdapter):
@@ -16,7 +17,7 @@ class ArxivAdapter(SourceAdapter):
 
     name = "arxiv"
     default_limit = 10
-    base_url = "http://export.arxiv.org/api/query"
+    base_url = "https://export.arxiv.org/api/query"
 
     def __init__(self, timeout: float = 30.0) -> None:
         self.timeout = timeout
@@ -32,11 +33,10 @@ class ArxivAdapter(SourceAdapter):
             "sortOrder": "descending",
         }
         try:
-            response = httpx.get(
+            response = safe_get(
                 self.base_url,
                 params=params,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             feed = feedparser.parse(response.text)
@@ -84,11 +84,10 @@ class ArxivAdapter(SourceAdapter):
             "max_results": 1,
         }
         try:
-            response = httpx.get(
+            response = safe_get(
                 self.base_url,
                 params=params,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             feed = feedparser.parse(response.text)

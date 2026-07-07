@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
+from urllib.parse import quote_plus
 
 from research_engine.browser.policy import URLPolicy
 from research_engine.browser.raw_http import RawHTTPBrowser
@@ -42,7 +43,11 @@ class SERPAdapter(SourceAdapter):
                 error="No search endpoint configured. Set a SearXNG/API endpoint.",
             )
 
-        url = self.endpoint.format(query=query.replace(" ", "+"), limit=limit, offset=offset)
+        url = self.endpoint.format(
+            query=quote_plus(query),
+            limit=int(limit),
+            offset=int(offset),
+        )
         robots_ok, robots_reason = self.robots.can_fetch(url)
         if not robots_ok:
             return SearchResult(

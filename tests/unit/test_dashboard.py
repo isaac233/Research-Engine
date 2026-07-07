@@ -115,7 +115,7 @@ def test_generate_report_to_stdout(dashboard: CampaignDashboard) -> None:
 def test_generate_report_to_file(store: CampaignStore, dashboard: CampaignDashboard, tmp_path: Path) -> None:
     _make_campaign(store, "q1")
     output = tmp_path / "report.md"
-    dashboard.generate_report(output)
+    dashboard.generate_report(output, project_root=tmp_path)
     assert output.exists()
     content = output.read_text(encoding="utf-8")
     assert "q1" in content

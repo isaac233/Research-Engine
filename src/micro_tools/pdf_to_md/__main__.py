@@ -23,11 +23,25 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if args.output:
-        Path(args.output).write_text(result.markdown, encoding="utf-8")
+        try:
+            output_path = _safe_output_path(args.output)
+        except ValueError as exc:
+            print(f"Invalid output path: {exc}", file=sys.stderr)
+            return 1
+        output_path.write_text(result.markdown, encoding="utf-8")
     else:
         print(result.markdown)
 
     return 0
+
+
+def _safe_output_path(output: str) -> Path:
+    """Resolve ``output`` relative to cwd and reject directory escapes."""
+    cwd = Path.cwd().resolve()
+    candidate = (cwd / Path(output)).resolve()
+    if not candidate.is_relative_to(cwd):
+        raise ValueError(f"output path must be inside {cwd}")
+    return candidate
 
 
 if __name__ == "__main__":

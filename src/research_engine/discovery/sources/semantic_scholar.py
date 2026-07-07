@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from research_engine.discovery.schema import Paper, SearchResult
 from research_engine.discovery.sources.base import SourceAdapter
+from research_engine.discovery.sources.http import safe_get
+
+_PAPER_ID_RE = re.compile(r"^[A-Za-z0-9:._/\-()]+$")
 
 
 class SemanticScholarAdapter(SourceAdapter):
@@ -35,12 +40,11 @@ class SemanticScholarAdapter(SourceAdapter):
             headers["x-api-key"] = self.api_key
 
         try:
-            response = httpx.get(
+            response = safe_get(
                 f"{self.base_url}/paper/search",
                 params=params,
                 headers=headers,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             data = response.json()
@@ -80,18 +84,20 @@ class SemanticScholarAdapter(SourceAdapter):
     def fetch_by_id(self, source_id: str) -> Paper | None:
         # source_id may be a Semantic Scholar paper ID or DOI.
         paper_id = source_id.replace("doi:", "")
-        url = f"{self.base_url}/paper/{paper_id}"
+        if not _PAPER_ID_RE.match(paper_id):
+            return None
+        encoded = quote(paper_id, safe="")
+        url = f"{self.base_url}/paper/{encoded}"
         params = {"fields": "title,authors,year,abstract,externalIds,openAccessPdf,citationCount"}
         headers: dict[str, str] = {}
         if self.api_key:
             headers["x-api-key"] = self.api_key
         try:
-            response = httpx.get(
+            response = safe_get(
                 url,
                 params=params,
                 headers=headers,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             return self._normalize(response.json())

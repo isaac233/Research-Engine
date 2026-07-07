@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import patch
 
@@ -27,6 +28,15 @@ class FakeResponse:
     def __init__(self, status_code: int, json_data: dict[str, Any]) -> None:
         self.status_code = status_code
         self._json = json_data
+        self.headers: dict[str, str] = {}
+
+    @property
+    def text(self) -> str:
+        return json.dumps(self._json)
+
+    @property
+    def content(self) -> bytes:
+        return self.text.encode("utf-8")
 
     def json(self) -> dict[str, Any]:
         return self._json
@@ -46,7 +56,7 @@ def test_search_parses_papers() -> None:
         "total": 1,
         "data": [make_paper("LLM alignment")],
     })
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         result = adapter.search("LLM alignment")
 
     assert result.ok is True
@@ -64,7 +74,7 @@ def test_search_parses_papers() -> None:
 def test_search_handles_http_error() -> None:
     adapter = SemanticScholarAdapter()
     response = FakeResponse(500, {})
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         result = adapter.search("LLM alignment")
 
     assert result.ok is False
@@ -74,7 +84,7 @@ def test_search_handles_http_error() -> None:
 
 def test_search_handles_request_error() -> None:
     adapter = SemanticScholarAdapter()
-    with patch("httpx.get", side_effect=httpx.RequestError("network down")):
+    with patch("httpx.Client.request", side_effect=httpx.RequestError("network down")):
         result = adapter.search("LLM alignment")
 
     assert result.ok is False
@@ -84,7 +94,7 @@ def test_search_handles_request_error() -> None:
 def test_fetch_by_id_returns_paper() -> None:
     adapter = SemanticScholarAdapter()
     response = FakeResponse(200, make_paper("Found by ID", paper_id="s2-456"))
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         paper = adapter.fetch_by_id("s2-456")
 
     assert paper is not None
@@ -94,7 +104,7 @@ def test_fetch_by_id_returns_paper() -> None:
 def test_fetch_by_id_returns_none_on_error() -> None:
     adapter = SemanticScholarAdapter()
     response = FakeResponse(404, {})
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         paper = adapter.fetch_by_id("missing")
 
     assert paper is None
@@ -106,7 +116,7 @@ def test_pagination_next_offset() -> None:
         "total": 25,
         "data": [make_paper(f"Paper {i}") for i in range(10)],
     })
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         result = adapter.search("query", limit=10, offset=0)
 
     assert result.total == 25

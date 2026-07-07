@@ -2,19 +2,48 @@
 
 from __future__ import annotations
 
+import json
+import socket
 from typing import Any
 from unittest.mock import patch
 
 import httpx
+import pytest
 
 from research_engine.discovery.resolver import FullTextResolver
 from research_engine.discovery.schema import Paper
+
+
+@pytest.fixture(autouse=True)
+def _mock_public_dns() -> Any:
+    """Prevent real DNS lookups during resolver unit tests."""
+    real_getaddrinfo = socket.getaddrinfo
+
+    def fake_getaddrinfo(host: str, port: int | None, *args: Any, **kwargs: Any) -> list[Any]:
+        flags = kwargs.get("flags", 0)
+        if len(args) >= 6:
+            flags = args[5]
+        if not (flags & socket.AI_NUMERICHOST):
+            return [(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("1.2.3.4", port or 0))]
+        return real_getaddrinfo(host, port, *args, **kwargs)
+
+    with patch("socket.getaddrinfo", side_effect=fake_getaddrinfo):
+        yield
 
 
 class FakeResponse:
     def __init__(self, status_code: int, json_data: dict[str, Any]) -> None:
         self.status_code = status_code
         self._json = json_data
+        self.headers: dict[str, str] = {}
+
+    @property
+    def text(self) -> str:
+        return json.dumps(self._json)
+
+    @property
+    def content(self) -> bytes:
+        return self.text.encode("utf-8")
 
     def json(self) -> dict[str, Any]:
         return self._json
@@ -72,7 +101,7 @@ def test_resolves_via_unpaywall() -> None:
             "version": "publishedVersion",
         },
     })
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         result = resolver.resolve(paper)
 
     assert result.url == "https://oa.example.com/paper.pdf"
@@ -93,7 +122,7 @@ def test_falls_back_to_doi_landing_when_not_oa() -> None:
         "is_oa": False,
         "best_oa_location": None,
     })
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         result = resolver.resolve(paper)
 
     assert result.url == "https://doi.org/10.1234/closed"
@@ -118,7 +147,7 @@ def test_unpaywall_http_error_falls_back_to_doi() -> None:
         source="crossref",
     )
     response = FakeResponse(500, {})
-    with patch("httpx.get", return_value=response):
+    with patch("httpx.Client.request", return_value=response):
         result = resolver.resolve(paper)
 
     # Unpaywall failure is non-fatal; we still have the DOI landing page.

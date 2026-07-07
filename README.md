@@ -1,40 +1,139 @@
 # Research Engine
 
-A model-agnostic, locally-driven research apparatus that turns a natural-language research request from a main AI (Claude Code / Opus / Kimi) into a fully executed internet research campaign—delivering structured insights, evidence maps, and status updates while consuming minimal premium-AI tokens.
+A model-agnostic, locally-driven research apparatus that turns a natural-language
+research request from a main AI (Claude Code / Opus / Kimi) into a fully
+executed internet research campaign—delivering structured insights, evidence
+maps, and status updates while consuming minimal premium-AI tokens.
 
-> **Status:** Phase 1 core orchestrator + model-agnostic LLM layer merged to `main` via PR #4. Phase 2 AI-only browser (CDP/Playwright, raw HTTP, GraphQL, robots.txt, SSRF policy, unblock probe) merged via PR #7. Phase 3 discovery + academic search (query planner, Semantic Scholar/Crossref/arXiv/OpenAlex/SERP/web-crawl adapters, dedup, snowball, full-text resolver, orchestrator integration) merged via PR #9. Phase 4 screening + structured extraction (criteria schema, source ranker, markdownify, PDF conversion, structured extractor, citation parsing, conflict detection, orchestrator integration) merged via PR #10. Phase 5 adversarial verification (Devil, Verifier, challenge dispatcher, evaluation harness, reporter, orchestrator integration) is in PR #11. Phase 6 (delivery + insight briefs) is next. The master plan lives in [`docs/plan/master_plan.md`](docs/plan/master_plan.md).
+> **Status:** v0.1.0 — Phases 0–10 complete. 230+ tests, 80%+ coverage, MCP/stdio
+> adapter, end-of-session PR automation, and Docker packaging included.
 
 ## What it does
 
-1. Accepts a research request from your main AI.
-2. Plans, discovers, screens, extracts, and challenges sources using local models (Ollama/Gemma/etc.).
-3. Adversarially verifies every insight so hallucinated claims never reach the main AI.
+1. Accepts a research request from your main AI via MCP or CLI.
+2. Plans, discovers, screens, extracts, and challenges sources using local
+   models (Ollama/Gemma/etc.) and deterministic adapters.
+3. Adversarially verifies every insight so hallucinated claims never reach the
+   main AI.
 4. Reports progress %, ETA, current stage, and remaining steps on demand.
-5. Delivers a Markdown insight brief with numbered claims, source links, and confidence labels.
-6. **Never gives up on a blocker:** if the main AI says "I can't find…" or hits a missing resource, the engine runs an unblocking research campaign and returns actionable solutions with sources, access terms, and next steps.
-7. Cleans up caches and duplicates at the end of every session, then opens a GitHub PR.
+5. Delivers a Markdown insight brief with numbered claims, source links, and
+   confidence labels.
+6. **Never gives up on a blocker:** if the main AI says "I can't find…" or hits
+   a missing resource, the engine runs an unblocking research campaign and
+   returns actionable solutions with sources, access terms, and next steps.
+7. Cleans up caches and duplicates at the end of every session, then opens a
+   GitHub PR.
 
-## Project norms
-
-- **Model-agnostic:** every LLM interface goes through a provider abstraction; swap models in `config/models.yaml`.
-- **Local-first:** primitive local AI drives the bulk of the work; frontier models only audit and synthesize.
-- **Adversarial by default:** a `Devil` agent challenges every claim, and a `Verifier` re-runs source lookups.
-- **Self-improving routers:** `.claude/agents/*-router.md` use learned routes (`R###` itemized deltas) with non-self-poisoning memory.
-- **Ethical hard floor:** only public or authorized sources; robots.txt, rate limits, and SSRF policy are enforced. No credential bypass, no access-control evasion, no law breaking.
-- **Elite organization:** no dead files, no dead branches; every session ends with a PR.
-
-## Quick start (when implemented)
+## Quick start
 
 ```powershell
 # Install
 pip install -e .
 
-# Run a campaign
+# Run a campaign from the CLI
 research-engine run "What are the latest methodological improvements in LLM systematic literature reviews?"
 
 # Check status
 research-engine status <campaign-id>
+
+# Generate an analytics report
+research-engine report
+
+# Validate configured models
+research-engine validate-models
 ```
+
+The default output layout in the host project is:
+
+```
+Research/
+├── Insights.MD                                  # folded aggregation of all briefs
+└── <campaign-slug>/
+    ├── <campaign-slug>_Insights.MD            # individual campaign brief
+    └── evidence_map.json
+```
+
+## Using the MCP adapter
+
+Claude Code can call the engine as an MCP tool:
+
+```json
+{
+  "mcpServers": {
+    "research-engine": {
+      "command": "python",
+      "args": ["-m", "research_engine.mcp_adapter"],
+      "cwd": "C:/Users/Isaac/OneDrive/Desktop/beta/Research Engine"
+    }
+  }
+}
+```
+
+Tools exposed:
+
+- `research_engine_run(query)` — start and run a campaign end-to-end.
+- `research_engine_status(campaign_id)` — query current progress and ETA.
+
+See [`docs/runbooks/main-ai-integration.md`](docs/runbooks/main-ai-integration.md)
+for a full step-by-step runbook.
+
+## Project norms
+
+- **Model-agnostic:** every LLM interface goes through a provider abstraction;
+  swap models in `config/models.yaml`.
+- **Local-first:** primitive local AI drives the bulk of the work; frontier
+  models only audit and synthesize.
+- **Adversarial by default:** a `Devil` agent challenges every claim, and a
+  `Verifier` re-runs source lookups.
+- **Self-improving routers:** `.claude/agents/*-router.md` use learned routes
+  (`R###` itemized deltas) with non-self-poisoning memory.
+- **Ethical hard floor:** only public or authorized sources; robots.txt, rate
+  limits, and SSRF policy are enforced. No credential bypass, no access-control
+  evasion, no law breaking.
+- **Elite organization:** no dead files, no dead branches; every session ends
+  with a PR.
+
+## Architecture
+
+| Subsystem | Purpose | Key files |
+|---|---|---|
+| Orchestrator | Campaign lifecycle state machine | [`docs/architecture/orchestrator.md`](docs/architecture/orchestrator.md) |
+| Browser | AI-only browser: CDP/Playwright, raw HTTP, GraphQL, robots.txt, SSRF policy | [`docs/architecture/browser.md`](docs/architecture/browser.md) |
+| Discovery | Multi-source academic/web search, dedup, snowball, full-text resolution | [`docs/architecture/discovery.md`](docs/architecture/discovery.md) |
+| Screening | Criteria-driven source ranking | [`docs/architecture/screening.md`](docs/architecture/screening.md) |
+| Extraction | HTML/PDF → Markdown + structured fields + citations | [`docs/architecture/screening.md`](docs/architecture/screening.md) |
+| Adversarial | Devil + Verifier + challenge dispatcher | [`docs/architecture/adversarial.md`](docs/architecture/adversarial.md) |
+| Evaluation | Harness, reporter, improvement proposer, deep audit | [`docs/architecture/evaluation.md`](docs/architecture/evaluation.md) |
+| Monitoring | Progress %, ETA, calibration, anomaly detection | [`docs/architecture/monitoring.md`](docs/architecture/monitoring.md) |
+| Storage | SQLite state/cache, artifact manager, cleanup janitor | [`docs/architecture/storage.md`](docs/architecture/storage.md) |
+
+## Development
+
+```powershell
+# Run tests with coverage
+python -m pytest -q
+
+# Lint
+ruff check .
+
+# Type check
+mypy src/research_engine
+
+# End-of-session ritual (dry-run by default)
+python scripts/end_session.py --message "feat: describe change"
+
+# Open a PR (dry-run by default)
+python scripts/github_pr.py --message "feat: describe change" --branch finish/feature
+```
+
+## Docker
+
+```powershell
+docker build -t research-engine .
+docker run --rm research-engine
+```
+
+See `Dockerfile` and `docker-compose.yml` for details.
 
 ## Repository
 

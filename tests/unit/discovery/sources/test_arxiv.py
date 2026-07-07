@@ -37,6 +37,11 @@ class FakeResponse:
     def __init__(self, status_code: int, text: str) -> None:
         self.status_code = status_code
         self.text = text
+        self.headers: dict[str, str] = {}
+
+    @property
+    def content(self) -> bytes:
+        return self.text.encode("utf-8")
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -49,7 +54,7 @@ class FakeResponse:
 
 def test_search_parses_feed() -> None:
     adapter = ArxivAdapter()
-    with patch("httpx.get", return_value=FakeResponse(200, ARXIV_FEED)):
+    with patch("httpx.Client.request", return_value=FakeResponse(200, ARXIV_FEED)):
         result = adapter.search("RLHF")
 
     assert result.ok is True
@@ -64,7 +69,7 @@ def test_search_parses_feed() -> None:
 
 def test_search_handles_http_error() -> None:
     adapter = ArxivAdapter()
-    with patch("httpx.get", return_value=FakeResponse(500, "")):
+    with patch("httpx.Client.request", return_value=FakeResponse(500, "")):
         result = adapter.search("RLHF")
 
     assert result.ok is False
@@ -84,7 +89,7 @@ def test_fetch_by_id_returns_paper() -> None:
   </entry>
 </feed>
 """
-    with patch("httpx.get", return_value=FakeResponse(200, feed)):
+    with patch("httpx.Client.request", return_value=FakeResponse(200, feed)):
         paper = adapter.fetch_by_id("2401.00099")
 
     assert paper is not None
@@ -94,7 +99,7 @@ def test_fetch_by_id_returns_paper() -> None:
 def test_fetch_by_id_returns_none_on_empty() -> None:
     adapter = ArxivAdapter()
     feed = """<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>"""
-    with patch("httpx.get", return_value=FakeResponse(200, feed)):
+    with patch("httpx.Client.request", return_value=FakeResponse(200, feed)):
         paper = adapter.fetch_by_id("missing")
 
     assert paper is None

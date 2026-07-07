@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 
 from research_engine.discovery.schema import Paper, SearchResult
 from research_engine.discovery.sources.base import SourceAdapter
+from research_engine.discovery.sources.http import safe_get
+
+_DOI_RE = re.compile(r"^10\.\d{4,}\/.+$", re.IGNORECASE)
 
 
 class CrossrefAdapter(SourceAdapter):
@@ -41,12 +46,11 @@ class CrossrefAdapter(SourceAdapter):
         }
 
         try:
-            response = httpx.get(
+            response = safe_get(
                 f"{self.base_url}/works",
                 params=params,
                 headers=headers,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             data = response.json()
@@ -85,14 +89,16 @@ class CrossrefAdapter(SourceAdapter):
 
     def fetch_by_id(self, source_id: str) -> Paper | None:
         doi = source_id.replace("doi:", "")
-        url = f"{self.base_url}/works/{doi}"
+        if not _DOI_RE.match(doi):
+            return None
+        encoded = quote(doi, safe="/")
+        url = f"{self.base_url}/works/{encoded}"
         headers = {"User-Agent": "ResearchEngine/0.1"}
         try:
-            response = httpx.get(
+            response = safe_get(
                 url,
                 headers=headers,
                 timeout=self.timeout,
-                follow_redirects=True,
             )
             response.raise_for_status()
             return self._normalize(response.json().get("message", {}))
