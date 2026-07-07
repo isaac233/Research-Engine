@@ -140,15 +140,16 @@
   - `CDPDriver._fetch` now applies per-action `BrowserAction.headers` via `page.set_extra_http_headers`.
 
 ## State of the Build
-- Phase: v0.1.0 ready for tag
-- Last passing commit: to be recorded after final commit on `finish-v0.1.0`
-- Target PR: #12 (v0.1.0 finish: bundles A–D + security hardening + E2E/MCP integration)
+- Phase: **v0.1.0 shipped**
+- Last passing commit on `main`: `33c393d`
+- Merged PR: #12 — https://github.com/isaac233/Research-Engine/pull/12
+- Tag: `v0.1.0` — https://github.com/isaac233/Research-Engine/releases/tag/v0.1.0
+- CI: `pytest`, `mypy`, `ruff` all green on `main`.
 
 ## Next Priority Tasks
-1. Continue adversarial review of browser policy and unblocking flow.
-2. Wire `SourceCache` into `DiscoveryPipeline` for automatic cache hits/misses.
-3. Expand integration tests for `report` and `validate-models` CLI commands.
-4. Prepare final release notes / documentation updates for Phase 7 completion.
+1. Gather real-world usage feedback and bug reports from v0.1.0.
+2. Plan v0.2.0 scope (likely: DuckDB corpora store, async pipeline, richer browser unblocking, production telemetry sink).
+3. Keep router eval baseline current as the codebase grows.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.
