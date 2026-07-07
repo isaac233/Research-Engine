@@ -50,6 +50,7 @@ research-engine = "research_engine.main:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/research_engine"]
+force-include = { "config" = "config" }
 
 [tool.ruff]
 line-length = 100

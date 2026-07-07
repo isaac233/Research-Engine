@@ -48,7 +48,7 @@
   - Updated routers with Phase 3 keyword rows and R013–R019 learned-route deltas in `.claude/research-engine-routes.md`.
   - Updated `.claude/agents/discovery-router.md` keyword table for pipeline, schema, registry, orchestrator integration, and main.py.
   - Implemented Phase 4: screening + structured extraction.
-    - `src/research_engine/screening/criteria.py`: `BooleanCriterion`, `NumericCriterion`, `LLMRubricCriterion`, `CriterionSet`, `MatchMode`, `CriterionType`, plus factory + default academic criteria.
+    - `src/research_engine/screening/criteria.py`: `BooleanCriterion`, `NumericCriterion`, `LLMRubricCriterion`, `MatchMode`, `CriterionType`, plus factory + default academic criteria.
     - `src/research_engine/screening/ranker.py`: `SourceRanker` applies criteria with optional LLM scorer, returns sorted `SourceScorecard`s; supports must/should/optional weights and `build_llm_scorer` helper.
     - `src/research_engine/extraction/markdownify.py`: HTML → markdown conversion (headings, bold/italic, links, lists, tables) with nav/footer/script/style removal.
     - `src/research_engine/extraction/pdf_converter.py`: `PDFConverter` tries `pdfplumber` then `pypdf`, keeps original on failure.
@@ -89,9 +89,18 @@
     - `src/research_engine/main.py`: `_make_orchestrator` constructs `TimeEstimator`; `status` command prints progress, ETA, remaining stages, and alert count.
     - Tests: 191 tests collected, 88% coverage (`python -m pytest -q`).
   - Added R034–R041 learned-route deltas to `.claude/research-engine-routes.md` for Phase 6 / gap-closure subsystems.
+  - Implemented Phase 7: campaign analytics dashboard, model-stack validation, production config loading, and storage cache.
+    - `src/research_engine/dashboard.py`: `CampaignDashboard` aggregates campaign status/stage/duration metrics, per-campaign summaries with stage timings, and markdown report generation.
+    - `src/research_engine/main.py`: added `report` and `validate-models` CLI commands.
+    - `src/research_engine/llm/validator.py`: `ModelStackValidator` pings every configured provider, validates specific model availability, and checks for a small-capacity local model (Gemma/Qwen/Phi/Llama class).
+    - `src/research_engine/config.py`: loads `config/default.yaml` with `EngineConfig.get()` dotted access and optional `config_overrides`; added `cache_db_path()`.
+    - `src/research_engine/storage/cache.py`: `SourceCache` SQLite-backed cache for discovered `Paper` records keyed by query/source.
+    - `src/research_engine/llm/model_registry.py`: moved provider client imports inside `build_provider()` so importing the registry no longer requires optional runtime dependencies.
+    - Tests: 31 new unit tests for dashboard, config, validator, and cache; total 219 tests, 88% coverage.
 - Open:
-  - Implement Phase 7: campaign analytics dashboard, model-stack validation (Ollama + Gemma/Qwen-class), and production hardening.
   - Continue adversarial review of browser policy and unblocking flow.
+  - Wire `SourceCache` into `DiscoveryPipeline` for automatic cache hits/misses (module exists; integration pending).
+  - Expand integration tests for `report` and `validate-models` CLI commands.
 - Blocked: none.
 - Risks:
   - Ethical/legal boundary for "advanced penetration techniques" must remain pinned to authorized/defensive/public-only scope as browser capabilities grow.
@@ -99,14 +108,15 @@
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 6 (implemented; changes uncommitted on `phase-5-adversarial` branch)
-- Last passing commit: `940d342`
-- Last PR: #11 (Phase 5 adversarial verification + evaluation apparatus) — https://github.com/isaac233/Research-Engine/pull/11
+- Phase: 7 (implemented)
+- Last passing commit: `4227123`
+- Last PR: #11 (Phase 5-6: adversarial verification + monitoring/cleanup/storage + browser hardening) — https://github.com/isaac233/Research-Engine/pull/11
 
 ## Next Priority Tasks
-1. Implement Phase 7: campaign analytics dashboard, model-stack validation (Ollama + Gemma/Qwen-class), and production hardening.
-2. Continue adversarial review of browser policy and unblocking flow.
-3. Finalize PR #12 covering Phase 6 + gap closure once review gates pass.
+1. Continue adversarial review of browser policy and unblocking flow.
+2. Wire `SourceCache` into `DiscoveryPipeline` for automatic cache hits/misses.
+3. Expand integration tests for `report` and `validate-models` CLI commands.
+4. Prepare final release notes / documentation updates for Phase 7 completion.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.
@@ -119,3 +129,4 @@
 - `scripts/end_session.py` is a stub; do not run it for real until Phase 9.
 - The `Research/` folder layout is documented in `docs/plan/master_plan.md` section 4.13 and implemented in `src/research_engine/config.py`.
 - Discovery subsystem is fully wired into the orchestrator; start Phase 4 with `screening/criteria.py` and `screening/ranker.py`.
+- New Phase 7 modules: `dashboard.py`, `llm/validator.py`, `storage/cache.py`; CLI commands: `report`, `validate-models`.

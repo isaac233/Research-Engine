@@ -10,10 +10,12 @@ import click
 from research_engine.browser.raw_http import RawHTTPBrowser
 from research_engine.browser.unblock_probe import UnblockProbe
 from research_engine.config import EngineConfig
+from research_engine.dashboard import CampaignDashboard
 from research_engine.discovery.pipeline import DiscoveryPipeline
 from research_engine.discovery.source_registry import SourceRegistry
 from research_engine.events import EventBus
 from research_engine.extraction.structured import StructuredExtractor
+from research_engine.llm.validator import ModelStackValidator
 from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.orchestrator import Orchestrator
 from research_engine.screening.ranker import SourceRanker
@@ -56,7 +58,7 @@ def cli(ctx: click.Context, project_root: Path | None) -> None:
 @cli.command()
 @click.argument("query")
 @click.option("--context", default="", help="Additional context for the research request.")
-@click.option("--max-sources", default=50, type=int, help="Maximum sources to consider.")
+@click.option("--max-sources", default=50, type=click.IntRange(1, 1000), help="Maximum sources to consider (1-1000).")
 @click.pass_context
 def run(ctx: click.Context, query: str, context: str, max_sources: int) -> None:
     """Start a new research campaign."""
@@ -127,6 +129,49 @@ def kill(ctx: click.Context, campaign_id: str) -> None:
     orchestrator = _make_orchestrator(ctx.obj.get("project_root"))
     campaign = orchestrator.kill_campaign(campaign_id)
     click.echo(f"Campaign {campaign_id} kill signal set; status: {campaign.status.value}")
+
+
+@cli.command(name="report")
+@click.option("--output", "-o", type=click.Path(path_type=Path), default=None, help="Path to write markdown report.")
+@click.option("--force", is_flag=True, help="Overwrite existing report file.")
+@click.pass_context
+def report(ctx: click.Context, output: Path | None, force: bool) -> None:
+    """Generate an analytics report for all campaigns."""
+    if output is not None and output.exists() and not force:
+        click.echo(f"Report already exists: {output}; use --force to overwrite", err=True)
+        sys.exit(1)
+    config = EngineConfig(ctx.obj.get("project_root"))
+    store = CampaignStore(config.state_db_path())
+    dashboard = CampaignDashboard(store)
+    rendered = dashboard.generate_report(output)
+    if output is None:
+        click.echo(rendered)
+    else:
+        click.echo(f"Report written to {output}")
+
+
+@cli.command(name="validate-models")
+@click.pass_context
+def validate_models(ctx: click.Context) -> None:
+    """Validate configured LLM providers and local model availability."""
+    config = EngineConfig(ctx.obj.get("project_root"))
+    validator = ModelStackValidator.from_config(config)
+    results = validator.validate_all()
+    summary = validator.summarize(results)
+    for provider in summary["providers"]:
+        status = "ok" if provider["ok"] else "FAIL"
+        click.echo(f"{provider['name']}: {status} ({provider['default_model']})")
+        if provider["error"]:
+            click.echo(f"  error: {provider['error']}")
+
+    small = validator.validate_small_local()
+    if small.ok:
+        click.echo(f"small local model available: {small.default_model}")
+    else:
+        click.echo(f"small local model: FAIL - {small.error}")
+
+    if not summary["all_healthy"] or not small.ok:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
