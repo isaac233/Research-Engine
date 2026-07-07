@@ -156,6 +156,10 @@
 - ADR-002: Port router/eval pattern from Financial Model Training Data.
 - Load-bearing assumption: local models can drive deterministic discovery/screening with adversarial oversight.
 
+## v0.1.0+ Standards Document
+- Added `Standards.MD` (PR #14) capturing all quality, organization, security, ethics, monitoring, source-management, and session-ritual requirements from `Research Engine Prompt1.MD`.
+- It includes pre-change and post-change verification checklists. **Review `Standards.MD` before starting and after completing any future work.**
+
 ## Notes for Next Agent
 - All routers live under `.claude/agents/` and learned routes under `.claude/research-engine-routes.md`.
 - The eval harness under `.claude/router_eval/` must remain isolated from `src/`.
