@@ -65,11 +65,20 @@ NEXT: <one action or closed>
 COMMIT: <suggested message>
 ```
 
+## FROZEN EVAL
+
+Read-only evaluation mode. Inspect files, run tests, and report findings, but
+NEVER edit source files or mutate `.claude/research-engine-routes.md`. Switch
+to ROUTE or EXECUTE for any changes.
+
 # KEYWORD TABLE
 
 | Signal (task mentions…) | Load these (+ test under `tests/`) |
 |---|---|
+| pipeline, DiscoveryPipeline, run discovery end-to-end | `src/research_engine/discovery/pipeline.py` |
+| schema, Paper, SourceQuery, SearchResult, DiscoveryResult | `src/research_engine/discovery/schema.py` |
 | query planner, search strategy, keywords | `src/research_engine/discovery/query_planner.py` |
+| source registry, enabled sources, adapter lookup | `src/research_engine/discovery/source_registry.py` |
 | Semantic Scholar, S2 | `src/research_engine/discovery/sources/semantic_scholar.py` |
 | Crossref | `src/research_engine/discovery/sources/crossref.py` |
 | arXiv | `src/research_engine/discovery/sources/arxiv.py` |
@@ -78,7 +87,9 @@ COMMIT: <suggested message>
 | dedup, duplicate, fuzzy match | `src/research_engine/discovery/dedup.py` |
 | snowball, citations, forward/backward | `src/research_engine/discovery/snowball.py` |
 | resolver, full text, Unpaywall, DOI, PDF | `src/research_engine/discovery/resolver.py` |
-| source config, rate limits, source registry | `config/default.yaml`, `src/research_engine/discovery/sources/__init__.py` |
+| source config, rate limits | `config/default.yaml` |
+| orchestrator, DISCOVER stage, campaign integration | `src/research_engine/orchestrator.py`, `src/research_engine/discovery/pipeline.py` |
+| main.py, CLI, launch discovery | `src/research_engine/main.py`, `src/research_engine/discovery/source_registry.py` |
 
 # REMINDERS
 

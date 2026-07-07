@@ -5,11 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import yaml
 
-from research_engine.llm.anthropic_client import AnthropicClient
-from research_engine.llm.ollama_client import OllamaClient
 from research_engine.llm.provider import LLMProvider
 
 
@@ -59,7 +58,10 @@ class ModelRegistry:
                 }},
             )
 
-        self._role_defaults = raw.get("role_defaults", {})
+        role_defaults = raw.get("role_defaults", {})
+        if not isinstance(role_defaults, dict):
+            raise ValueError("role_defaults must be a mapping")
+        self._role_defaults = role_defaults
         for chain in self._role_defaults.values():
             if not isinstance(chain, list):
                 raise ValueError("role_defaults values must be lists of provider names")
@@ -82,20 +84,38 @@ class ModelRegistry:
             raise KeyError(f"No provider chain configured for role: {role}")
         return list(chain)
 
+    @staticmethod
+    def _validate_ollama_base_url(base_url: str) -> str:
+        """Ensure the Ollama base URL uses HTTP(S) and points to a safe origin."""
+        parsed = urlparse(base_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError(f"Ollama base_url must use http/https: {base_url}")
+        hostname = (parsed.hostname or "").lower()
+        safe_hosts = {"localhost", "127.0.0.1", "::1"}
+        if hostname not in safe_hosts:
+            raise ValueError(
+                f"Ollama base_url must point to a local origin ({', '.join(sorted(safe_hosts))}): {base_url}"
+            )
+        return base_url
+
     def build_provider(self, provider_name: str) -> LLMProvider:
         """Instantiate a provider client from its config."""
         cfg = self.get_config(provider_name)
         extra = cfg.extra
         if provider_name == "ollama":
-            return OllamaClient(
-                base_url=extra.get("base_url", "http://localhost:11434"),
-                default_model=cfg.default_model,
+            from research_engine.llm.ollama_client import OllamaClient
+
+            base_url = self._validate_ollama_base_url(
+                extra.get("base_url", "http://localhost:11434")
             )
+            return OllamaClient(base_url=base_url, default_model=cfg.default_model)
         if provider_name == "anthropic":
-            return AnthropicClient(
-                api_key_env=extra.get("api_key_env", "ANTHROPIC_API_KEY"),
-                default_model=cfg.default_model,
-            )
+            from research_engine.llm.anthropic_client import AnthropicClient
+
+            api_key_env = extra.get("api_key_env", "ANTHROPIC_API_KEY")
+            if api_key_env != "ANTHROPIC_API_KEY":
+                raise ValueError(f"Unsupported Anthropic API key env var: {api_key_env}")
+            return AnthropicClient(api_key_env=api_key_env, default_model=cfg.default_model)
         raise ValueError(f"Unsupported provider: {provider_name}")
 
     def get_provider_for_role(

@@ -1,0 +1,16 @@
+version: "3.9"
+
+services:
+  research-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: research-engine:v0.1.0
+    volumes:
+      - ./Research:/project/Research
+    environment:
+      # Override to the host project root inside the container
+      - RESEARCH_ENGINE_PROJECT_ROOT=/project
+    # Default dry-run example; override at runtime:
+    # docker compose run --rm research-engine run "your question"
+    command: ["--help"]

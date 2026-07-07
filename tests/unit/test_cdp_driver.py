@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
+pytest.importorskip("playwright")
+
 from research_engine.browser.ai_browser import BrowserAction, BrowserActionType
 from research_engine.browser.cdp_driver import CDPDriver
 

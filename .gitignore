@@ -33,6 +33,10 @@ Research/
 *.log
 logs/
 
+# Security scan artifacts
+bandit_report.json
+*report.json
+
 # Test coverage
 .coverage
 htmlcov/
