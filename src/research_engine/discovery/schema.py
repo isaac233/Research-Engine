@@ -43,6 +43,41 @@ class Paper:
             return self.url.lower().strip()
         return f"{self.title.lower().strip()}::{self.year}"
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to a JSON-friendly dict."""
+        return {
+            "title": self.title,
+            "authors": list(self.authors),
+            "year": self.year,
+            "doi": self.doi,
+            "url": self.url,
+            "pdf_url": self.pdf_url,
+            "abstract": self.abstract,
+            "source": self.source,
+            "source_id": self.source_id,
+            "citations_in": list(self.citations_in),
+            "citations_out": list(self.citations_out),
+            "meta": dict(self.meta),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Paper:
+        """Deserialize from a dict produced by `to_dict`."""
+        return cls(
+            title=data.get("title", ""),
+            authors=list(data.get("authors", [])),
+            year=data.get("year"),
+            doi=data.get("doi"),
+            url=data.get("url"),
+            pdf_url=data.get("pdf_url"),
+            abstract=data.get("abstract", ""),
+            source=data.get("source", "unknown"),
+            source_id=data.get("source_id"),
+            citations_in=list(data.get("citations_in", [])),
+            citations_out=list(data.get("citations_out", [])),
+            meta=dict(data.get("meta", {})),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class DuplicateGroup:

@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from research_engine.browser.ai_browser import AIBrowser
+from research_engine.discovery.pipeline import DiscoveryPipeline
+from research_engine.discovery.schema import Paper
 from research_engine.events import EventBus
+from research_engine.extraction.structured import StructuredExtractor, extracted_source_to_dict
+from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
     CampaignStage,
@@ -13,9 +17,6 @@ from research_engine.state import (
     CampaignStore,
     ResearchRequest,
 )
-
-if TYPE_CHECKING:
-    from research_engine.discovery.pipeline import DiscoveryPipeline
 
 
 class Orchestrator:
@@ -39,11 +40,15 @@ class Orchestrator:
         event_bus: EventBus | None = None,
         browser: AIBrowser | None = None,
         discovery: DiscoveryPipeline | None = None,
+        ranker: SourceRanker | None = None,
+        extractor: StructuredExtractor | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
         self.browser = browser
         self.discovery = discovery
+        self.ranker = ranker
+        self.extractor = extractor
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -170,7 +175,7 @@ class Orchestrator:
             "stage_exit",
             {"stage": stage.value, "result": result},
         )
-        return campaign
+        return self._require_campaign(campaign.id)
 
     def _set_status(self, campaign: Campaign, status: CampaignStatus) -> Campaign:
         updated = campaign.with_status(status)
@@ -201,6 +206,12 @@ class Orchestrator:
                 context=campaign.request.context,
                 max_sources=campaign.request.max_sources,
             )
+            canonical_papers = [g.canonical.to_dict() for g in discovery_result.deduped_groups]
+            resolved_map = {r.paper_key: r for r in discovery_result.resolved}
+            self.store.update_campaign(
+                campaign.with_meta("canonical_papers", canonical_papers)
+                .with_meta("resolved_map", {k: {"url": r.url, "is_oa": r.is_oa, "source": r.source} for k, r in resolved_map.items()})
+            )
             return {
                 "ok": True,
                 "canonical_count": len(discovery_result.deduped_groups),
@@ -211,8 +222,59 @@ class Orchestrator:
             }
         return self._run_stub(campaign)
 
-    _run_screen = _run_stub
-    _run_extract = _run_stub
+    def _run_screen(self, campaign: Campaign) -> dict[str, Any]:
+        """Screen canonical papers from discovery using the configured ranker."""
+        canonical_data = campaign.meta.get("canonical_papers", [])
+        if not canonical_data or self.ranker is None:
+            return self._run_stub(campaign)
+        papers = [Paper.from_dict(d) for d in canonical_data]
+        scorecards = self.ranker.rank(papers, query=campaign.request.query)
+        included = [s for s in scorecards if s.included][: campaign.request.max_sources]
+        self.store.update_campaign(
+            campaign.with_meta("scorecards", [self._scorecard_to_dict(s) for s in scorecards])
+            .with_meta("included_papers", [s.paper.to_dict() for s in included])
+        )
+        return {
+            "ok": True,
+            "screened_count": len(scorecards),
+            "included_count": len(included),
+            "criteria_set": self.ranker.criteria.name,
+        }
+
+    def _run_extract(self, campaign: Campaign) -> dict[str, Any]:
+        """Extract structured fields from included papers."""
+        included_data = campaign.meta.get("included_papers", [])
+        if not included_data or self.extractor is None:
+            return self._run_stub(campaign)
+        extracted: list[dict[str, Any]] = []
+        for paper_dict in included_data:
+            paper = Paper.from_dict(paper_dict)
+            source = self.extractor.extract(paper, content=paper.abstract, is_oa=paper.pdf_url is not None)
+            extracted.append(extracted_source_to_dict(source))
+        self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
+        return {
+            "ok": True,
+            "extracted_count": len(extracted),
+        }
+
+    def _scorecard_to_dict(self, scorecard: Any) -> dict[str, Any]:
+        return {
+            "paper": scorecard.paper.to_dict(),
+            "criterion_scores": [
+                {
+                    "criterion_name": s.criterion_name,
+                    "passed": s.passed,
+                    "value": s.value,
+                    "score": s.score,
+                    "reason": s.reason,
+                }
+                for s in scorecard.criterion_scores
+            ],
+            "total_score": scorecard.total_score,
+            "included": scorecard.included,
+            "reason": scorecard.reason,
+        }
+
     _run_adversarial = _run_stub
     _run_evaluate = _run_stub
     _run_deliver = _run_stub

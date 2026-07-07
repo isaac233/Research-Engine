@@ -47,9 +47,23 @@
     - Tests: 56 new discovery unit tests, total 115 tests, 86% coverage.
   - Updated routers with Phase 3 keyword rows and R013–R019 learned-route deltas in `.claude/research-engine-routes.md`.
   - Updated `.claude/agents/discovery-router.md` keyword table for pipeline, schema, registry, orchestrator integration, and main.py.
+  - Implemented Phase 4: screening + structured extraction.
+    - `src/research_engine/screening/criteria.py`: `BooleanCriterion`, `NumericCriterion`, `LLMRubricCriterion`, `CriterionSet`, `MatchMode`, `CriterionType`, plus factory + default academic criteria.
+    - `src/research_engine/screening/ranker.py`: `SourceRanker` applies criteria with optional LLM scorer, returns sorted `SourceScorecard`s; supports must/should/optional weights and `build_llm_scorer` helper.
+    - `src/research_engine/extraction/markdownify.py`: HTML → markdown conversion (headings, bold/italic, links, lists, tables) with nav/footer/script/style removal.
+    - `src/research_engine/extraction/pdf_converter.py`: `PDFConverter` tries `pdfplumber` then `pypdf`, keeps original on failure.
+    - `src/research_engine/extraction/structured.py`: `StructuredExtractor` extracts methodology, data summary, results summary, claims, citations, and conflict detection; abstract fallback when no full text.
+    - `src/research_engine/extraction/citation.py`: `extract_citations()`, `normalize_doi()`, `citations_to_dict()`.
+    - `src/research_engine/orchestrator.py`: added `SCREEN` and `EXTRACT` stage handlers; persists `scorecards`, `included_papers`, `extracted_sources` to campaign meta; fixed stage-to-stage campaign state freshness.
+    - `src/research_engine/main.py`: wires `SourceRanker` and `StructuredExtractor` into `Orchestrator`.
+    - `src/research_engine/discovery/schema.py`: added `Paper.to_dict()` / `Paper.from_dict()` for JSON-safe SQLite meta serialization.
+    - `src/micro_tools/pdf_to_md/`: standalone PDF → markdown micro-tool with CLI entry point.
+    - Tests: 19 new screening/extraction unit tests, total 134 tests, 87% coverage.
+  - Updated `.claude/agents/extraction-router.md` keyword table for screening, extraction, orchestrator integration, main.py, and state.
+  - Added R020–R027 learned-route deltas to `.claude/research_engine-routes.md` for Phase 4 subsystems.
 - Open:
-  - Implement Phase 4: screening + structured extraction.
-  - Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
+  - Implement Phase 5: adversarial verification (Devil + Verifier + challenge engine).
+  - Validate local model stack (Ollama + Gemma/Qwen-class) for screening/extraction workloads.
 - Blocked: none.
 - Risks:
   - Ethical/legal boundary for "advanced penetration techniques" must remain pinned to authorized/defensive/public-only scope as browser capabilities grow.
@@ -57,13 +71,13 @@
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 3 (complete; PR #9 open)
-- Last passing commit: `18b4826`
-- Last PR: #9 (Phase 3 discovery + academic search) — https://github.com/isaac233/Research-Engine/pull/9
+- Phase: 4 (complete; PR #10 open)
+- Last passing commit: TBD after PR #10 merge
+- Last PR: #10 (Phase 4 screening + structured extraction)
 
 ## Next Priority Tasks
-1. Implement Phase 4: screening + structured extraction.
-2. Validate local model stack (Ollama + Gemma/Qwen-class) for planner/screening workloads.
+1. Implement Phase 5: adversarial verification (Devil + Verifier + challenge engine).
+2. Validate local model stack (Ollama + Gemma/Qwen-class) for screening/extraction workloads.
 3. Continue adversarial review of browser policy and unblocking flow.
 
 ## Decisions / Assumptions
