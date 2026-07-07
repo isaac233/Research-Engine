@@ -65,7 +65,7 @@ COMMIT: <suggested message>
 
 # KEYWORD TABLE
 
-| Signal (task mentions…) | Load these (+ test) |
+| Signal (task mentions…) | Load these (+ test under `tests/`) |
 |---|---|
 | screening, criteria, include/exclude, rank | `src/research_engine/screening/criteria.py`, `src/research_engine/screening/ranker.py` |
 | markdown, HTML to MD | `src/research_engine/extraction/markdownify.py` |
@@ -73,6 +73,9 @@ COMMIT: <suggested message>
 | structured extraction, methodology, data, results | `src/research_engine/extraction/structured.py` |
 | citation, reference, DOI | `src/research_engine/extraction/citation.py` |
 | conflict, discrepancy, compare with project data | `src/research_engine/extraction/structured.py` |
+| orchestrator, SCREEN stage, EXTRACT stage, campaign integration | `src/research_engine/orchestrator.py`, `src/research_engine/screening/ranker.py`, `src/research_engine/extraction/structured.py` |
+| main.py, CLI, launch screen/extract | `src/research_engine/main.py` |
+| state, CampaignStore, campaign meta | `src/research_engine/state.py` |
 | extraction config | `config/default.yaml` |
 
 # REMINDERS

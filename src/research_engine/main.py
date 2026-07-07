@@ -10,8 +10,12 @@ import click
 from research_engine.browser.raw_http import RawHTTPBrowser
 from research_engine.browser.unblock_probe import UnblockProbe
 from research_engine.config import EngineConfig
+from research_engine.discovery.pipeline import DiscoveryPipeline
+from research_engine.discovery.source_registry import SourceRegistry
 from research_engine.events import EventBus
+from research_engine.extraction.structured import StructuredExtractor
 from research_engine.orchestrator import Orchestrator
+from research_engine.screening.ranker import SourceRanker
 from research_engine.state import CampaignStore, ResearchRequest
 
 
@@ -21,7 +25,18 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     store = CampaignStore(config.state_db_path())
     http = RawHTTPBrowser()
     browser = UnblockProbe(http)
-    return Orchestrator(store, EventBus(store), browser=browser)
+    registry = SourceRegistry()
+    discovery = DiscoveryPipeline(registry=registry)
+    ranker = SourceRanker()
+    extractor = StructuredExtractor()
+    return Orchestrator(
+        store,
+        EventBus(store),
+        browser=browser,
+        discovery=discovery,
+        ranker=ranker,
+        extractor=extractor,
+    )
 
 
 @click.group()
