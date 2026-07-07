@@ -4,11 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
+from research_engine.adversarial.challenge import challenge_to_dict, verification_to_dict
+from research_engine.adversarial.devil import DevilAgent
+from research_engine.adversarial.verifier import Verifier
 from research_engine.browser.ai_browser import AIBrowser
 from research_engine.discovery.pipeline import DiscoveryPipeline
 from research_engine.discovery.schema import Paper
+from research_engine.evaluation.harness import EvaluationHarness
+from research_engine.evaluation.reporter import Reporter
 from research_engine.events import EventBus
-from research_engine.extraction.structured import StructuredExtractor, extracted_source_to_dict
+from research_engine.extraction.structured import (
+    StructuredExtractor,
+    extracted_source_from_dict,
+    extracted_source_to_dict,
+)
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
@@ -42,6 +51,10 @@ class Orchestrator:
         discovery: DiscoveryPipeline | None = None,
         ranker: SourceRanker | None = None,
         extractor: StructuredExtractor | None = None,
+        devil: DevilAgent | None = None,
+        verifier: Verifier | None = None,
+        eval_harness: EvaluationHarness | None = None,
+        reporter: Reporter | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -49,6 +62,10 @@ class Orchestrator:
         self.discovery = discovery
         self.ranker = ranker
         self.extractor = extractor
+        self.devil = devil or DevilAgent()
+        self.verifier = verifier or Verifier()
+        self.eval_harness = eval_harness or EvaluationHarness()
+        self.reporter = reporter or Reporter()
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -275,7 +292,101 @@ class Orchestrator:
             "reason": scorecard.reason,
         }
 
-    _run_adversarial = _run_stub
-    _run_evaluate = _run_stub
-    _run_deliver = _run_stub
+    def _run_adversarial(self, campaign: Campaign) -> dict[str, Any]:
+        """Run Devil and Verifier over extracted sources."""
+        extracted_data = campaign.meta.get("extracted_sources", [])
+        if not extracted_data:
+            return self._run_stub(campaign)
+        sources = [extracted_source_from_dict(d) for d in extracted_data]
+        challenges = self.devil.challenge(sources, query=campaign.request.query)
+        verifications = self.verifier.verify(sources)
+        self.store.update_campaign(
+            campaign.with_meta("challenges", [challenge_to_dict(c) for c in challenges])
+            .with_meta("verifications", [verification_to_dict(v) for v in verifications])
+        )
+        return {
+            "ok": True,
+            "challenge_count": len(challenges),
+            "high_severity_count": sum(1 for c in challenges if c.severity == "high"),
+            "verification_count": len(verifications),
+            "failed_verification_count": sum(1 for v in verifications if not v.ok),
+        }
+
+    def _run_evaluate(self, campaign: Campaign) -> dict[str, Any]:
+        """Evaluate extracted output and produce a report."""
+        extracted_data = campaign.meta.get("extracted_sources", [])
+        challenges_data = campaign.meta.get("challenges", [])
+        verifications_data = campaign.meta.get("verifications", [])
+        if not extracted_data:
+            return self._run_stub(campaign)
+        sources = [extracted_source_from_dict(d) for d in extracted_data]
+        challenges = [self._dict_to_challenge(d) for d in challenges_data]
+        verifications = [self._dict_to_verification(d) for d in verifications_data]
+        report = self.eval_harness.evaluate(
+            sources,
+            challenges,
+            verifications,
+            query=campaign.request.query,
+        )
+        brief = self.reporter.to_markdown(
+            report,
+            sources=sources,
+            challenges=challenges,
+            verifications=verifications,
+            query=campaign.request.query,
+        )
+        self.store.update_campaign(
+            campaign.with_meta("evaluation_report", {
+                "total_claims": report.total_claims,
+                "total_sources": report.total_sources,
+                "challenged_count": report.challenged_count,
+                "high_severity_count": report.high_severity_count,
+                "verified_count": report.verified_count,
+                "failed_verification_count": report.failed_verification_count,
+                "citation_count": report.citation_count,
+                "coverage_score": report.coverage_score,
+                "quality_score": report.quality_score,
+                "meta": report.meta,
+            })
+            .with_meta("insight_brief", brief)
+        )
+        return {
+            "ok": True,
+            "coverage_score": report.coverage_score,
+            "quality_score": report.quality_score,
+            "brief_length": len(brief),
+        }
+
+    def _run_deliver(self, campaign: Campaign) -> dict[str, Any]:
+        """Return the insight brief for delivery to the main AI."""
+        brief = campaign.meta.get("insight_brief", "")
+        return {
+            "ok": bool(brief),
+            "brief_length": len(brief),
+            "delivered": bool(brief),
+        }
+
+    def _dict_to_challenge(self, data: dict[str, Any]) -> Any:
+        from research_engine.adversarial.challenge import Challenge
+        return Challenge(
+            claim_index=data.get("claim_index"),
+            source_id=data.get("source_id"),
+            claim_text=data.get("claim_text", ""),
+            severity=data.get("severity", "low"),
+            kind=data.get("kind", ""),
+            reason=data.get("reason", ""),
+            requested_evidence=data.get("requested_evidence", ""),
+            resolved=data.get("resolved", False),
+        )
+
+    def _dict_to_verification(self, data: dict[str, Any]) -> Any:
+        from research_engine.adversarial.challenge import VerificationResult
+        return VerificationResult(
+            claim_index=data.get("claim_index"),
+            source_id=data.get("source_id"),
+            claim_text=data.get("claim_text", ""),
+            ok=data.get("ok", False),
+            reason=data.get("reason", ""),
+        )
+
     _run_finalize = _run_stub

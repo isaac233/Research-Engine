@@ -200,6 +200,7 @@ class StructuredExtractor:
 
 def extracted_source_to_dict(source: ExtractedSource) -> dict[str, Any]:
     return {
+        "paper": source.paper.to_dict(),
         "title": source.title,
         "summary": source.summary,
         "methodology": source.methodology,
@@ -217,3 +218,31 @@ def extracted_source_to_dict(source: ExtractedSource) -> dict[str, Any]:
         "error": source.error,
         "meta": source.meta,
     }
+
+
+def extracted_source_from_dict(data: dict[str, Any]) -> ExtractedSource:
+    """Reconstruct an ExtractedSource from its serialized form."""
+    return ExtractedSource(
+        paper=Paper.from_dict(data["paper"]),
+        title=data["title"],
+        summary=data["summary"],
+        methodology=data["methodology"],
+        data_summary=data["data_summary"],
+        results_summary=data["results_summary"],
+        claims=[
+            ExtractedClaim(
+                claim=c["claim"],
+                evidence=c["evidence"],
+                confidence=c["confidence"],
+                source_id=c.get("source_id"),
+            )
+            for c in data.get("claims", [])
+        ],
+        citations=[Citation(**c) for c in data.get("citations", [])],
+        conflicts=data.get("conflicts", []),
+        full_text_url=data.get("full_text_url"),
+        is_oa=bool(data.get("is_oa", False)),
+        extraction_tool=data.get("extraction_tool", "unknown"),
+        error=data.get("error"),
+        meta=data.get("meta", {}),
+    )

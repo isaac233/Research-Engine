@@ -37,6 +37,12 @@
 | R025 | extraction | conflict detection, project data discrepancy | `src/research_engine/extraction/structured.py` | Read structured extractor conflict logic | phase-4 | 1 | 2026-07-06 | PROVISIONAL |
 | R026 | orchestrator | SCREEN stage, EXTRACT stage, campaign integration | `src/research_engine/orchestrator.py`, `src/research_engine/screening/ranker.py`, `src/research_engine/extraction/structured.py` | Read orchestrator stage handlers first | phase-4 | 1 | 2026-07-06 | PROVISIONAL |
 | R027 | orchestrator | main.py CLI, launch screening/extraction | `src/research_engine/main.py` | Read main.py entry point first | phase-4 | 1 | 2026-07-06 | PROVISIONAL |
+| R028 | adversarial | Devil agent, challenge claims, evidence, coverage | `src/research_engine/adversarial/devil.py` | Read devil first | phase-5 | 1 | 2026-07-06 | PROVISIONAL |
+| R029 | adversarial | Verifier, hallucination, DOI, quote check | `src/research_engine/adversarial/verifier.py` | Read verifier first | phase-5 | 1 | 2026-07-06 | PROVISIONAL |
+| R030 | adversarial | Challenge dispatcher, claim response | `src/research_engine/adversarial/challenge.py` | Read dispatcher first | phase-5 | 1 | 2026-07-06 | PROVISIONAL |
+| R031 | evaluation | evaluation harness, reporter, metrics | `src/research_engine/evaluation/harness.py`, `src/research_engine/evaluation/reporter.py` | Read harness then reporter | phase-5 | 1 | 2026-07-06 | PROVISIONAL |
+| R032 | orchestrator | ADVERSARIAL stage, EVALUATE stage, DELIVER stage | `src/research_engine/orchestrator.py`, `src/research_engine/adversarial/`, `src/research_engine/evaluation/` | Read orchestrator stage handlers first | phase-5 | 1 | 2026-07-06 | PROVISIONAL |
+| R033 | evaluation | deep audit, anomaly, frontier audit | `src/research_engine/evaluation/deep_audit.py` | Read deep auditor first | phase-5 | 1 | 2026-07-06 | PROVISIONAL |
 
 ## LEARNED — empty
 

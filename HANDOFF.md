@@ -61,9 +61,22 @@
     - Tests: 19 new screening/extraction unit tests, total 134 tests, 87% coverage.
   - Updated `.claude/agents/extraction-router.md` keyword table for screening, extraction, orchestrator integration, main.py, and state.
   - Added R020–R027 learned-route deltas to `.claude/research_engine-routes.md` for Phase 4 subsystems.
+  - Implemented Phase 5: adversarial verification + evaluation apparatus.
+    - `src/research_engine/adversarial/challenge.py`: `Challenge`, `VerificationResult`, `ChallengeDispatcher`, plus dict helpers.
+    - `src/research_engine/adversarial/devil.py`: `DevilAgent` rule-based challenger with optional frontier-model deep audit.
+    - `src/research_engine/adversarial/verifier.py`: `Verifier` checks quoted evidence, DOI shape, source locators, and URL reachability.
+    - `src/research_engine/evaluation/harness.py`: `EvaluationHarness` computes claim, challenge, verification, citation, coverage, and quality metrics.
+    - `src/research_engine/evaluation/reporter.py`: `Reporter` produces a Markdown insight brief with claims, evidence, challenges, and caveats.
+    - `src/research_engine/evaluation/improvement.py`: `ImprovementProposer` emits candidate R### deltas (never auto-applies).
+    - `src/research_engine/evaluation/deep_audit.py`: `DeepAuditor` stub with frontier-model audit path.
+    - `src/research_engine/orchestrator.py`: `ADVERSARIAL`, `EVALUATE`, and `DELIVER` stage handlers; persists challenges, verifications, evaluation report, and insight brief.
+    - `src/research_engine/extraction/structured.py`: added `paper` to `extracted_source_to_dict()` and `extracted_source_from_dict()` so adversarial stages can reconstruct sources.
+    - Tests: 14 new adversarial/evaluation unit tests, total 148 tests, 85% coverage.
+  - Updated `.claude/agents/evaluation-router.md` keyword table for orchestrator integration, main.py, and state.
+  - Added R028–R033 learned-route deltas to `.claude/research_engine-routes.md` for Phase 5 subsystems.
 - Open:
-  - Implement Phase 5: adversarial verification (Devil + Verifier + challenge engine).
-  - Validate local model stack (Ollama + Gemma/Qwen-class) for screening/extraction workloads.
+  - Implement Phase 6: delivery + insight briefs (`Research/` layout, artifact storage, aggregated `Research/Insights.MD`).
+  - Validate local model stack (Ollama + Gemma/Qwen-class) for adversarial/evaluation workloads.
 - Blocked: none.
 - Risks:
   - Ethical/legal boundary for "advanced penetration techniques" must remain pinned to authorized/defensive/public-only scope as browser capabilities grow.
@@ -71,13 +84,13 @@
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 4 (complete; PR #10 open)
-- Last passing commit: `e289afb`
-- Last PR: #10 (Phase 4 screening + structured extraction) — https://github.com/isaac233/Research-Engine/pull/10
+- Phase: 5 (complete; PR #11 open)
+- Last passing commit: TBD after PR #11 merge
+- Last PR: #11 (Phase 5 adversarial verification + evaluation apparatus)
 
 ## Next Priority Tasks
-1. Implement Phase 5: adversarial verification (Devil + Verifier + challenge engine).
-2. Validate local model stack (Ollama + Gemma/Qwen-class) for screening/extraction workloads.
+1. Implement Phase 6: delivery + insight briefs (`Research/` layout, artifact storage, aggregated `Research/Insights.MD`).
+2. Validate local model stack (Ollama + Gemma/Qwen-class) for adversarial/evaluation workloads.
 3. Continue adversarial review of browser policy and unblocking flow.
 
 ## Decisions / Assumptions
