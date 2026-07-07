@@ -72,8 +72,8 @@
 
 ## State of the Build
 - Phase: 4 (complete; PR #10 open)
-- Last passing commit: TBD after PR #10 merge
-- Last PR: #10 (Phase 4 screening + structured extraction)
+- Last passing commit: `e289afb`
+- Last PR: #10 (Phase 4 screening + structured extraction) — https://github.com/isaac233/Research-Engine/pull/10
 
 ## Next Priority Tasks
 1. Implement Phase 5: adversarial verification (Devil + Verifier + challenge engine).
