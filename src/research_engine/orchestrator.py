@@ -2,15 +2,26 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from research_engine.adversarial.challenge import challenge_to_dict, verification_to_dict
+from research_engine.adversarial.challenge import (
+    ChallengeDispatcher,
+    challenge_to_dict,
+    verification_to_dict,
+)
 from research_engine.adversarial.devil import DevilAgent
 from research_engine.adversarial.verifier import Verifier
 from research_engine.browser.ai_browser import AIBrowser
+from research_engine.cleanup.janitor import CleanupJanitor
+from research_engine.config import EngineConfig
 from research_engine.discovery.pipeline import DiscoveryPipeline
+from research_engine.discovery.query_planner import QueryPlanner
 from research_engine.discovery.schema import Paper
+from research_engine.evaluation.deep_audit import DeepAuditor
 from research_engine.evaluation.harness import EvaluationHarness
+from research_engine.evaluation.improvement import ImprovementProposer
 from research_engine.evaluation.reporter import Reporter
 from research_engine.events import EventBus
 from research_engine.extraction.structured import (
@@ -18,6 +29,9 @@ from research_engine.extraction.structured import (
     extracted_source_from_dict,
     extracted_source_to_dict,
 )
+from research_engine.monitoring.estimator import TimeEstimator
+from research_engine.monitoring.progress import StageProgressTracker
+from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
@@ -26,6 +40,7 @@ from research_engine.state import (
     CampaignStore,
     ResearchRequest,
 )
+from research_engine.storage.artifacts import ArtifactManager
 
 
 class Orchestrator:
@@ -55,6 +70,12 @@ class Orchestrator:
         verifier: Verifier | None = None,
         eval_harness: EvaluationHarness | None = None,
         reporter: Reporter | None = None,
+        project_root: Path | str | None = None,
+        progress_tracker: StageProgressTracker | None = None,
+        estimator: TimeEstimator | None = None,
+        telemetry_emitter: TelemetryEmitter | None = None,
+        telemetry_analyzer: TelemetryAnalyzer | None = None,
+        deep_auditor: DeepAuditor | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -66,6 +87,13 @@ class Orchestrator:
         self.verifier = verifier or Verifier()
         self.eval_harness = eval_harness or EvaluationHarness()
         self.reporter = reporter or Reporter()
+        self.config = EngineConfig(project_root)
+        self.artifacts = ArtifactManager(self.config)
+        self.progress_tracker = progress_tracker or StageProgressTracker()
+        self.estimator = estimator
+        self.telemetry_emitter = telemetry_emitter or TelemetryEmitter(self.event_bus)
+        self.telemetry_analyzer = telemetry_analyzer or TelemetryAnalyzer(self.event_bus)
+        self.deep_auditor = deep_auditor
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -181,22 +209,72 @@ class Orchestrator:
             "stage_enter",
             {"stage": stage.value, "status": campaign.status.value},
         )
+        self.telemetry_emitter.stage_transition(
+            campaign.id,
+            stage,
+            campaign.status,
+            {"stage": stage.value, "status": campaign.status.value},
+        )
         return campaign
 
     def _execute_stage(self, campaign: Campaign, stage: CampaignStage) -> Campaign:
         handler_name = f"_run_{stage.value}"
         handler = getattr(self, handler_name, self._run_stub)
-        result = handler(campaign)
+        try:
+            result = handler(campaign)
+        except Exception as exc:
+            campaign = self._set_status(campaign, CampaignStatus.FAILED)
+            self.event_bus.emit(
+                campaign.id,
+                "stage_failed",
+                {"stage": stage.value, "error": str(exc)},
+            )
+            raise
         self.event_bus.emit(
             campaign.id,
             "stage_exit",
             {"stage": stage.value, "result": result},
         )
+        self.telemetry_emitter.stage_transition(
+            campaign.id,
+            stage,
+            campaign.status,
+            {"stage": stage.value, "status": campaign.status.value},
+        )
+        self.telemetry_analyzer.check(campaign.id, self.store)
         return self._require_campaign(campaign.id)
 
     def _set_status(self, campaign: Campaign, status: CampaignStatus) -> Campaign:
         updated = campaign.with_status(status)
-        return self.store.update_campaign(updated)
+        updated = self.store.update_campaign(updated)
+        self.telemetry_emitter.campaign_lifecycle(
+            updated.id,
+            status,
+            {"status": status.value},
+        )
+        return updated
+
+    def status_snapshot(self, campaign_id: str) -> dict[str, Any]:
+        """Return a concise status snapshot for a campaign."""
+        campaign = self._require_campaign(campaign_id)
+        progress_percent, remaining_stages = self.progress_tracker.progress_and_remaining(
+            campaign
+        )
+        eta_seconds: int | None = None
+        if self.estimator is not None:
+            eta_seconds, _ = self.estimator.predict_remaining(
+                campaign, self.progress_tracker
+            )
+        alerts = self.telemetry_analyzer.check(campaign_id, self.store)
+        return {
+            "campaign_id": campaign.id,
+            "stage": campaign.stage.value,
+            "status": campaign.status.value,
+            "progress_percent": progress_percent,
+            "eta_seconds": eta_seconds,
+            "remaining_stages": remaining_stages,
+            "alerts": alerts,
+        }
 
     # --- Stage stubs: real work delegated to future subsystems. ---
 
@@ -204,8 +282,33 @@ class Orchestrator:
         """Placeholder for stages whose subsystems are not yet implemented."""
         return {"note": f"{campaign.stage.value} not yet implemented"}
 
-    _run_init = _run_stub
-    _run_plan = _run_stub
+    def _run_init(self, campaign: Campaign) -> dict[str, Any]:
+        """Initialize campaign metadata and record start time."""
+        now = datetime.now(UTC).isoformat()
+        self.store.update_campaign(
+            campaign.with_meta("init_at", now).with_meta("cleanup_ok", False)
+        )
+        return {"ok": True, "init_at": now}
+
+    def _run_plan(self, campaign: Campaign) -> dict[str, Any]:
+        """Build a research plan and store it in campaign metadata."""
+        planner = QueryPlanner()
+        plan = planner.plan(
+            campaign.request.query,
+            context=campaign.request.context,
+            max_sources=campaign.request.max_sources,
+        )
+        plan_dict: dict[str, Any] = {
+            "queries": [
+                {"source": q.source, "query": q.query, "rationale": q.rationale, "priority": q.priority}
+                for q in plan.queries
+            ],
+            "keywords": plan.keywords,
+            "rationale": plan.rationale,
+        }
+        self.store.update_campaign(campaign.with_meta("plan", plan_dict))
+        return {"ok": True, "query_count": len(plan_dict["queries"])}
+
     def _run_discover(self, campaign: Campaign) -> dict[str, Any]:
         """Dispatch discovery or unblocking probe depending on campaign type."""
         if campaign.meta.get("campaign_type") == "unblocking" and self.browser is not None:
@@ -213,7 +316,7 @@ class Orchestrator:
             return {
                 "ok": result.ok,
                 "action": result.action.value,
-                "content_preview": result.content[:500] if result.content else "",
+                "content_preview": str(result.content or "")[:500],
                 "error": result.error,
                 "meta": result.meta,
             }
@@ -263,10 +366,21 @@ class Orchestrator:
         included_data = campaign.meta.get("included_papers", [])
         if not included_data or self.extractor is None:
             return self._run_stub(campaign)
+        resolved_map = campaign.meta.get("resolved_map", {})
+        fetch_fn = self.browser.fetch_bytes if self.browser is not None else None
         extracted: list[dict[str, Any]] = []
         for paper_dict in included_data:
             paper = Paper.from_dict(paper_dict)
-            source = self.extractor.extract(paper, content=paper.abstract, is_oa=paper.pdf_url is not None)
+            resolved = resolved_map.get(paper.key, {})
+            content_url = resolved.get("url")
+            is_oa = bool(resolved.get("is_oa", False))
+            source = self.extractor.extract(
+                paper,
+                content=None,
+                content_url=content_url,
+                is_oa=is_oa,
+                fetch_fn=fetch_fn,
+            )
             extracted.append(extracted_source_to_dict(source))
         self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
         return {
@@ -300,9 +414,13 @@ class Orchestrator:
         sources = [extracted_source_from_dict(d) for d in extracted_data]
         challenges = self.devil.challenge(sources, query=campaign.request.query)
         verifications = self.verifier.verify(sources)
+        dispatcher = ChallengeDispatcher()
+        triage = dispatcher.dispatch(challenges)
+        triage_counts = {bucket: len(items) for bucket, items in triage.items()}
         self.store.update_campaign(
             campaign.with_meta("challenges", [challenge_to_dict(c) for c in challenges])
             .with_meta("verifications", [verification_to_dict(v) for v in verifications])
+            .with_meta("challenge_triage", triage_counts)
         )
         return {
             "ok": True,
@@ -310,32 +428,84 @@ class Orchestrator:
             "high_severity_count": sum(1 for c in challenges if c.severity == "high"),
             "verification_count": len(verifications),
             "failed_verification_count": sum(1 for v in verifications if not v.ok),
+            "triage": triage_counts,
         }
 
     def _run_evaluate(self, campaign: Campaign) -> dict[str, Any]:
         """Evaluate extracted output and produce a report."""
+        inputs = self._load_evaluation_inputs(campaign)
+        if inputs is None:
+            return self._run_stub(campaign)
+        sources, challenges, verifications = inputs
+        report, brief, proposals = self._build_report_and_brief(
+            sources, challenges, verifications, campaign.request.query
+        )
+        deep_audit_payload = self._build_deep_audit_payload(campaign)
+        updated = self._build_evaluation_meta(campaign, report, brief, proposals)
+        if deep_audit_payload is not None:
+            updated = updated.with_meta("deep_audit", deep_audit_payload)
+        self.store.update_campaign(updated)
+        return self._build_evaluation_result(report, brief, proposals, deep_audit_payload)
+
+    def _load_evaluation_inputs(
+        self, campaign: Campaign
+    ) -> tuple[list[Any], list[Any], list[Any]] | None:
+        """Deserialize sources, challenges, and verifications from campaign meta."""
         extracted_data = campaign.meta.get("extracted_sources", [])
+        if not extracted_data:
+            return None
         challenges_data = campaign.meta.get("challenges", [])
         verifications_data = campaign.meta.get("verifications", [])
-        if not extracted_data:
-            return self._run_stub(campaign)
         sources = [extracted_source_from_dict(d) for d in extracted_data]
         challenges = [self._dict_to_challenge(d) for d in challenges_data]
         verifications = [self._dict_to_verification(d) for d in verifications_data]
+        return sources, challenges, verifications
+
+    def _build_report_and_brief(
+        self,
+        sources: list[Any],
+        challenges: list[Any],
+        verifications: list[Any],
+        query: str,
+    ) -> tuple[Any, str, list[Any]]:
+        """Run the evaluation harness and render the insight brief."""
         report = self.eval_harness.evaluate(
             sources,
             challenges,
             verifications,
-            query=campaign.request.query,
+            query=query,
         )
         brief = self.reporter.to_markdown(
             report,
             sources=sources,
             challenges=challenges,
             verifications=verifications,
-            query=campaign.request.query,
+            query=query,
         )
-        self.store.update_campaign(
+        proposer = ImprovementProposer()
+        proposals = proposer.propose(report)
+        return report, brief, proposals
+
+    def _build_deep_audit_payload(self, campaign: Campaign) -> dict[str, Any] | None:
+        """Run the optional deep auditor and return a serializable payload."""
+        if self.deep_auditor is None:
+            return None
+        audit_result = self.deep_auditor.audit(campaign.meta, trigger="evaluate")
+        return {
+            "anomalies": audit_result.anomalies,
+            "recommendations": audit_result.recommendations,
+            "raw_response": audit_result.raw_response,
+        }
+
+    def _build_evaluation_meta(
+        self,
+        campaign: Campaign,
+        report: Any,
+        brief: str,
+        proposals: list[Any],
+    ) -> Campaign:
+        """Return a campaign updated with evaluation metadata."""
+        return (
             campaign.with_meta("evaluation_report", {
                 "total_claims": report.total_claims,
                 "total_sources": report.total_sources,
@@ -349,21 +519,50 @@ class Orchestrator:
                 "meta": report.meta,
             })
             .with_meta("insight_brief", brief)
+            .with_meta("improvement_proposals", proposals)
         )
-        return {
+
+    def _build_evaluation_result(
+        self,
+        report: Any,
+        brief: str,
+        proposals: list[Any],
+        deep_audit_payload: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Assemble the stage result dictionary."""
+        result: dict[str, Any] = {
             "ok": True,
             "coverage_score": report.coverage_score,
             "quality_score": report.quality_score,
             "brief_length": len(brief),
+            "proposal_count": len(proposals),
         }
+        if deep_audit_payload is not None:
+            result["deep_audit"] = deep_audit_payload
+        return result
 
     def _run_deliver(self, campaign: Campaign) -> dict[str, Any]:
-        """Return the insight brief for delivery to the main AI."""
+        """Write the insight brief to the host project's Research/ layout."""
         brief = campaign.meta.get("insight_brief", "")
+        if not brief:
+            return self._run_stub(campaign)
+        insights_path = self.artifacts.write_campaign_brief(
+            campaign.slug,
+            brief,
+            evidence_map={
+                "campaign_id": campaign.id,
+                "query": campaign.request.query,
+                "stage": campaign.stage.value,
+            },
+        )
+        existing = self.artifacts.list_campaign_briefs()
+        master_path = self.artifacts.write_master_brief(existing)
         return {
-            "ok": bool(brief),
+            "ok": True,
             "brief_length": len(brief),
-            "delivered": bool(brief),
+            "insights_path": str(insights_path),
+            "master_path": str(master_path),
+            "delivered": True,
         }
 
     def _dict_to_challenge(self, data: dict[str, Any]) -> Any:
@@ -389,4 +588,24 @@ class Orchestrator:
             reason=data.get("reason", ""),
         )
 
-    _run_finalize = _run_stub
+    def _run_finalize(self, campaign: Campaign) -> dict[str, Any]:
+        """Finalize a campaign: vacuum state DB and record cleanup receipt."""
+        now = datetime.now(UTC).isoformat()
+        janitor = CleanupJanitor(self.store.db_path)
+        cleanup = janitor.clean()
+        updated = (
+            campaign.with_meta("finalized_at", now)
+            .with_meta("cleanup_ok", cleanup.ok)
+            .with_meta("cleanup_receipt", {
+                "vacuumed_db": cleanup.vacuumed_db,
+                "error": cleanup.error,
+                "meta": cleanup.meta,
+            })
+        )
+        self.store.update_campaign(updated)
+        return {
+            "ok": cleanup.ok,
+            "finalized_at": now,
+            "cleanup_ok": cleanup.ok,
+            "cleanup_error": cleanup.error,
+        }

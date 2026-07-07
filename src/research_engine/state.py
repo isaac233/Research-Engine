@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import uuid
 from dataclasses import dataclass, field
@@ -102,13 +103,14 @@ class Campaign:
 
 
 def _slugify(query: str) -> str:
-    """Create a short URL-safe slug from a query."""
-    cleaned = "_".join(
-        word.lower()
-        for word in query.replace("-", " ").replace("_", " ").split()
-        if word.isalnum()
-    )
-    return cleaned[:50] or "campaign"
+    """Create a short URL-safe slug from a query.
+
+    Strips path separators, dots, and control characters so the resulting
+    slug can safely be used as a directory name.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", query.lower())
+    slug = slug.strip("_")[:50]
+    return slug or "campaign"
 
 
 class CampaignStore:

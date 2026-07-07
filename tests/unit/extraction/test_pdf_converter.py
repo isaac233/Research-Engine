@@ -21,3 +21,10 @@ def test_corrupt_pdf_keeps_original(tmp_path: Path) -> None:
     result = converter.convert(pdf_path)
     assert result.ok is False
     assert result.original_path == str(pdf_path)
+
+
+def test_convert_bytes_preserves_original(tmp_path: Path) -> None:
+    converter = PDFConverter()
+    result = converter.convert_bytes(b"not a pdf", output_dir=tmp_path)
+    assert result.meta.get("original_bytes_size") == 9
+    assert result.meta.get("original_bytes_preserved") is True

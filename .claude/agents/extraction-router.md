@@ -63,6 +63,12 @@ NEXT: <one action or closed>
 COMMIT: <suggested message>
 ```
 
+## FROZEN EVAL
+
+Read-only evaluation mode. Inspect files, run tests, and report findings, but
+NEVER edit source files or mutate `.claude/research-engine-routes.md`. Switch
+to ROUTE or EXECUTE for any changes.
+
 # KEYWORD TABLE
 
 | Signal (task mentions…) | Load these (+ test under `tests/`) |

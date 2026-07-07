@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import quote_plus
 
 from research_engine.browser.ai_browser import (
     AIBrowser,
@@ -109,7 +110,7 @@ class UnblockProbe(AIBrowser):
 
     def _search_urls(self, query: str) -> list[str]:
         """Generate candidate search URLs."""
-        encoded = query.replace(" ", "+")
+        encoded = quote_plus(query)
         return [
             f"https://www.google.com/search?q={encoded}",
             f"https://duckduckgo.com/html/?q={encoded}",

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from research_engine.browser.policy import URLPolicy
 from research_engine.discovery.schema import Paper
 from research_engine.extraction.citation import Citation, citations_to_dict, extract_citations
+from research_engine.extraction.markdownify import markdownify
 from research_engine.extraction.pdf_converter import PDFConverter
 
 
@@ -44,8 +47,13 @@ class ExtractedSource:
 class StructuredExtractor:
     """Extract structured information from a paper + its resolved full text."""
 
-    def __init__(self, pdf_converter: PDFConverter | None = None) -> None:
+    def __init__(
+        self,
+        pdf_converter: PDFConverter | None = None,
+        url_policy: URLPolicy | None = None,
+    ) -> None:
         self.pdf_converter = pdf_converter or PDFConverter()
+        self.url_policy = url_policy or URLPolicy()
 
     def extract(
         self,
@@ -54,6 +62,7 @@ class StructuredExtractor:
         content_url: str | None = None,
         is_oa: bool = False,
         project_data: list[dict[str, Any]] | None = None,
+        fetch_fn: Callable[[str], bytes] | None = None,
     ) -> ExtractedSource:
         """Extract structured fields from a paper.
 
@@ -63,25 +72,12 @@ class StructuredExtractor:
         project_data = project_data or []
         text = content or ""
         tool = "provided"
+        error: str | None = None
 
         if not text:
-            text, tool, error = self._load_content(paper)
-            if error:
-                return ExtractedSource(
-                    paper=paper,
-                    title=paper.title,
-                    summary="",
-                    methodology="",
-                    data_summary="",
-                    results_summary="",
-                    claims=[],
-                    citations=[],
-                    conflicts=[],
-                    full_text_url=content_url or paper.pdf_url or paper.url,
-                    is_oa=is_oa,
-                    extraction_tool=tool,
-                    error=error,
-                )
+            text, tool, error = self._load_content(
+                paper, content_url=content_url, is_oa=is_oa, fetch_fn=fetch_fn
+            )
 
         title = paper.title
         summary = self._paragraph(text, 0) or paper.abstract or ""
@@ -106,18 +102,63 @@ class StructuredExtractor:
             full_text_url=content_url or paper.pdf_url or paper.url,
             is_oa=is_oa,
             extraction_tool=tool,
+            error=error,
             meta={"char_count": len(text), "citation_count": len(citations)},
         )
 
-    def _load_content(self, paper: Paper) -> tuple[str, str, str | None]:
+    def _load_content(
+        self,
+        paper: Paper,
+        content_url: str | None = None,
+        is_oa: bool = False,
+        fetch_fn: Callable[[str], bytes] | None = None,
+    ) -> tuple[str, str, str | None]:
         """Load text content for a paper. Returns (text, tool, error)."""
-        if paper.pdf_url:
-            return ("", "pdf", "PDF conversion not available without local file path")
-
-        if paper.url:
-            return ("", "remote", "Remote fetch not available in this extractor")
+        url = content_url or paper.pdf_url or paper.url
+        if url and fetch_fn is not None:
+            allowed, reason = self.url_policy.allow(url)
+            if not allowed:
+                return (
+                    paper.abstract or "",
+                    "abstract",
+                    f"URL blocked by policy: {reason}",
+                )
+            if not is_oa:
+                return (
+                    paper.abstract or "",
+                    "abstract",
+                    "URL is not open-access; fetch refused",
+                )
+            try:
+                data = fetch_fn(url)
+            except Exception as exc:  # noqa: BLE001
+                return (
+                    paper.abstract or "",
+                    "abstract",
+                    f"Fetch failed: {exc}",
+                )
+            is_pdf_url = url.lower().endswith(".pdf") or url == paper.pdf_url
+            if is_pdf_url:
+                result = self.pdf_converter.convert_bytes(data)
+                if result.ok:
+                    return (result.markdown, f"pdf:{result.tool}", None)
+                return (
+                    paper.abstract or "",
+                    "abstract",
+                    f"PDF conversion failed: {result.error}",
+                )
+            text = self._decode_text(data)
+            md = markdownify(text)
+            return (md.markdown, "markdownify", None)
 
         return (paper.abstract or "", "abstract", None)
+
+    def _decode_text(self, data: bytes) -> str:
+        """Decode fetched bytes to text, tolerating binary drift."""
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            return data.decode("latin-1", errors="ignore")
 
     def _paragraph(self, text: str, index: int) -> str:
         paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]

@@ -14,6 +14,7 @@ from research_engine.discovery.pipeline import DiscoveryPipeline
 from research_engine.discovery.source_registry import SourceRegistry
 from research_engine.events import EventBus
 from research_engine.extraction.structured import StructuredExtractor
+from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.orchestrator import Orchestrator
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import CampaignStore, ResearchRequest
@@ -29,13 +30,17 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     discovery = DiscoveryPipeline(registry=registry)
     ranker = SourceRanker()
     extractor = StructuredExtractor()
+    event_bus = EventBus(store)
+    estimator = TimeEstimator(store)
     return Orchestrator(
         store,
-        EventBus(store),
+        event_bus,
         browser=browser,
         discovery=discovery,
         ranker=ranker,
         extractor=extractor,
+        project_root=project_root,
+        estimator=estimator,
     )
 
 
@@ -80,11 +85,18 @@ def status(ctx: click.Context, campaign_id: str) -> None:
     if campaign is None:
         click.echo(f"Campaign not found: {campaign_id}", err=True)
         sys.exit(1)
+    snapshot = orchestrator.status_snapshot(campaign_id)
     click.echo(f"id: {campaign.id}")
     click.echo(f"slug: {campaign.slug}")
-    click.echo(f"stage: {campaign.stage.value}")
-    click.echo(f"status: {campaign.status.value}")
+    click.echo(f"stage: {snapshot['stage']}")
+    click.echo(f"status: {snapshot['status']}")
+    click.echo(f"progress: {snapshot['progress_percent']}%")
+    eta = snapshot["eta_seconds"]
+    click.echo(f"eta_seconds: {eta if eta is not None else 'unknown'}")
+    click.echo(f"remaining: {', '.join(snapshot['remaining_stages'])}")
     click.echo(f"query: {campaign.request.query}")
+    if snapshot["alerts"]:
+        click.echo(f"alerts: {len(snapshot['alerts'])}")
 
 
 @cli.command()

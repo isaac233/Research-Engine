@@ -74,9 +74,24 @@
     - Tests: 14 new adversarial/evaluation unit tests, total 148 tests, 85% coverage.
   - Updated `.claude/agents/evaluation-router.md` keyword table for orchestrator integration, main.py, and state.
   - Added R028–R033 learned-route deltas to `.claude/research_engine-routes.md` for Phase 5 subsystems.
+  - Implemented Phase 6 monitoring/telemetry/status + closed Phase 0–4 gaps.
+    - `src/research_engine/llm/__init__.py`: lazy `__getattr__` imports for `AnthropicClient` / `OllamaClient`; no hard runtime dependency on optional clients.
+    - `config/default.yaml`: conservative defaults for Unpaywall email, rate limits, browser timeout/retries, and enabled sources.
+    - `.claude/agents/{discovery,browser,extraction,evaluation}-router.md`: added `FROZEN EVAL` read-only mode to all four router agents.
+    - `src/research_engine/extraction/pdf_converter.py`: `convert_bytes()` for in-memory PDF conversion preserving original byte metadata.
+    - `src/research_engine/extraction/structured.py`: URLPolicy-gated full-text fetch with PDF conversion, markdownify HTML extraction, and abstract fallback; wired through `orchestrator.py` via `resolved_map`.
+    - `src/research_engine/monitoring/progress.py`: `StageProgressTracker` with uniform/custom weights.
+    - `src/research_engine/monitoring/estimator.py`: `TimeEstimator` using per-campaign stage history.
+    - `src/research_engine/monitoring/calibrator.py`: `Calibrator` normalizing stage weights from observed durations.
+    - `src/research_engine/monitoring/telemetry.py`: `TelemetryAnalyzer` with stuck-stage, stage-failure, and thrashing alerts.
+    - `src/research_engine/cleanup/janitor.py`: `CleanupJanitor` vacuums SQLite state DB without touching research artifacts.
+    - `src/research_engine/orchestrator.py`: `INIT`, `PLAN`, `FINALIZE` handlers; telemetry/estimator/progress/analyzer integration; `status_snapshot()`; `_run_adversarial` uses `ChallengeDispatcher`; `_run_evaluate` wires `ImprovementProposer` and optional `DeepAuditor`.
+    - `src/research_engine/main.py`: `_make_orchestrator` constructs `TimeEstimator`; `status` command prints progress, ETA, remaining stages, and alert count.
+    - Tests: 191 tests collected, 88% coverage (`python -m pytest -q`).
+  - Added R034–R041 learned-route deltas to `.claude/research-engine-routes.md` for Phase 6 / gap-closure subsystems.
 - Open:
-  - Implement Phase 6: delivery + insight briefs (`Research/` layout, artifact storage, aggregated `Research/Insights.MD`).
-  - Validate local model stack (Ollama + Gemma/Qwen-class) for adversarial/evaluation workloads.
+  - Implement Phase 7: campaign analytics dashboard, model-stack validation (Ollama + Gemma/Qwen-class), and production hardening.
+  - Continue adversarial review of browser policy and unblocking flow.
 - Blocked: none.
 - Risks:
   - Ethical/legal boundary for "advanced penetration techniques" must remain pinned to authorized/defensive/public-only scope as browser capabilities grow.
@@ -84,14 +99,14 @@
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 5 (complete; PR #11 open)
+- Phase: 6 (implemented; changes uncommitted on `phase-5-adversarial` branch)
 - Last passing commit: `940d342`
 - Last PR: #11 (Phase 5 adversarial verification + evaluation apparatus) — https://github.com/isaac233/Research-Engine/pull/11
 
 ## Next Priority Tasks
-1. Implement Phase 6: delivery + insight briefs (`Research/` layout, artifact storage, aggregated `Research/Insights.MD`).
-2. Validate local model stack (Ollama + Gemma/Qwen-class) for adversarial/evaluation workloads.
-3. Continue adversarial review of browser policy and unblocking flow.
+1. Implement Phase 7: campaign analytics dashboard, model-stack validation (Ollama + Gemma/Qwen-class), and production hardening.
+2. Continue adversarial review of browser policy and unblocking flow.
+3. Finalize PR #12 covering Phase 6 + gap closure once review gates pass.
 
 ## Decisions / Assumptions
 - ADR-001: Python 3.12+ primary; SQLite for state, DuckDB for corpora.

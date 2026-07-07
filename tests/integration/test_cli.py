@@ -30,3 +30,15 @@ def test_cli_status_missing_campaign() -> None:
         result = runner.invoke(cli, ["--project-root", tmp, "status", "not-real"])
         assert result.exit_code == 1
         assert "not found" in result.output
+
+
+def test_cli_status_shows_progress_and_eta() -> None:
+    runner = CliRunner()
+    with tempfile.TemporaryDirectory() as tmp:
+        run_result = runner.invoke(cli, ["--project-root", tmp, "run", "test status query"])
+        assert run_result.exit_code == 0
+        campaign_id = run_result.output.split()[1]
+        status_result = runner.invoke(cli, ["--project-root", tmp, "status", campaign_id])
+        assert status_result.exit_code == 0
+        assert "progress:" in status_result.output
+        assert "remaining:" in status_result.output

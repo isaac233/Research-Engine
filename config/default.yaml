@@ -1,0 +1,16 @@
+unpaywall:
+  email: research@example.com
+
+rate_limits:
+  requests_per_minute: 60
+
+browser:
+  timeout: 20
+  max_retries: 3
+
+sources:
+  enabled:
+    - semantic_scholar
+    - crossref
+    - arxiv
+    - openalex

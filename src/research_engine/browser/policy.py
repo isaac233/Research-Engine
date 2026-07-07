@@ -39,12 +39,23 @@ class URLPolicy:
 
         try:
             ip = ipaddress.ip_address(host)
-            if ip.is_private or ip.is_loopback or ip.is_reserved or ip.is_multicast:
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_reserved
+                or ip.is_multicast
+                or ip.is_link_local
+            ):
                 return False, f"private/reserved IP {host} blocked"
         except ValueError:
             # Not an IP; check for localhost-style hostnames.
             if re.search(r"\blocalhost\b", host) or host.endswith(".local"):
                 return False, "local hostname blocked"
+
+        # Restrict to standard web ports.
+        port = parsed.port
+        if port is not None and port not in {80, 443}:
+            return False, f"port {port} not allowed"
 
         return True, "allowed"
 

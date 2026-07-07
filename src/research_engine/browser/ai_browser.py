@@ -68,6 +68,21 @@ class AIBrowser(ABC):
         """Convenience fetch helper."""
         return self.act(BrowserAction(action=BrowserActionType.FETCH, url=url, headers=headers or {}))
 
+    def fetch_bytes(self, url: str, headers: dict[str, str] | None = None) -> bytes:
+        """Fetch a URL and return raw response bytes.
+
+        Default implementation delegates to :meth:`fetch`. Subclasses that
+        support binary content should override to avoid text decoding.
+        """
+        result = self.fetch(url, headers)
+        if not result.ok:
+            raise RuntimeError(result.error or f"fetch failed for {url}")
+        content = result.content
+        if isinstance(content, str):
+            return content.encode("utf-8")
+        return content
+
     def unblock(self, query: str) -> BrowserResult:
-        """Convenience unblocking research helper."""
+        """Convenience unblocking helper."""
         return self.act(BrowserAction(action=BrowserActionType.UNBLOCK, query=query))
+

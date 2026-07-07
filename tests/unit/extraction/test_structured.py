@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from research_engine.discovery.schema import Paper
 from research_engine.extraction.structured import StructuredExtractor, extracted_source_to_dict
 
@@ -66,3 +68,102 @@ def test_no_content_uses_abstract() -> None:
     source = extractor.extract(paper)
     assert source.summary == "This is the abstract."
     assert source.extraction_tool == "abstract"
+
+
+def test_fetch_html_content() -> None:
+    paper = Paper(
+        title="HTML Paper",
+        source="test",
+        source_id="html-1",
+        url="https://example.com/article",
+        abstract="Fallback abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        return b"<html><body><h1>HTML Paper</h1><p>We found a result.</p></body></html>"
+
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, is_oa=True, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "markdownify"
+    assert "HTML Paper" in source.summary
+
+
+def test_fetch_pdf_content_with_fake_converter() -> None:
+    paper = Paper(
+        title="PDF Paper",
+        source="test",
+        source_id="pdf-1",
+        pdf_url="https://example.com/paper.pdf",
+        url="https://example.com/paper",
+        abstract="Fallback abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        return b"pdf bytes"
+
+    class FakeConverter:
+        def convert_bytes(self, pdf_bytes: bytes, output_dir: Any = None) -> Any:
+            from research_engine.extraction.pdf_converter import PDFConversionResult
+
+            return PDFConversionResult(
+                markdown="# PDF Paper\n\nWe found a result.",
+                ok=True,
+                tool="fake",
+            )
+
+    extractor = StructuredExtractor(pdf_converter=FakeConverter())
+    source = extractor.extract(paper, is_oa=True, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "pdf:fake"
+    assert "PDF Paper" in source.summary
+
+
+def test_fetch_refuses_blocked_url() -> None:
+    paper = Paper(
+        title="Blocked Paper",
+        source="test",
+        url="file:///etc/passwd",
+        abstract="Safe abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        return b"secret"
+
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, is_oa=True, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "abstract"
+    assert "blocked" in (source.error or "").lower()
+
+
+def test_fetch_refuses_non_oa_url() -> None:
+    paper = Paper(
+        title="Non-OA Paper",
+        source="test",
+        url="https://example.com/paywall",
+        abstract="Fallback abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        return b"paywall html"
+
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, is_oa=False, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "abstract"
+    assert "not open-access" in (source.error or "").lower()
+
+
+def test_fetch_failure_falls_back_to_abstract() -> None:
+    paper = Paper(
+        title="Fetch Failure Paper",
+        source="test",
+        url="https://example.com/article",
+        abstract="Fallback abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        raise RuntimeError("network down")
+
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, is_oa=True, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "abstract"
+    assert source.summary == "Fallback abstract."
+    assert "fetch failed" in (source.error or "").lower()
