@@ -22,6 +22,13 @@
 | R010 | browser | robots.txt, SSRF, URL policy | `src/research_engine/browser/robots.py`, `src/research_engine/browser/policy.py` | Read policy guards first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
 | R011 | browser | GraphQL, API query | `src/research_engine/browser/graphql_client.py` | Read GraphQL helper first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
 | R012 | browser | unblock, blocker, cannot find, missing source | `src/research_engine/browser/unblock_probe.py`, `src/research_engine/orchestrator.py` | Read probe + orchestrator integration first | phase-2 | 1 | 2026-07-06 | PROVISIONAL |
+| R013 | discovery | discovery pipeline, DiscoveryPipeline, end-to-end search | `src/research_engine/discovery/pipeline.py` | Read pipeline first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
+| R014 | discovery | source adapters, Semantic Scholar, Crossref, arXiv, OpenAlex, SERP, web crawl | `src/research_engine/discovery/sources/` | Read adapter directory first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
+| R015 | discovery | dedup, snowball, resolver, full text, DOI, PDF | `src/research_engine/discovery/dedup.py`, `src/research_engine/discovery/snowball.py`, `src/research_engine/discovery/resolver.py` | Read dedup/snowball/resolver first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
+| R016 | discovery | query planner, search strategy, keywords | `src/research_engine/discovery/query_planner.py` | Read query planner first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
+| R017 | discovery | Paper, SourceQuery, SearchResult, DiscoveryResult schema | `src/research_engine/discovery/schema.py` | Read schema first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
+| R018 | discovery | source registry, enabled sources, adapter lookup | `src/research_engine/discovery/source_registry.py` | Read registry first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
+| R019 | orchestrator | DISCOVER stage, discovery integration, campaign search | `src/research_engine/orchestrator.py`, `src/research_engine/discovery/pipeline.py` | Read orchestrator integration first | phase-3 | 1 | 2026-07-06 | PROVISIONAL |
 
 ## LEARNED — empty
 

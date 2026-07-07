@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from research_engine.browser.ai_browser import AIBrowser
 from research_engine.events import EventBus
@@ -13,6 +13,9 @@ from research_engine.state import (
     CampaignStore,
     ResearchRequest,
 )
+
+if TYPE_CHECKING:
+    from research_engine.discovery.pipeline import DiscoveryPipeline
 
 
 class Orchestrator:
@@ -35,10 +38,12 @@ class Orchestrator:
         store: CampaignStore,
         event_bus: EventBus | None = None,
         browser: AIBrowser | None = None,
+        discovery: DiscoveryPipeline | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
         self.browser = browser
+        self.discovery = discovery
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -189,6 +194,20 @@ class Orchestrator:
                 "content_preview": result.content[:500] if result.content else "",
                 "error": result.error,
                 "meta": result.meta,
+            }
+        if self.discovery is not None:
+            discovery_result = self.discovery.run(
+                campaign.request.query,
+                context=campaign.request.context,
+                max_sources=campaign.request.max_sources,
+            )
+            return {
+                "ok": True,
+                "canonical_count": len(discovery_result.deduped_groups),
+                "resolved_count": len(discovery_result.resolved),
+                "snowball_count": len(discovery_result.snowball_papers),
+                "sources": [r.source for r in discovery_result.search_results],
+                "errors": [r.error for r in discovery_result.search_results if r.error],
             }
         return self._run_stub(campaign)
 
