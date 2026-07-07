@@ -85,8 +85,8 @@
 
 ## State of the Build
 - Phase: 5 (complete; PR #11 open)
-- Last passing commit: TBD after PR #11 merge
-- Last PR: #11 (Phase 5 adversarial verification + evaluation apparatus)
+- Last passing commit: `940d342`
+- Last PR: #11 (Phase 5 adversarial verification + evaluation apparatus) — https://github.com/isaac233/Research-Engine/pull/11
 
 ## Next Priority Tasks
 1. Implement Phase 6: delivery + insight briefs (`Research/` layout, artifact storage, aggregated `Research/Insights.MD`).
