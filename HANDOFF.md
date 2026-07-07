@@ -108,9 +108,9 @@
   - Unblocking campaigns must not drift into gray-area sources; the SSRF/robots.txt policy is the guardrail.
 
 ## State of the Build
-- Phase: 7 (implemented)
-- Last passing commit: `4227123`
-- Last PR: #11 (Phase 5-6: adversarial verification + monitoring/cleanup/storage + browser hardening) — https://github.com/isaac233/Research-Engine/pull/11
+- Phase: 7 (implemented + committed/pushed on `phase-5-adversarial` branch)
+- Last passing commit: `45895b4`
+- Last PR: #11 (Phase 5-7: adversarial verification + monitoring/cleanup/storage + browser hardening + dashboard/model validation/config/cache) — https://github.com/isaac233/Research-Engine/pull/11
 
 ## Next Priority Tasks
 1. Continue adversarial review of browser policy and unblocking flow.
