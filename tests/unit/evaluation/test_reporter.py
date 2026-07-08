@@ -37,3 +37,4 @@ def test_reporter_includes_summary_claims_and_challenges() -> None:
     assert "Accuracy increased by 12%" in md
     assert "missing_evidence" in md
     assert "Caveats" in md
+    assert "F1 score" in md

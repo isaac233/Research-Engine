@@ -1,0 +1,279 @@
+{
+  "comment": "Golden-answer evaluation fixtures for the Research Engine self-evaluation command. Each entry provides synthetic sources and the claims the extractor should surface.",
+  "version": "1.0",
+  "fixtures": [
+    {
+      "id": "accuracy-improvement",
+      "query": "Does the new method improve accuracy?",
+      "expected_claims": [
+        "The new method improves accuracy by 12%.",
+        "Training time is reduced by 20% with the optimized pipeline."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Accuracy Gains from Pipeline Optimization",
+            "source": "test",
+            "doi": "10.1000/accuracy",
+            "year": 2024
+          },
+          "content": "We ran a controlled experiment. The new method improves accuracy by 12%. Training time is reduced by 20% with the optimized pipeline.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "coverage-vs-quality",
+      "query": "How should research engine quality be measured?",
+      "expected_claims": [
+        "Coverage score rewards sources, claims, and citations.",
+        "Quality score penalizes failed verifications and high-severity challenges."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Evaluation Heuristics",
+            "source": "test",
+            "doi": "10.1000/eval",
+            "year": 2024
+          },
+          "content": "Coverage score rewards sources, claims, and citations. Quality score penalizes failed verifications and high-severity challenges.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "no-claims",
+      "query": "What is the background of the study?",
+      "expected_claims": [],
+      "sources": [
+        {
+          "paper": {
+            "title": "Background Text",
+            "source": "test",
+            "doi": "10.1000/background",
+            "year": 2024
+          },
+          "content": "This paper introduces the topic. Previous work is described in detail. The motivation for the study is outlined.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "distractor-precision",
+      "query": "Does the method improve speed?",
+      "expected_claims": [
+        "Latency is reduced by 30% after optimization."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Speed and Accuracy",
+            "source": "test",
+            "doi": "10.1000/speed",
+            "year": 2024
+          },
+          "content": "We observe that accuracy improves with larger models. Latency is reduced by 30% after optimization. The baseline remains unchanged.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "paraphrase-recall",
+      "query": "How does the proposed model perform?",
+      "expected_claims": [
+        "The proposed transformer model surpasses the baseline by a wide margin."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Paraphrased Results",
+            "source": "test",
+            "doi": "10.1000/paraphrase",
+            "year": 2024
+          },
+          "content": "The proposed transformer model greatly exceeds the baseline performance.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "multi-sentence-claim",
+      "query": "What are the benefits of the new optimizer?",
+      "expected_claims": [
+        "The new optimizer reduces memory usage and improves throughput by 25%."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Optimizer Improvements",
+            "source": "test",
+            "doi": "10.1000/optimizer",
+            "year": 2024
+          },
+          "content": "We evaluated the new optimizer. The new optimizer reduces memory usage. It also improves throughput by 25%. The baseline used more memory.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "negation-semantic",
+      "query": "Is the proposed method safe?",
+      "expected_claims": [
+        "The proposed method is not safe."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Safety Analysis",
+            "source": "test",
+            "doi": "10.1000/safety",
+            "year": 2024
+          },
+          "content": "Results show the proposed method is not safe because it exposes user data.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "direction-opposite",
+      "query": "How did accuracy change after fine-tuning?",
+      "category": "trap",
+      "expected_claims": [
+        "Accuracy increased after fine-tuning."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Fine-Tuning Results",
+            "source": "test",
+            "doi": "10.1000/direction",
+            "year": 2024
+          },
+          "content": "Results show that accuracy decreased after fine-tuning.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "tautology-trap",
+      "query": "Does the proposed approach outperform the baseline?",
+      "category": "trap",
+      "expected_claims": [
+        "The proposed approach outperforms the baseline."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Baseline Comparison",
+            "source": "test",
+            "doi": "10.1000/tautology",
+            "year": 2024
+          },
+          "content": "The proposed approach is a proposed approach.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "antonym-adjective",
+      "query": "Is the proposed method safe?",
+      "category": "trap",
+      "expected_claims": [
+        "The proposed method is safe."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Safety Analysis",
+            "source": "test",
+            "doi": "10.1000/antonym",
+            "year": 2024
+          },
+          "content": "The proposed method is unsafe.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "hedge-precision",
+      "query": "Does the method improve accuracy?",
+      "category": "trap",
+      "expected_claims": [
+        "The method improves accuracy."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Synthetic Data Results",
+            "source": "test",
+            "doi": "10.1000/hedge",
+            "year": 2024
+          },
+          "content": "The method improves accuracy only on synthetic data.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "temporal-mismatch",
+      "query": "When does accuracy improve?",
+      "category": "trap",
+      "expected_claims": [
+        "Accuracy improves after fine-tuning."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Temporal Results",
+            "source": "test",
+            "doi": "10.1000/temporal",
+            "year": 2024
+          },
+          "content": "Accuracy improves before fine-tuning.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "numeric-mismatch",
+      "query": "Does the method improve accuracy?",
+      "category": "trap",
+      "expected_claims": [
+        "Accuracy improves by 12%."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Accuracy Results",
+            "source": "test",
+            "doi": "10.1000/numeric",
+            "year": 2024
+          },
+          "content": "Accuracy improves by 5%.",
+          "is_oa": true
+        }
+      ]
+    },
+    {
+      "id": "causal-correlation",
+      "query": "Do larger models cause higher accuracy?",
+      "category": "trap",
+      "expected_claims": [
+        "Larger models cause higher accuracy."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Model Size Analysis",
+            "source": "test",
+            "doi": "10.1000/causal",
+            "year": 2024
+          },
+          "content": "Larger models are correlated with higher accuracy.",
+          "is_oa": true
+        }
+      ]
+    }
+  ]
+}

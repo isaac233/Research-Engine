@@ -89,6 +89,8 @@ def test_fetch_html_content() -> None:
 
 
 def test_fetch_pdf_content_with_fake_converter() -> None:
+    from research_engine.extraction.pdf_converter import PDFConversionResult, PDFConverter
+
     paper = Paper(
         title="PDF Paper",
         source="test",
@@ -101,10 +103,8 @@ def test_fetch_pdf_content_with_fake_converter() -> None:
     def fetch_fn(url: str) -> bytes:
         return b"pdf bytes"
 
-    class FakeConverter:
+    class FakeConverter(PDFConverter):
         def convert_bytes(self, pdf_bytes: bytes, output_dir: Any = None) -> Any:
-            from research_engine.extraction.pdf_converter import PDFConversionResult
-
             return PDFConversionResult(
                 markdown="# PDF Paper\n\nWe found a result.",
                 ok=True,
@@ -167,3 +167,38 @@ def test_fetch_failure_falls_back_to_abstract() -> None:
     assert source.extraction_tool == "abstract"
     assert source.summary == "Fallback abstract."
     assert "fetch failed" in (source.error or "").lower()
+
+
+def test_prefers_quantitative_claims_when_present() -> None:
+    paper = Paper(title="Quantitative Filter", source="test")
+    content = (
+        "We observe that accuracy improves with larger models. "
+        "Latency is reduced by 30% after optimization."
+    )
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, content=content)
+    assert len(source.claims) == 1
+    assert "30%" in source.claims[0].claim
+    assert source.claims[0].confidence == "high"
+
+
+def test_keeps_qualitative_claims_when_no_quantitative_ones() -> None:
+    paper = Paper(title="Qualitative Only", source="test")
+    content = "Coverage score rewards sources, claims, and citations."
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, content=content)
+    assert len(source.claims) == 1
+    assert source.claims[0].confidence == "medium"
+
+
+def test_merges_adjacent_continuation_claims() -> None:
+    paper = Paper(title="Merged Claim", source="test")
+    content = (
+        "The new optimizer reduces memory usage. "
+        "It also improves throughput by 25%."
+    )
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, content=content)
+    assert len(source.claims) == 1
+    assert "memory usage" in source.claims[0].claim
+    assert "25%" in source.claims[0].claim

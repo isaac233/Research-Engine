@@ -164,18 +164,43 @@
 - Added two searchable SQLite databases to make the engine's prior work reusable and auditable:
   - `src/research_engine/storage/source_memory.py`: `SourceMemory` catalog of good sources with topic/information tags, access methods, reliability scores, search hints, and FTS5 full-text search.
   - `src/research_engine/storage/agent_history.py`: `AgentHistory` append-only audit log of agent actions with URL/API, request/response summaries, outcomes, reasons, evidence links, and redacted headers.
+- Added `src/research_engine/storage/_redaction.py` for shared URL/secret/metadata sanitization and `src/research_engine/orchestrator_instrumentation.py` to keep `orchestrator.py` under 800 lines.
 - `EngineConfig` gained `source_memory_db_path()` and `agent_history_db_path()`.
 - `_make_orchestrator` in `src/research_engine/main.py` now constructs both stores and injects them into `Orchestrator`.
 - `Orchestrator` records stage transitions, browser unblocking probes, and discovery search results into `AgentHistory`; discovery sources are remembered in `SourceMemory`.
+- Added input-length and URL-policy validation before passing untrusted query/context/URLs to the browser, discovery pipeline, and extractor.
 - Added unit tests:
   - `tests/unit/storage/test_source_memory.py`
   - `tests/unit/storage/test_agent_history.py`
+  - `tests/unit/storage/test_redaction.py`
+  - updated `tests/unit/test_orchestrator.py`
 - Updated architecture docs in `docs/architecture/storage.md`.
+- Merged via PR #16: https://github.com/isaac233/Research-Engine/pull/16 (commit `efc4e147a48ea3cf13db29427742d335ed4fb57e`).
 - Verification:
   - `pytest -q` → all tests passing, 87% coverage.
   - `mypy src/research_engine` → clean.
   - `ruff check .` → clean.
-  - `bandit -r src` → 0 HIGH/CRITICAL findings.
+  - `bandit -r src` → 0 HIGH/CRITICAL findings in changed modules (11 pre-existing LOW/MEDIUM issues elsewhere).
+
+## Self-Research & Golden-Answer Eval Session — 2026-07-08
+- Added a deterministic golden-answer evaluation harness and a self-research loop that runs the engine on its own codebase.
+  - `src/research_engine/evaluation/harness.py`: `EvaluationReport` gained `precision`/`recall`/`f1_score`; `EvaluationHarness.evaluate()` accepts `expected_claims` and computes precision/recall/F1 via maximum bipartite (Kuhn) claim matching. Paraphrase matching guards against negation, directional opposites, morphological antonyms, qualifier/scope mismatch, numeric mismatch, causal-vs-correlational mismatch, and tautologies.
+  - `src/research_engine/main.py`: new `self-eval` CLI command runs a fixture of synthetic sources with known expected claims and reports mean F1, utility mean F1, and a trap robustness score; `--output`/`--force`/`--threshold` options; shared `_validate_output_path` (extracted from `report`).
+  - `src/research_engine/extraction/structured.py`: richer claim markers, adjacent-claim merging for multi-sentence findings, confidence scoring (quantitative claims → high), and confidence-based filtering to raise precision.
+  - `src/research_engine/evaluation/improvement.py`: R050/R051/R052 delta candidates driven by F1, missing expected claims, and a saturated benchmark.
+  - `src/research_engine/evaluation/reporter.py` + `orchestrator.py`: surface precision/recall/F1 in the brief and persisted evaluation report.
+  - `scripts/self_research.py`: builds a local doc/source corpus, monkey-patches discovery to return it, drives a full campaign through the orchestrator, then runs the golden-answer benchmark and captures metrics/proposals to JSON. Runtime + F1 thresholds gate exit code.
+  - `tests/fixtures/eval_qa.json`: 14 fixtures — 7 utility (all score F1 1.0) + 7 adversarial traps (all correctly score F1 0.0, robustness 1.0).
+  - Tests: `tests/unit/evaluation/test_harness.py` (+215), `test_improvement.py`, `test_reporter.py`, `tests/unit/extraction/test_structured.py`, `tests/integration/test_self_eval.py`, `tests/integration/test_self_research.py`.
+  - `pyproject.toml`: `pytest.pythonpath` now includes `.` so `scripts.self_research` is importable in tests.
+  - `.gitignore`: ignore `data/self_research/` and `coverage.json` generated artifacts.
+- Verification:
+  - `pytest --no-cov -q` → all tests passing; full run 88% coverage.
+  - `mypy src/research_engine` → clean.
+  - `ruff check .` → clean.
+  - `bandit -r src scripts` → 0 HIGH/CRITICAL (18 pre-existing LOW, 1 MEDIUM).
+  - `research-engine self-eval --fixture tests/fixtures/eval_qa.json` → utility F1 1.0, robustness 1.0.
+  - `python scripts/self_research.py` → completes in ~0.25s, 20-doc corpus, campaign `completed`.
 
 ## Notes for Next Agent
 - All routers live under `.claude/agents/` and learned routes under `.claude/research-engine-routes.md`.

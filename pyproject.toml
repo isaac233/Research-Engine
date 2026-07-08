@@ -63,7 +63,7 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-q --cov=research_engine --cov-report=term-missing"
 
 [tool.mypy]

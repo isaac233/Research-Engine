@@ -626,6 +626,9 @@ class Orchestrator(OrchestratorInstrumentation):
                 "citation_count": report.citation_count,
                 "coverage_score": report.coverage_score,
                 "quality_score": report.quality_score,
+                "precision": report.precision,
+                "recall": report.recall,
+                "f1_score": report.f1_score,
                 "meta": report.meta,
             })
             .with_meta("insight_brief", brief)
@@ -644,6 +647,9 @@ class Orchestrator(OrchestratorInstrumentation):
             "ok": True,
             "coverage_score": report.coverage_score,
             "quality_score": report.quality_score,
+            "precision": report.precision,
+            "recall": report.recall,
+            "f1_score": report.f1_score,
             "brief_length": len(brief),
             "proposal_count": len(proposals),
         }

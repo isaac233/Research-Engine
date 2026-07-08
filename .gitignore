@@ -19,6 +19,7 @@ config/secrets.yaml
 data/cache/
 data/sources/*/
 data/deliverables/*/
+data/self_research/
 *.duckdb
 *.duckdb.wal
 *.sqlite
@@ -39,6 +40,7 @@ bandit_report.json
 
 # Test coverage
 .coverage
+coverage.json
 htmlcov/
 
 # IDE

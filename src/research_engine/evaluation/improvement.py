@@ -43,4 +43,40 @@ class ImprovementProposer:
                     "auto_apply": False,
                 }
             )
+        if 0 < report.f1_score < 1.0:
+            proposals.append(
+                {
+                    "area": "evaluation",
+                    "kind": "R050-delta-candidate",
+                    "issue": f"Golden-answer F1 is {report.f1_score} (below 1.0)",
+                    "suggested_action": (
+                        "Review claim extraction markers or expand golden-answer fixtures "
+                        "to cover the missed expected claims."
+                    ),
+                    "auto_apply": False,
+                }
+            )
+        if report.meta.get("expected_claim_count", 0) == 0:
+            proposals.append(
+                {
+                    "area": "evaluation",
+                    "kind": "R051-delta-candidate",
+                    "issue": "No golden-answer expected claims were provided",
+                    "suggested_action": "Add golden-answer expected_claims to evaluation fixtures so F1 can be tracked.",
+                    "auto_apply": False,
+                }
+            )
+        if not proposals and report.f1_score == 1.0:
+            proposals.append(
+                {
+                    "area": "evaluation",
+                    "kind": "R052-delta-candidate",
+                    "issue": "Golden-answer benchmark is saturated at F1 1.0",
+                    "suggested_action": (
+                        "Add a new adversarial fixture to expose the next failure "
+                        "mode and keep the benchmark discriminative."
+                    ),
+                    "auto_apply": False,
+                }
+            )
         return proposals

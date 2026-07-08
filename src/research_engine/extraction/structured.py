@@ -187,21 +187,129 @@ class StructuredExtractor:
 
     def _extract_claims(self, text: str, source_id: str | None) -> list[ExtractedClaim]:
         """Naive claim extraction: look for sentences with strong result language."""
-        claims: list[ExtractedClaim] = []
-        markers = ["we find", "we found", "results show", "demonstrates", "indicates", "suggests"]
+        markers = [
+            "we find",
+            "we found",
+            "results show",
+            "demonstrates",
+            "indicated",
+            "indicates",
+            "suggests",
+            "improved",
+            "improves",
+            "reduced",
+            "reduces",
+            "increased",
+            "increases",
+            "decreased",
+            "decreases",
+            "rewards",
+            "penalizes",
+            "optimized",
+            "optimizes",
+            "enhanced",
+            "enhances",
+            "enables",
+            "supports",
+            "exceeds",
+            "exceeded",
+            "surpasses",
+            "surpassed",
+            "outperforms",
+            "outperformed",
+            "beats",
+            "achieves",
+            "achieved",
+            "yields",
+            "yielded",
+            "produces",
+            "produced",
+            "must",
+            "should",
+            "will",
+            "required",
+            "requirement",
+            "limitation",
+            "constraint",
+            "bottleneck",
+            "risk",
+            "decision",
+            "decided",
+            "chosen",
+            "trade-off",
+            "tradeoff",
+            "recommend",
+            "recommended",
+            "pattern",
+            "anti-pattern",
+        ]
         sentences = re.split(r"(?<=[.!?])\s+", text)
+        raw_claims: list[ExtractedClaim] = []
         for sentence in sentences:
             lower = sentence.lower()
             if any(marker in lower for marker in markers) and len(sentence.split()) >= 5:
-                claims.append(
+                raw_claims.append(
                     ExtractedClaim(
                         claim=sentence.strip(),
                         evidence=sentence.strip(),
-                        confidence="low",
+                        confidence=self._claim_confidence(sentence),
                         source_id=source_id,
                     )
                 )
-        return claims[:10]
+        merged = self._merge_adjacent_claims(raw_claims)
+        return self._filter_claims_by_confidence(merged)[:10]
+
+    _CONTINUATION_PREFIXES: tuple[str, ...] = (
+        "it ",
+        "this ",
+        "that ",
+        "also ",
+        "furthermore ",
+        "moreover ",
+        "additionally ",
+        "in addition ",
+        "consequently ",
+        "therefore ",
+        "thus ",
+        "as a result ",
+    )
+
+    def _merge_adjacent_claims(self, claims: list[ExtractedClaim]) -> list[ExtractedClaim]:
+        """Merge consecutive claim sentences that continue the same finding."""
+        if not claims:
+            return claims
+        merged: list[ExtractedClaim] = []
+        for claim in claims:
+            if merged and claim.claim.lower().startswith(self._CONTINUATION_PREFIXES):
+                prev = merged[-1]
+                merged[-1] = ExtractedClaim(
+                    claim=f"{prev.claim} {claim.claim}",
+                    evidence=f"{prev.evidence} {claim.evidence}",
+                    confidence="high" if prev.confidence == "high" or claim.confidence == "high" else prev.confidence,
+                    source_id=prev.source_id,
+                )
+            else:
+                merged.append(claim)
+        return merged
+
+    def _claim_confidence(self, sentence: str) -> str:
+        """Prefer quantitative claims; mark others as medium/low."""
+        has_number = bool(re.search(r"\d", sentence)) or "%" in sentence
+        if has_number:
+            return "high"
+        return "medium"
+
+    def _filter_claims_by_confidence(self, claims: list[ExtractedClaim]) -> list[ExtractedClaim]:
+        """When quantitative claims exist, drop weaker heuristic claims.
+
+        This raises precision by focusing on concrete, measurable findings when
+        they are present, without discarding all qualitative claims in a source.
+        """
+        if not claims:
+            return claims
+        if any(c.confidence == "high" for c in claims):
+            return [c for c in claims if c.confidence == "high"]
+        return claims
 
     def _detect_conflicts(
         self,
