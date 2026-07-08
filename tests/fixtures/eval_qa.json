@@ -274,6 +274,26 @@
           "is_oa": true
         }
       ]
+    },
+    {
+      "id": "unit-mismatch",
+      "query": "How much did the dose change?",
+      "category": "trap",
+      "expected_claims": [
+        "The dose increased by 12 mg."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Dosage Results",
+            "source": "test",
+            "doi": "10.1000/unit",
+            "year": 2024
+          },
+          "content": "The dose increased by 12 kg.",
+          "is_oa": true
+        }
+      ]
     }
   ]
 }

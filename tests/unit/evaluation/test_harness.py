@@ -198,6 +198,22 @@ def test_harness_rejects_numeric_mismatch_claims() -> None:
     )
 
 
+def test_harness_rejects_unit_mismatch_claims() -> None:
+    harness = EvaluationHarness()
+    assert not harness._claim_match(
+        "The dose increased by 12 mg.",
+        "The dose increased by 12 kg.",
+    )
+
+
+def test_harness_ignores_non_unit_words_after_numbers() -> None:
+    harness = EvaluationHarness()
+    assert harness._claim_match(
+        "The study reports 12 improvements overall.",
+        "The study reports 12 improvements.",
+    )
+
+
 def test_harness_treats_comma_formatted_numbers_as_equal() -> None:
     harness = EvaluationHarness()
     assert harness._claim_match(

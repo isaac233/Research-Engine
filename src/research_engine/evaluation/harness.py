@@ -417,26 +417,52 @@ class EvaluationHarness:
             or self._is_tautology(b)
         )
 
-    def _has_numeric_conflict(self, a: str, b: str) -> bool:
-        """Return True if both claims contain numbers and the values differ."""
-        nums_a = self._numeric_values(a)
-        nums_b = self._numeric_values(b)
-        if not nums_a or not nums_b:
-            return False
-        return nums_a != nums_b
+    # Known measurement units. Only these count as a unit so ordinary words
+    # following a number ("12 improvements") are never mistaken for one.
+    _MEASURE_UNITS: frozenset[str] = frozenset(
+        "mg kg g ug ng lb lbs oz ml l dl kb mb gb tb ms ns s cm mm km nm m "
+        "ghz mhz khz hz db px pt em rem".split()
+    )
 
-    def _numeric_values(self, text: str) -> set[str]:
-        """Extract normalized numeric values, treating 12%, 12, and 1,000 as equal."""
-        raw = re.findall(
-            r"(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?", text.lower()
-        )
-        normalized: set[str] = set()
-        for token in raw:
-            number = token.rstrip("%").replace(",", "")
-            if "." in number:
-                number = number.rstrip("0").rstrip(".")
-            normalized.add(number)
-        return normalized
+    def _has_numeric_conflict(self, a: str, b: str) -> bool:
+        """Return True if both claims share a number that differs in value or unit.
+
+        Different numbers conflict outright; the same number carrying different
+        measurement units (12 mg vs 12 kg) is also a conflict.
+        """
+        terms_a = self._numeric_terms(a)
+        terms_b = self._numeric_terms(b)
+        if not terms_a or not terms_b:
+            return False
+        nums_a = {number for number, _ in terms_a}
+        nums_b = {number for number, _ in terms_b}
+        if nums_a != nums_b:
+            return True
+        for number in nums_a & nums_b:
+            units_a = {u for n, u in terms_a if n == number and u}
+            units_b = {u for n, u in terms_b if n == number and u}
+            if units_a and units_b and units_a != units_b:
+                return True
+        return False
+
+    def _numeric_terms(self, text: str) -> set[tuple[str, str]]:
+        """Extract (number, unit) pairs, treating 12%, 12, and 1,000 as equal.
+
+        Unit is empty unless the token immediately following the number is a
+        known measurement unit.
+        """
+        terms: set[tuple[str, str]] = set()
+        for match in re.finditer(
+            r"(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*([a-z]{1,4})?", text.lower()
+        ):
+            number = match.group(1).replace(",", "")
+            if match.group(2):
+                number = (number + match.group(2)).rstrip("0").rstrip(".")
+            unit = match.group(3) or ""
+            if unit not in self._MEASURE_UNITS:
+                unit = ""
+            terms.add((number, unit))
+        return terms
 
     def _has_causal_correlation_mismatch(self, a: str, b: str) -> bool:
         """Return True if one claim uses causal language and the other correlational."""
