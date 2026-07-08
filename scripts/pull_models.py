@@ -83,12 +83,12 @@ def pull_lane(tag: str, *, dry_run: bool) -> tuple[bool, str | None]:
     if dry_run:
         return (False, None)
     try:
+        # Capture raw BYTES (no text/encoding): ollama's ANSI progress stream
+        # breaks Python's text-mode reader thread on Windows (cp1252). Decode
+        # ourselves with errors=replace so nothing can raise.
         proc = subprocess.run(  # noqa: S603,S607 (trusted local CLI)
             ["ollama", "pull", tag],
             capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",  # ollama emits progress bytes cp1252 cannot decode
             timeout=PULL_TIMEOUT_S,
         )
     except FileNotFoundError:
@@ -97,7 +97,8 @@ def pull_lane(tag: str, *, dry_run: bool) -> tuple[bool, str | None]:
         return (False, f"pull timed out after {PULL_TIMEOUT_S}s")
     if proc.returncode == 0:
         return (True, None)
-    return (False, (proc.stderr or proc.stdout or "unknown error").strip()[:300])
+    err = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace")
+    return (False, err.strip()[:300])
 
 
 def resolve_lane(
