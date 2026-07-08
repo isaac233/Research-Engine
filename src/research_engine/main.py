@@ -23,6 +23,7 @@ from research_engine.extraction.structured import StructuredExtractor
 from research_engine.llm.model_registry import ModelRegistry
 from research_engine.llm.validator import ModelStackValidator
 from research_engine.monitoring.estimator import TimeEstimator
+from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.orchestrator import Orchestrator
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import CampaignStore, ResearchRequest
@@ -42,6 +43,15 @@ def _resolve_deep_model(config: EngineConfig) -> str:
     except (OSError, json.JSONDecodeError):
         pass
     return "gemma4:latest"
+
+
+def _build_gpu_probe(config: EngineConfig) -> GpuProbe:
+    """GpuProbe with the Ollama client for residency detail (nvidia-smi always works)."""
+    try:
+        client = ModelRegistry(config.model_registry_path).build_ollama_client()
+        return GpuProbe(ollama_client=client)
+    except Exception:  # noqa: BLE001
+        return GpuProbe()
 
 
 def _build_llm_extractor(config: EngineConfig) -> LLMSectionExtractor | None:
@@ -86,6 +96,7 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         estimator=estimator,
         source_memory=source_memory,
         agent_history=agent_history,
+        gpu_probe=_build_gpu_probe(config),
     )
 
 
@@ -178,6 +189,19 @@ def status(ctx: click.Context, campaign_id: str) -> None:
     click.echo(f"eta_seconds: {eta if eta is not None else 'unknown'}")
     click.echo(f"remaining: {', '.join(snapshot['remaining_stages'])}")
     click.echo(f"query: {campaign.request.query}")
+    models = snapshot.get("models") or {}
+    for stage_name, tag in models.items():
+        click.echo(f"model[{stage_name}]: {tag}")
+    gpu = snapshot.get("gpu")
+    if gpu:
+        click.echo(
+            f"gpu: {gpu['vram_used_mb']:.0f}/{gpu['vram_total_mb']:.0f} MiB VRAM"
+        )
+        for m in gpu.get("models", []):
+            click.echo(
+                f"  loaded {m['name']}: {m['size_vram_mb']:.0f}MB VRAM "
+                f"({m['offload_pct'] * 100:.0f}% offloaded to RAM)"
+            )
     if snapshot["alerts"]:
         click.echo(f"alerts: {len(snapshot['alerts'])}")
 

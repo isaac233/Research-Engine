@@ -30,6 +30,7 @@ from research_engine.extraction.structured import (
     extracted_source_to_dict,
 )
 from research_engine.monitoring.estimator import TimeEstimator
+from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
@@ -86,6 +87,7 @@ class Orchestrator(OrchestratorInstrumentation):
         deep_auditor: DeepAuditor | None = None,
         source_memory: SourceMemory | None = None,
         agent_history: AgentHistory | None = None,
+        gpu_probe: GpuProbe | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -107,6 +109,7 @@ class Orchestrator(OrchestratorInstrumentation):
         self.deep_auditor = deep_auditor
         self.source_memory = source_memory
         self.agent_history = agent_history
+        self.gpu_probe = gpu_probe
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -306,7 +309,7 @@ class Orchestrator(OrchestratorInstrumentation):
                 campaign, self.progress_tracker
             )
         alerts = self.telemetry_analyzer.check(campaign_id, self.store)
-        return {
+        snapshot: dict[str, Any] = {
             "campaign_id": campaign.id,
             "stage": campaign.stage.value,
             "status": campaign.status.value,
@@ -314,7 +317,26 @@ class Orchestrator(OrchestratorInstrumentation):
             "eta_seconds": eta_seconds,
             "remaining_stages": remaining_stages,
             "alerts": alerts,
+            "models": self._stage_models(campaign),
         }
+        if self.gpu_probe is not None:
+            gpu = self.gpu_probe.snapshot()
+            snapshot["gpu"] = gpu.as_dict() if gpu is not None else None
+        return snapshot
+
+    @staticmethod
+    def _stage_models(campaign: Campaign) -> dict[str, str]:
+        """Which model handled model-driven stages (from persisted extraction meta)."""
+        models: dict[str, str] = {}
+        extracted = campaign.meta.get("extracted_sources", [])
+        tools = {
+            s.get("extraction_tool", "")
+            for s in extracted
+            if isinstance(s, dict) and str(s.get("extraction_tool", "")).startswith("llm:")
+        }
+        if tools:
+            models["extract"] = ", ".join(sorted(tools))
+        return models
 
     # --- Stage stubs: real work delegated to future subsystems. ---
 
@@ -513,9 +535,29 @@ class Orchestrator(OrchestratorInstrumentation):
             )
             extracted.append(extracted_source_to_dict(source))
         self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
+
+        # Make the model that did the work visible (telemetry + audit log).
+        tools = sorted({s.get("extraction_tool", "") for s in extracted})
+        model_tool = next((t for t in tools if t.startswith("llm:")), tools[0] if tools else "")
+        self.telemetry_emitter.model_event(
+            campaign.id, "assignment", {"stage": "extract", "tag": model_tool}
+        )
+        self.record_agent_action(
+            AgentHistoryRecord(
+                campaign_id=campaign.id,
+                agent_name="extractor",
+                action_type="extract",
+                request_summary=f"Extracted {len(extracted)} sources",
+                response_summary=f"tool={model_tool}",
+                outcome=AgentActionOutcome.SUCCESS,
+                audit_level="normal",
+                meta={"model": model_tool, "extracted_count": len(extracted)},
+            )
+        )
         return {
             "ok": True,
             "extracted_count": len(extracted),
+            "model": model_tool,
         }
 
     def _scorecard_to_dict(self, scorecard: Any) -> dict[str, Any]:
