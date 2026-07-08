@@ -87,6 +87,8 @@ def pull_lane(tag: str, *, dry_run: bool) -> tuple[bool, str | None]:
             ["ollama", "pull", tag],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",  # ollama emits progress bytes cp1252 cannot decode
             timeout=PULL_TIMEOUT_S,
         )
     except FileNotFoundError:
