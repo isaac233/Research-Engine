@@ -27,8 +27,12 @@
 - Live: `--time-budget 600`→quality auto 0.63 no slider; `--quality 0.9 --sources 5`→time 409s; bare→balanced default, no hang.
 - NOTE: ResolvedPlan.lane_assignment is persisted to meta but stages don't yet READ it to pick lanes — that wiring is Phase 5 (with lifecycle.with_model + handoff docs).
 
-**OPEN / NEXT (Phases 5-6, see plan file):**
-- P5: wire fast lane into screening (`build_llm_scorer`), LLM query planner, `planning/handoff.py`, `synthesis/synthesizer.py` + unique-insight filter.
+**Phase 5 DONE (`eda41f4`):**
+- `synthesis/synthesizer.py::Synthesizer` (deep reads → replication-grade brief via synth lane) + `unique_insight_filter` (drop dup-insight sources, cap at volume). `planning/handoff.py::HandoffDoc` (written on model switch). `main.py`: one Ollama provider drives all lanes — fast-lane `build_llm_scorer` into screening, deep lane into extraction, synth lane into Synthesizer; lane tags via LaneRoster+pull report; heuristic fallback when Ollama absent. `orchestrator`: synthesizer builds the brief (unique-insight sources) w/ reporter fallback + writes extract→evaluate handoff.
+- 389 tests pass; mypy+ruff clean (86 files).
+- STILL PARTIAL: `ModelLifecycleManager` (Phase 2) is NOT yet wired into the run loop — stages don't call `with_model`/`switch` to sequentially load per-`resolved_plan` lanes; each lane call currently relies on Ollama's own load/keep_alive. Full sequential VRAM handoff per quality-slider lane assignment is the main remaining integration (fold into P6 or a P5.1). Also: LLM query_planner still heuristic (optional, low priority).
+
+**OPEN / NEXT (Phase 6, see plan file):**
 - P6: prompt-injection guard already in prompts (paper text=data); add redaction before agent_history; docs.
 - **Correct model tags:** user should supply real Ollama tags (or confirm the background-pull resolved ones) to replace the speculative lane tags; IQ3 lanes = synthesis/overnight only, never deep extraction.
 - Env: RTX 5080 16GB VRAM + 64GB RAM. Ollama auto-offloads to RAM (no custom bridge). MoE tolerates offload; dense does not.
