@@ -413,8 +413,39 @@ class EvaluationHarness:
             or self._has_qualifier_mismatch(a, b)
             or self._has_numeric_conflict(a, b)
             or self._has_causal_correlation_mismatch(a, b)
+            or self._has_comparative_swap(a, b)
             or self._is_tautology(a)
             or self._is_tautology(b)
+        )
+
+    # Relational/comparative markers whose operand order carries meaning.
+    # "than" covers X-er-than forms (higher/faster/better than); the verbs
+    # cover direct comparatives (A outperforms B).
+    _COMPARATIVE_MARKERS: frozenset[str] = frozenset(
+        "than outperforms outperformed outperform beats beat exceeds exceeded "
+        "exceed surpasses surpassed surpass precedes preceded precede follows "
+        "followed outscores outscored outperforming".split()
+    )
+
+    def _has_comparative_swap(self, a: str, b: str) -> bool:
+        """Return True if two claims are the same words reordered around a comparative.
+
+        "A outperforms B" and "B outperforms A" share every word but state the
+        opposite relation. When both claims carry a comparative marker and are
+        anagrams of each other at the word level in a different order, the
+        operands have been swapped and the meaning is inverted.
+        """
+        words_a = self._word_tokens(a)
+        words_b = self._word_tokens(b)
+        if words_a == words_b or sorted(words_a) != sorted(words_b):
+            return False
+        # ponytail: same word multiset, different order, around a comparative =>
+        # flipped meaning. Ceiling: symmetric operands on one side ("A and B beat
+        # C" vs "B and A beat C") could false-positive, but that is rare in the
+        # short single-sentence claims the extractor produces.
+        return bool(
+            self._COMPARATIVE_MARKERS & set(words_a)
+            and self._COMPARATIVE_MARKERS & set(words_b)
         )
 
     # Known measurement units. Only these count as a unit so ordinary words

@@ -198,6 +198,26 @@ def test_harness_rejects_numeric_mismatch_claims() -> None:
     )
 
 
+def test_harness_rejects_comparative_operand_swap() -> None:
+    harness = EvaluationHarness()
+    assert not harness._claim_match(
+        "Method A outperforms method B.",
+        "Method B outperforms method A.",
+    )
+    assert not harness._claim_match(
+        "Group X scored higher than group Y.",
+        "Group Y scored higher than group X.",
+    )
+
+
+def test_harness_allows_benign_reorder_without_comparative() -> None:
+    harness = EvaluationHarness()
+    assert harness._claim_match(
+        "The method improves accuracy and speed.",
+        "The method improves speed and accuracy.",
+    )
+
+
 def test_harness_rejects_unit_mismatch_claims() -> None:
     harness = EvaluationHarness()
     assert not harness._claim_match(

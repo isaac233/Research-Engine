@@ -294,6 +294,26 @@
           "is_oa": true
         }
       ]
+    },
+    {
+      "id": "comparative-swap",
+      "query": "Which method wins?",
+      "category": "trap",
+      "expected_claims": [
+        "Method A outperforms method B."
+      ],
+      "sources": [
+        {
+          "paper": {
+            "title": "Comparison",
+            "source": "test",
+            "doi": "10.1000/swap",
+            "year": 2024
+          },
+          "content": "Method B outperforms method A.",
+          "is_oa": true
+        }
+      ]
     }
   ]
 }
