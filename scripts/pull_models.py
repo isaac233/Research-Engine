@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 import urllib.request
@@ -98,7 +99,10 @@ def pull_lane(tag: str, *, dry_run: bool) -> tuple[bool, str | None]:
     if proc.returncode == 0:
         return (True, None)
     err = (proc.stderr or proc.stdout or b"").decode("utf-8", "replace")
-    return (False, err.strip()[:300])
+    # Strip ANSI escapes + control/spinner chars so stored errors stay printable.
+    err = re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", err)
+    err = "".join(ch for ch in err if ch.isprintable() or ch in " \t")
+    return (False, " ".join(err.split())[:300])
 
 
 def resolve_lane(

@@ -23,10 +23,12 @@ lanes:
 
   deep:
     role: worker
-    tag: "gemma4:26b-a4b"        # MoE ~4B active; tolerates RAM offload
-    fallback: "gemma4:12b"       # confirmed installed; fully fits VRAM, > 8B for extraction
-    est_vram_gb: 15
-    fits_in_vram: false
+    # gemma4:26b-a4b (MoE) does not exist on the registry; gemma4:12b is the
+    # real extraction model — fully fits 16GB VRAM, beats Gemma-3 27B.
+    tag: "gemma4:12b"
+    fallback: "gemma4:latest"
+    est_vram_gb: 8
+    fits_in_vram: true
     num_ctx: 24576
     enabled: true
     use: "Correctness-critical full-text methods/data/results extraction."
