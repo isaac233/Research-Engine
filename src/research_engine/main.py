@@ -20,7 +20,9 @@ from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.orchestrator import Orchestrator
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import CampaignStore, ResearchRequest
+from research_engine.storage.agent_history import AgentHistory
 from research_engine.storage.cache import SourceCache
+from research_engine.storage.source_memory import SourceMemory
 
 
 def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
@@ -28,6 +30,8 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     config.engine_data_dir.mkdir(parents=True, exist_ok=True)
     store = CampaignStore(config.state_db_path())
     cache = SourceCache(config.cache_db_path())
+    source_memory = SourceMemory(config.source_memory_db_path())
+    agent_history = AgentHistory(config.agent_history_db_path())
     http = RawHTTPBrowser()
     browser = UnblockProbe(http)
     registry = SourceRegistry()
@@ -45,6 +49,8 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         extractor=extractor,
         project_root=project_root,
         estimator=estimator,
+        source_memory=source_memory,
+        agent_history=agent_history,
     )
 
 
