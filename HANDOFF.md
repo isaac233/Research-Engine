@@ -22,8 +22,12 @@
 **Phase 3 DONE (`23c5cbb`), live-verified:**
 - `monitoring/gpu_probe.py::GpuProbe.snapshot()` (nvidia-smi VRAM + `/api/ps` per-model RAM-offload split; None on CI). `telemetry.py`: `model_event`/`gpu_snapshot` + `lifecycle_telemetry_hook`. `orchestrator.status_snapshot` includes live `gpu` + per-stage `models`; `_run_extract` emits model assignment + extractor agent-history action (the deferred P1 item). `status` CLI prints `model[extract]`, VRAM, per-model offload %. Live: probe read 1779/16303 MiB.
 
-**OPEN / NEXT (Phases 4-6, see plan file):**
-- P4: `planning/constraint_triangle.py` (2-of-3 derive 3rd; time-only→no slider), `cli/slider.py` (prompt_toolkit + non-TTY numbered fallback), `planning/quality_floor.py`.
+**Phase 4 DONE (`dc1ca08`), live-verified:**
+- `planning/constraint_triangle.py::solve` (2-of-3 derive 3rd; time governs→no slider→auto-optimize quality; <2 & no time→needs_slider; maps quality tier→per-stage lane assignment). `planning/quality_floor.py::QualityFloor.check` (goal/omission/fabrication). `cli/slider.py` (arrow-key via optional prompt_toolkit, numbered fallback, never hangs/aborts a run — non-TTY/EOF→balanced defaults). `main.py run`: `--quality/--time-budget/--sources`, persists `ResolvedPlan` to campaign meta, volume caps max_sources. `prompt_toolkit` added as optional `[tui]` extra.
+- Live: `--time-budget 600`→quality auto 0.63 no slider; `--quality 0.9 --sources 5`→time 409s; bare→balanced default, no hang.
+- NOTE: ResolvedPlan.lane_assignment is persisted to meta but stages don't yet READ it to pick lanes — that wiring is Phase 5 (with lifecycle.with_model + handoff docs).
+
+**OPEN / NEXT (Phases 5-6, see plan file):**
 - P5: wire fast lane into screening (`build_llm_scorer`), LLM query planner, `planning/handoff.py`, `synthesis/synthesizer.py` + unique-insight filter.
 - P6: prompt-injection guard already in prompts (paper text=data); add redaction before agent_history; docs.
 - **Correct model tags:** user should supply real Ollama tags (or confirm the background-pull resolved ones) to replace the speculative lane tags; IQ3 lanes = synthesis/overnight only, never deep extraction.
