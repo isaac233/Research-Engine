@@ -21,6 +21,7 @@ from research_engine.events import EventBus
 from research_engine.extraction.llm_extractor import LLMSectionExtractor
 from research_engine.extraction.structured import StructuredExtractor
 from research_engine.llm.lane_roster import LaneRoster
+from research_engine.llm.lifecycle import ModelLifecycleManager
 from research_engine.llm.model_registry import ModelRegistry
 from research_engine.llm.provider import LLMProvider
 from research_engine.llm.validator import ModelStackValidator
@@ -54,6 +55,21 @@ def _try_provider(config: EngineConfig) -> LLMProvider | None:
         return provider if provider.ping().get("ok") else None
     except Exception:  # noqa: BLE001
         return None
+
+
+def _build_lifecycle(
+    config: EngineConfig,
+) -> tuple[ModelLifecycleManager | None, LaneRoster | None]:
+    """Build the VRAM lifecycle manager + lane roster, or (None, None) on failure."""
+    try:
+        client = ModelRegistry(config.model_registry_path).build_ollama_client()
+        roster = LaneRoster.from_yaml(
+            config.model_registry_path.parent / "model_lanes.yaml",
+            config.engine_data_dir / "model_pull_report.json",
+        )
+        return ModelLifecycleManager(client), roster
+    except Exception:  # noqa: BLE001
+        return None, None
 
 
 def _build_gpu_probe(config: EngineConfig) -> GpuProbe:
@@ -92,10 +108,12 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         synthesizer: Synthesizer | None = Synthesizer(
             provider, model=_lane_model(config, "synth_a", "mistral-small3.2:latest")
         )
+        lifecycle, lane_roster = _build_lifecycle(config)
     else:
         extractor = StructuredExtractor()
         ranker = SourceRanker()
         synthesizer = None
+        lifecycle, lane_roster = None, None
 
     event_bus = EventBus(store)
     estimator = TimeEstimator(store)
@@ -112,6 +130,8 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         agent_history=agent_history,
         gpu_probe=_build_gpu_probe(config),
         synthesizer=synthesizer,
+        lifecycle=lifecycle,
+        lane_roster=lane_roster,
     )
 
 

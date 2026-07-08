@@ -29,6 +29,8 @@ from research_engine.extraction.structured import (
     extracted_source_from_dict,
     extracted_source_to_dict,
 )
+from research_engine.llm.lane_roster import LaneRoster
+from research_engine.llm.lifecycle import ModelLifecycleManager
 from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.monitoring.progress import StageProgressTracker
@@ -91,6 +93,8 @@ class Orchestrator(OrchestratorInstrumentation):
         agent_history: AgentHistory | None = None,
         gpu_probe: GpuProbe | None = None,
         synthesizer: Synthesizer | None = None,
+        lifecycle: ModelLifecycleManager | None = None,
+        lane_roster: LaneRoster | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -114,6 +118,8 @@ class Orchestrator(OrchestratorInstrumentation):
         self.agent_history = agent_history
         self.gpu_probe = gpu_probe
         self.synthesizer = synthesizer
+        self.lifecycle = lifecycle
+        self.lane_roster = lane_roster
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -504,8 +510,33 @@ class Orchestrator(OrchestratorInstrumentation):
             )
         return result
 
+    def _switch_lane(self, campaign: Campaign, stage_name: str) -> None:
+        """Load the model assigned to this stage, evicting the previous one.
+
+        No-op unless a lifecycle manager + roster are configured. Keeps at most
+        one model resident (VRAM does not stack across stages) and records the
+        switch in telemetry.
+        """
+        if self.lifecycle is None or self.lane_roster is None:
+            return
+        plan = campaign.meta.get("resolved_plan", {})
+        lane_name = (plan.get("lane_assignment", {}) or {}).get(stage_name)
+        if not lane_name:
+            return
+        try:
+            tag = self.lane_roster.lane(lane_name).tag
+            num_ctx = self.lane_roster.lane(lane_name).num_ctx
+        except KeyError:
+            return
+        if tag and tag != self.lifecycle.current:
+            self.lifecycle.switch(tag, num_ctx=num_ctx)
+            self.telemetry_emitter.model_event(
+                campaign.id, "switch", {"stage": stage_name, "to_tag": tag}
+            )
+
     def _run_extract(self, campaign: Campaign) -> dict[str, Any]:
         """Extract structured fields from included papers."""
+        self._switch_lane(campaign, "extract")
         included_data = campaign.meta.get("included_papers", [])
         if not included_data or self.extractor is None:
             return self._run_skipped(campaign, "no included papers to extract")
@@ -637,6 +668,7 @@ class Orchestrator(OrchestratorInstrumentation):
             return self._run_skipped(campaign, "no extracted sources to evaluate")
         sources, challenges, verifications = inputs
         if self.synthesizer is not None:
+            self._switch_lane(campaign, "evaluate")
             self._write_handoff(campaign, sources)
         report, brief, proposals = self._build_report_and_brief(
             sources, challenges, verifications, campaign.request.query
@@ -806,7 +838,10 @@ class Orchestrator(OrchestratorInstrumentation):
         )
 
     def _run_finalize(self, campaign: Campaign) -> dict[str, Any]:
-        """Finalize a campaign: deduplicate files and vacuum state DB."""
+        """Finalize a campaign: free the resident model, dedup files, vacuum DB."""
+        # Release VRAM at session end (matches the "clear caches at end" vision).
+        if self.lifecycle is not None and self.lifecycle.current:
+            self.lifecycle.unload(self.lifecycle.current)
         now = datetime.now(UTC).isoformat()
         janitor = CleanupJanitor(
             self.store.db_path,
