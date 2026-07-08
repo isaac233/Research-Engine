@@ -24,7 +24,7 @@ lanes:
   deep:
     role: worker
     tag: "gemma4:26b-a4b"        # MoE ~4B active; tolerates RAM offload
-    fallback: "gemma4:latest"
+    fallback: "gemma4:12b"       # confirmed installed; fully fits VRAM, > 8B for extraction
     est_vram_gb: 15
     fits_in_vram: false
     num_ctx: 24576

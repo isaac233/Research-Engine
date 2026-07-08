@@ -169,6 +169,11 @@ def main(argv: list[str] | None = None) -> int:
             continue
         result = resolve_lane(name, lane, installed, dry_run=args.dry_run)
         results.append(result)
+        # Write incrementally so a kill/timeout never loses resolved lanes.
+        REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_PATH.write_text(
+            json.dumps(build_report(results, installed).__dict__, indent=2), encoding="utf-8"
+        )
         status = (
             "installed" if result.installed_before
             else "pulled" if result.pulled
