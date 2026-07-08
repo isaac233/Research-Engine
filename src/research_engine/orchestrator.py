@@ -34,6 +34,7 @@ from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
+from research_engine.planning.handoff import HandoffDoc
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
@@ -50,6 +51,7 @@ from research_engine.storage.agent_history import (
 )
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
+from research_engine.synthesis.synthesizer import Synthesizer, unique_insight_filter
 
 
 class Orchestrator(OrchestratorInstrumentation):
@@ -88,6 +90,7 @@ class Orchestrator(OrchestratorInstrumentation):
         source_memory: SourceMemory | None = None,
         agent_history: AgentHistory | None = None,
         gpu_probe: GpuProbe | None = None,
+        synthesizer: Synthesizer | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -110,6 +113,7 @@ class Orchestrator(OrchestratorInstrumentation):
         self.source_memory = source_memory
         self.agent_history = agent_history
         self.gpu_probe = gpu_probe
+        self.synthesizer = synthesizer
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -603,12 +607,37 @@ class Orchestrator(OrchestratorInstrumentation):
             "triage": triage_counts,
         }
 
+    def _write_handoff(self, campaign: Campaign, sources: list[Any]) -> None:
+        """Record the extract->evaluate model switch so intent carries forward."""
+        extract_model = next(
+            (
+                s.get("extraction_tool", "")
+                for s in campaign.meta.get("extracted_sources", [])
+                if isinstance(s, dict)
+            ),
+            "",
+        )
+        synth_model = self.synthesizer.model if self.synthesizer else ""
+        HandoffDoc(
+            campaign_id=campaign.id,
+            from_stage="extract",
+            to_stage="evaluate",
+            from_model=extract_model,
+            to_model=synth_model or "synth",
+            goal=campaign.request.query,
+            produced=f"{len(sources)} sources extracted with methods/data/results",
+            open_questions="",
+            next_task="Synthesize replication-grade insights; keep unique per-source findings.",
+        ).write(self.config.engine_data_dir)
+
     def _run_evaluate(self, campaign: Campaign) -> dict[str, Any]:
         """Evaluate extracted output and produce a report."""
         inputs = self._load_evaluation_inputs(campaign)
         if inputs is None:
             return self._run_skipped(campaign, "no extracted sources to evaluate")
         sources, challenges, verifications = inputs
+        if self.synthesizer is not None:
+            self._write_handoff(campaign, sources)
         report, brief, proposals = self._build_report_and_brief(
             sources, challenges, verifications, campaign.request.query
         )
@@ -654,6 +683,16 @@ class Orchestrator(OrchestratorInstrumentation):
             verifications=verifications,
             query=query,
         )
+        # When a synthesis lane is configured, produce a replication-grade brief
+        # from the deep reads (unique-insight sources only). Fall back to the
+        # deterministic reporter brief if synthesis is empty.
+        if self.synthesizer is not None:
+            source_dicts = unique_insight_filter(
+                [extracted_source_to_dict(s) for s in sources]
+            )
+            synthesized = self.synthesizer.synthesize(source_dicts, query)
+            if synthesized.strip():
+                brief = synthesized
         proposer = ImprovementProposer()
         proposals = proposer.propose(report)
         return report, brief, proposals

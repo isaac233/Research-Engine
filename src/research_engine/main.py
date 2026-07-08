@@ -20,29 +20,40 @@ from research_engine.evaluation.harness import EvaluationHarness
 from research_engine.events import EventBus
 from research_engine.extraction.llm_extractor import LLMSectionExtractor
 from research_engine.extraction.structured import StructuredExtractor
+from research_engine.llm.lane_roster import LaneRoster
 from research_engine.llm.model_registry import ModelRegistry
+from research_engine.llm.provider import LLMProvider
 from research_engine.llm.validator import ModelStackValidator
 from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.orchestrator import Orchestrator
-from research_engine.screening.ranker import SourceRanker
+from research_engine.screening.ranker import SourceRanker, build_llm_scorer
 from research_engine.state import CampaignStore, ResearchRequest
 from research_engine.storage.agent_history import AgentHistory
 from research_engine.storage.cache import SourceCache
 from research_engine.storage.source_memory import SourceMemory
+from research_engine.synthesis.synthesizer import Synthesizer
 
 
-def _resolve_deep_model(config: EngineConfig) -> str:
-    """Return the deep-lane model tag resolved by the pull report, else a fallback."""
-    report = config.engine_data_dir / "model_pull_report.json"
+def _lane_model(config: EngineConfig, lane: str, default: str) -> str:
+    """Resolve a lane's effective model tag via the LaneRoster + pull report."""
     try:
-        data = json.loads(report.read_text(encoding="utf-8"))
-        for result in data.get("results", []):
-            if result.get("lane") == "deep":
-                return str(result.get("resolved_tag") or "gemma4:latest")
-    except (OSError, json.JSONDecodeError):
-        pass
-    return "gemma4:latest"
+        lanes_path = config.model_registry_path.parent / "model_lanes.yaml"
+        roster = LaneRoster.from_yaml(
+            lanes_path, config.engine_data_dir / "model_pull_report.json"
+        )
+        return roster.lane(lane).tag or default
+    except Exception:  # noqa: BLE001
+        return default
+
+
+def _try_provider(config: EngineConfig) -> LLMProvider | None:
+    """Build the Ollama provider if reachable, else None (engine runs heuristic-only)."""
+    try:
+        provider = ModelRegistry(config.model_registry_path).build_provider("ollama")
+        return provider if provider.ping().get("ok") else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _build_gpu_probe(config: EngineConfig) -> GpuProbe:
@@ -52,22 +63,6 @@ def _build_gpu_probe(config: EngineConfig) -> GpuProbe:
         return GpuProbe(ollama_client=client)
     except Exception:  # noqa: BLE001
         return GpuProbe()
-
-
-def _build_llm_extractor(config: EngineConfig) -> LLMSectionExtractor | None:
-    """Build the full-text LLM extractor, or None if no local provider is reachable.
-
-    Keeping this best-effort means the engine still runs (regex fallback) offline
-    or in CI where Ollama is absent.
-    """
-    try:
-        registry = ModelRegistry(config.model_registry_path)
-        provider = registry.build_provider("ollama")
-        if not provider.ping().get("ok"):
-            return None
-        return LLMSectionExtractor(provider, model=_resolve_deep_model(config))
-    except Exception:  # noqa: BLE001 - any wiring/network failure -> regex fallback
-        return None
 
 
 def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
@@ -81,8 +76,27 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     browser = UnblockProbe(http)
     registry = SourceRegistry()
     discovery = DiscoveryPipeline(registry=registry, cache=cache)
-    ranker = SourceRanker()
-    extractor = StructuredExtractor(llm_extractor=_build_llm_extractor(config))
+
+    # One provider drives every lane (per-call model override). Absent Ollama =>
+    # heuristic screening + regex extraction + deterministic brief (CI/offline).
+    provider = _try_provider(config)
+    if provider is not None:
+        extractor = StructuredExtractor(
+            llm_extractor=LLMSectionExtractor(
+                provider, model=_lane_model(config, "deep", "gemma4:12b")
+            )
+        )
+        ranker = SourceRanker(
+            llm_scorer=build_llm_scorer(provider, model=_lane_model(config, "fast", "gemma4:12b"))
+        )
+        synthesizer: Synthesizer | None = Synthesizer(
+            provider, model=_lane_model(config, "synth_a", "mistral-small3.2:latest")
+        )
+    else:
+        extractor = StructuredExtractor()
+        ranker = SourceRanker()
+        synthesizer = None
+
     event_bus = EventBus(store)
     estimator = TimeEstimator(store)
     return Orchestrator(
@@ -97,6 +111,7 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         source_memory=source_memory,
         agent_history=agent_history,
         gpu_probe=_build_gpu_probe(config),
+        synthesizer=synthesizer,
     )
 
 

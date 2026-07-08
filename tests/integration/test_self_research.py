@@ -14,7 +14,10 @@ def test_self_research_runs_and_captures_proposals(tmp_path: Path) -> None:
     )
 
     assert result["paper_count"] >= 1
-    assert 0.0 < result["elapsed_seconds"] < 30.0
+    # Generous upper bound: when a local Ollama model is reachable the engine
+    # does real LLM screening/extraction (slow, model-speed dependent); it is
+    # fast only in heuristic mode. This asserts it completes, not that it is fast.
+    assert 0.0 < result["elapsed_seconds"] < 600.0
     report = result["report"]
     assert "proposal_count" in report
     assert "coverage_score" in report
