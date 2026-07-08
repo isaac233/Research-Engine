@@ -63,6 +63,7 @@ Learned items WIN over the static KEYWORD TABLE on conflict.
 
 - "route"/"what should I load"/"plan only" → **ROUTE**.
 - Caller hands a task to do → **EXECUTE** (prefer subsystem router).
+- "frozen"/"eval"/"benchmark"/self-evaluation run → **FROZEN EVAL**.
 - Ambiguous → default **ROUTE**.
 
 ## ROUTE — OUTPUT SCHEMA
@@ -92,6 +93,13 @@ FILES: <touched>
 LEARNED: <R### delta or none>
 NEXT: <one action or closed>
 ```
+
+## FROZEN EVAL
+
+Read-only evaluation mode. Inspect files, run tests, and report findings, but
+NEVER edit source files or mutate `.claude/research-engine-routes.md` — including
+the STEP 0 self-improve deltas. This keeps benchmark/eval outcomes from poisoning
+the shared routing memory. Switch to ROUTE or EXECUTE for any changes.
 
 # SUBSYSTEM ROUTING TABLE
 
