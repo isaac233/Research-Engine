@@ -202,6 +202,25 @@
   - `research-engine self-eval --fixture tests/fixtures/eval_qa.json` → utility F1 1.0, robustness 1.0.
   - `python scripts/self_research.py` → completes in ~0.25s, 20-doc corpus, campaign `completed`.
 
+## Anti-Poison Hardening + 3× Self-Improvement Loop — 2026-07-08
+
+### Anti-poison audit (pre-loop)
+- Verified every learning surface can improve without self-poisoning; fixed two gaps (commit `08b148e`):
+  - `SourceMemory.remember`: `reliability_score` now defaults to `None` — an incidental re-remember keeps the learned score (new source → 0.5); explicit score still updates. Kills the destructive `INSERT OR REPLACE` regression.
+  - `research-engine-router.md`: added FROZEN EVAL read-only mode (the only router lacking it) so eval runs can't mutate the shared learned-routes memory.
+- Safe already: `ImprovementProposer` (all `auto_apply:False`, never applied), router routes log (PROVISIONAL-until-verified, one-delta/miss, `.claude/router_eval/replay` contradiction check), `Calibrator` (0.1 floor, normalized, ETA-only).
+
+### Self-improvement loop (ran the engine on itself 3×, verified each insight, implemented sound ones)
+- **Loop 1** (`b729b19`): engine flagged R052 "benchmark saturated at F1 1.0". Probed matcher → found `12 mg` matched `12 kg`. Added unit-aware numeric conflict (compares (number, unit) against a fixed unit set) + `unit-mismatch` trap fixture.
+- **Loop 2** (`704e0bd`): R052 again. Found `A outperforms B` matched `B outperforms A`. Added comparative operand-swap guard (same word multiset reordered around a comparative marker → conflict) + `comparative-swap` trap fixture. Benign non-comparative reorders still match.
+- **Loop 3** (`a7755ca`): self-research's own metrics came back null. Root cause: corpus screened to 0 included papers (20 scored, 0 kept) → EXTRACT/ADVERSARIAL/EVALUATE/DELIVER silently no-op'd via `_run_stub` reporting "not yet implemented", campaign completed with empty brief and no signal. Added `_run_skipped(reason)` for honest skip reporting + `screening_yielded_zero` meta flag so an empty deliverable is visible, not silent.
+- Golden-answer benchmark now 17 fixtures (7 utility + 10 traps); self-eval utility F1 1.0, robustness 1.0. All tests/mypy/ruff clean each loop.
+
+### Known / open for next session
+- **Root observation still open:** the default screening criteria exclude the self-research doc corpus entirely (0/20). The loop-3 fix makes this *visible* but does not tune criteria — a docs corpus is genuinely not "academic papers". Next: either (a) add a doc-oriented criteria set for self-research, or (b) have `scripts/self_research.py` assert `screening_yielded_zero` is False so the benchmark exercises the full evaluate path. Until then self-research exercises only the golden-answer benchmark path, not the live-campaign evaluate path.
+- Benchmark keeps reporting "saturated" each loop because fixed traps pass; that is expected (bar rises each loop). Real signal is the matcher weaknesses found by probing, not the generic R052 text.
+- Branch `feat/self-research-golden-eval`; commits `08b148e`, `b729b19`, `704e0bd`, `a7755ca` on top of `67a21cb`. NOT pushed, no PR.
+
 ## Notes for Next Agent
 - All routers live under `.claude/agents/` and learned routes under `.claude/research-engine-routes.md`.
 - The eval harness under `.claude/router_eval/` must remain isolated from `src/`.
