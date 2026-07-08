@@ -250,6 +250,23 @@ def validate_models(ctx: click.Context) -> None:
     else:
         click.echo(f"small local model: FAIL - {small.error}")
 
+    lanes_path = config.model_registry_path.parent / "model_lanes.yaml"
+    if lanes_path.exists():
+        from research_engine.llm.lane_roster import LaneRoster
+
+        roster = LaneRoster.from_yaml(
+            lanes_path, config.engine_data_dir / "model_pull_report.json"
+        )
+        click.echo("\nLanes:")
+        for lane in validator.validate_lanes(roster):
+            mark = "ok" if lane["available"] else "FAIL"
+            fb = f" (fallback from {lane['requested_tag']})" if lane["used_fallback"] else ""
+            fit = "in-VRAM" if lane["fits_in_vram"] else "offload"
+            click.echo(
+                f"  {lane['lane']:9s} {lane['tag']:30s} {mark:4s} "
+                f"[{lane['role']}, ~{lane['est_vram_gb']:g}GB {fit}]{fb}"
+            )
+
     if not summary["all_healthy"] or not small.ok:
         sys.exit(1)
 

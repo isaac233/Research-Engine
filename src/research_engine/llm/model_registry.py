@@ -118,6 +118,16 @@ class ModelRegistry:
             return AnthropicClient(api_key_env=api_key_env, default_model=cfg.default_model)
         raise ValueError(f"Unsupported provider: {provider_name}")
 
+    def build_ollama_client(self) -> Any:
+        """Return the concrete OllamaClient (lifecycle manager needs load/unload/ps)."""
+        from research_engine.llm.ollama_client import OllamaClient
+
+        cfg = self.get_config("ollama")
+        base_url = self._validate_ollama_base_url(
+            cfg.extra.get("base_url", "http://localhost:11434")
+        )
+        return OllamaClient(base_url=base_url, default_model=cfg.default_model)
+
     def get_provider_for_role(
         self, role: str, prefer_cost_tier: str | None = None
     ) -> LLMProvider:

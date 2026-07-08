@@ -56,6 +56,9 @@ class FakeValidator(ModelStackValidator):
     def validate_all(self) -> list[ProviderValidation]:
         return list(self._providers)
 
+    def validate_lanes(self, roster: object) -> list[dict[str, object]]:
+        return []
+
     def validate_small_local(self, provider_name: str = "ollama") -> ProviderValidation:
         for p in self._providers:
             if p.name == provider_name and p.ok:

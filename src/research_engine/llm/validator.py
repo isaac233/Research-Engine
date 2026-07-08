@@ -113,6 +113,27 @@ class ModelStackValidator:
             details=result.details,
         )
 
+    def validate_lanes(self, roster: Any) -> list[dict[str, Any]]:
+        """Check each lane's effective tag against installed Ollama models."""
+        ping = self.validate_provider("ollama")
+        installed = set(ping.details.get("models", [])) if ping.ok else set()
+        report: list[dict[str, Any]] = []
+        for lane in roster.all_lanes():
+            report.append(
+                {
+                    "lane": lane.name,
+                    "role": lane.role,
+                    "tag": lane.tag,
+                    "requested_tag": lane.requested_tag,
+                    "available": lane.tag in installed,
+                    "used_fallback": lane.tag != lane.requested_tag,
+                    "fits_in_vram": lane.fits_in_vram,
+                    "est_vram_gb": lane.est_vram_gb,
+                    "enabled": lane.enabled,
+                }
+            )
+        return report
+
     @staticmethod
     def summarize(results: list[ProviderValidation]) -> dict[str, Any]:
         """Return a concise summary of validation results."""
