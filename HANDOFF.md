@@ -1,5 +1,27 @@
 # HANDOFF — 2026-07-06
 
+## LLM Full-Text Extraction + 7-Lane Plan — 2026-07-08 (LATEST)
+
+**Why this work:** user observed the research phase was seconds long and the GPU never spiked. Root cause: the local LLM was **never wired into a run** (`_make_orchestrator` built `SourceRanker()`/`StructuredExtractor()` with no provider), and extraction was regex on abstract-level text — the exact "reads only abstracts, can't replicate" failure the project exists to kill. New spec in `Research Engine Prompt 2.txt`: 7 model lanes, quality/speed + volume sliders, constraint triangle, sequential VRAM load/unload, replication-grade full-text insight.
+
+**Approved plan:** `C:\Users\Isaac\.claude\plans\jolly-wobbling-steele.md` (6 phases). Branch `feat/llm-fulltext-lanes` (cut from `feat/self-research-golden-eval`).
+
+**DONE this session (Phase 0 + Phase 1, live-verified):**
+- Phase 0 (`cc1dff2`, `b4fa9a2`): `config/model_lanes.yaml` (7 lanes w/ fallbacks) + `scripts/pull_models.py` (normalize HF tags, pull, record `data/model_pull_report.json`, degrade missing→installed fallback). **All 7 requested tags 404 as written** (`gemma4:12b/26b/31b`, `batiai/qwen3.6-35b:iq3`, etc. are speculative) → every lane currently falls back to an installed model (`gemma4:latest`, `mistral-small3.2:latest`, `qwen2.5-coder:14b`). A real pull is running in the BACKGROUND; check `data/model_pull_report.json` + `data/pull_models.log` next session for any tag that actually resolved.
+- Phase 1 (`0849c2c`, `3948e05`): `extraction/llm_extractor.py::LLMSectionExtractor` (chunked map-reduce, defensive JSON parse, ABSENT handling, **verbatim-evidence substring guard** dropping hallucinated claims) + `extraction/chunker.py` + `extraction/prompts.py`. `StructuredExtractor` gained `llm_extractor`; uses LLM path on real full text, regex fallback otherwise, flags `meta.degraded=abstract_only`, sets `extraction_tool=llm:<model>`; added `conclusions`+`replication_notes`. `main.py::_make_orchestrator` wires deep lane via `ModelRegistry` with ping-guarded regex fallback (CI/offline safe).
+- **Key fix (`3948e05`):** `gemma4` is a *thinking* model — with a bounded token budget it spent it all on hidden reasoning and returned EMPTY content. Set `think=false` by default on `OllamaClient`. Now clean JSON in ~2.5x fewer tokens.
+- **Live acceptance PASSED:** `gemma4:latest` read full text → methodology/data/results/conclusions + 5 evidence-verified claims (0 hallucinated) in ~8s; `ollama ps` showed the model resident with 3.3 GB on the GPU. The GPU-driven full-text extraction the user wanted now works.
+- Verification: all tests pass, mypy clean (75 files), ruff clean. New tests: `tests/unit/extraction/test_llm_extractor.py` (8, incl. anti-hallucination + abstract-only skip).
+
+**OPEN / NEXT (Phases 2-6, see plan file):**
+- P2: `config/model_lanes.yaml` fill + `llm/lifecycle.py::ModelLifecycleManager` (keep_alive:0 evict, `/api/ps`) + `llm/lane_roster.py`; additive `OllamaClient` options (num_ctx/num_gpu/flash). 7 models can't co-reside in 16GB → sequential load/unload.
+- P3: model-usage + GPU-offload telemetry (`monitoring/gpu_probe.py`, new telemetry events, surface in `status`/dashboard). NOTE: per-paper extractor `record_agent_action` was deferred from P1 → do in P3.
+- P4: `planning/constraint_triangle.py` (2-of-3 derive 3rd; time-only→no slider), `cli/slider.py` (prompt_toolkit + non-TTY numbered fallback), `planning/quality_floor.py`.
+- P5: wire fast lane into screening (`build_llm_scorer`), LLM query planner, `planning/handoff.py`, `synthesis/synthesizer.py` + unique-insight filter.
+- P6: prompt-injection guard already in prompts (paper text=data); add redaction before agent_history; docs.
+- **Correct model tags:** user should supply real Ollama tags (or confirm the background-pull resolved ones) to replace the speculative lane tags; IQ3 lanes = synthesis/overnight only, never deep extraction.
+- Env: RTX 5080 16GB VRAM + 64GB RAM. Ollama auto-offloads to RAM (no custom bridge). MoE tolerates offload; dense does not.
+
 ## This Session
 - Done:
   - Read and parsed `Research Engine Prompt1.MD`.
