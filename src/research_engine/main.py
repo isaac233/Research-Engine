@@ -150,18 +150,49 @@ def cli(ctx: click.Context, project_root: Path | None) -> None:
 @cli.command()
 @click.argument("query")
 @click.option("--context", default="", help="Additional context for the research request.")
-@click.option("--max-sources", default=50, type=click.IntRange(1, 1000), help="Maximum sources to consider (1-1000).")
+@click.option("--max-sources", default=50, type=click.IntRange(1, 1000), help="Hard cap on sources considered (1-1000).")
+@click.option("--quality", type=click.FloatRange(0.0, 1.0), default=None, help="0.0 speed .. 1.0 max quality.")
+@click.option("--time-budget", "time_budget", type=click.IntRange(1, 86400), default=None, help="Time budget in seconds (auto-optimizes quality, no slider).")
+@click.option("--sources", type=click.IntRange(1, 200), default=None, help="Target number of uniquely-useful sources.")
 @click.pass_context
-def run(ctx: click.Context, query: str, context: str, max_sources: int) -> None:
+def run(
+    ctx: click.Context,
+    query: str,
+    context: str,
+    max_sources: int,
+    quality: float | None,
+    time_budget: int | None,
+    sources: int | None,
+) -> None:
     """Start a new research campaign."""
+    from dataclasses import asdict
+
+    from research_engine.cli.slider import prompt_constraints
+    from research_engine.planning.constraint_triangle import ConstraintInputs, solve
+
+    inputs = ConstraintInputs(quality=quality, time_budget_s=time_budget, source_volume=sources)
+    plan = solve(inputs)
+    if plan.needs_slider:
+        inputs = prompt_constraints(inputs)
+        plan = solve(inputs)
+
     orchestrator = _make_orchestrator(ctx.obj.get("project_root"))
-    request = ResearchRequest(query=query, context=context, max_sources=max_sources)
+    request = ResearchRequest(
+        query=query, context=context, max_sources=min(max_sources, plan.source_volume)
+    )
     campaign = orchestrator.start_campaign(request)
+    orchestrator.store.update_campaign(campaign.with_meta("resolved_plan", asdict(plan)))
 
     config = EngineConfig(ctx.obj.get("project_root"))
     campaign_dir, insights_path = config.campaign_paths(campaign.slug)
     campaign_dir.mkdir(parents=True, exist_ok=True)
     click.echo(f"Campaign {campaign.id} ({campaign.slug}) started.")
+    click.echo(
+        f"Plan: quality={plan.quality_level} ({plan.quality}), "
+        f"sources={plan.source_volume}, "
+        f"time_budget={plan.time_budget_s if plan.time_budget_s is not None else 'none'}s "
+        f"[{plan.note}]"
+    )
     click.echo(f"Output directory: {campaign_dir}")
 
     final = orchestrator.run_campaign(campaign.id)
