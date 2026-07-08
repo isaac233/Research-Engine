@@ -20,6 +20,8 @@ data/cache/
 data/sources/*/
 data/deliverables/*/
 data/self_research/
+data/*.json
+data/*.log
 *.duckdb
 *.duckdb.wal
 *.sqlite

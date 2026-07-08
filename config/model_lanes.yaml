@@ -1,0 +1,82 @@
+# Research Engine — model lane roster.
+#
+# Seven lanes, each mapped to a task type by model strength. Ollama drives all
+# of them (one client, per-call model override). Tags are the user-requested
+# models; `fallback` is an installed model to use when the requested tag does
+# not resolve on the Ollama registry (see scripts/pull_models.py, which records
+# what actually pulled to data/model_pull_report.json).
+#
+# Hardware: RTX 5080 16GB VRAM + 64GB RAM. Only one lane is resident at a time
+# (Phase 2 ModelLifecycleManager loads/unloads). MoE + Q4/Q8 tolerate RAM
+# offload; IQ3 lanes are overnight/synthesis only, never the deep-extract lane.
+
+lanes:
+  fast:
+    role: reviewer
+    tag: "gemma4:12b"
+    fallback: "gemma4:latest"
+    est_vram_gb: 8
+    fits_in_vram: true
+    num_ctx: 8192
+    enabled: true
+    use: "High-volume cheap calls: screening relevance/authority/currency."
+
+  deep:
+    role: worker
+    tag: "gemma4:26b-a4b"        # MoE ~4B active; tolerates RAM offload
+    fallback: "gemma4:latest"
+    est_vram_gb: 15
+    fits_in_vram: false
+    num_ctx: 24576
+    enabled: true
+    use: "Correctness-critical full-text methods/data/results extraction."
+
+  overnight:
+    role: worker
+    tag: "gemma4:31b"            # dense; max quality, slow (heavy offload)
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 20
+    fits_in_vram: false
+    num_ctx: 16384
+    enabled: true
+    use: "Batch/overnight max-quality runs where speed is not a concern."
+
+  online_a:
+    role: planner
+    tag: "batiai/qwen3.6-35b:iq3"
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 18
+    fits_in_vram: false
+    num_ctx: 16384
+    enabled: true
+    use: "Online research / query planning (strong web-research model)."
+
+  online_b:
+    role: planner
+    tag: "hf.co/unsloth/Qwen3.6-27B-GGUF:IQ4_XS"
+    fallback: "qwen2.5-coder:14b"
+    est_vram_gb: 15
+    fits_in_vram: false
+    num_ctx: 16384
+    enabled: true
+    use: "Online research / query planning (alternate)."
+
+  synth_a:
+    role: synthesizer
+    tag: "hf.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q4_K_M"
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 15
+    fits_in_vram: false
+    num_ctx: 24576
+    enabled: true
+    use: "Synthesize insights from deep reads of gathered sources."
+
+  synth_b:
+    role: synthesizer
+    tag: "hf.co/KikoCis/gemma-4-31b-it-IQ3_XS-GGUF:IQ3_XS"
+    fallback: "gemma4:latest"
+    est_vram_gb: 14
+    fits_in_vram: false
+    num_ctx: 16384
+    enabled: true
+    use: "Synthesize insights (alternate, aggressive quant — synthesis only)."
