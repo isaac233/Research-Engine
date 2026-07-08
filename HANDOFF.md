@@ -160,6 +160,23 @@
 - Added `Standards.MD` (PR #14) capturing all quality, organization, security, ethics, monitoring, source-management, and session-ritual requirements from `Research Engine Prompt1.MD`.
 - It includes pre-change and post-change verification checklists. **Review `Standards.MD` before starting and after completing any future work.**
 
+## v0.1.0+ Source Memory & Agent History Session — 2026-07-07
+- Added two searchable SQLite databases to make the engine's prior work reusable and auditable:
+  - `src/research_engine/storage/source_memory.py`: `SourceMemory` catalog of good sources with topic/information tags, access methods, reliability scores, search hints, and FTS5 full-text search.
+  - `src/research_engine/storage/agent_history.py`: `AgentHistory` append-only audit log of agent actions with URL/API, request/response summaries, outcomes, reasons, evidence links, and redacted headers.
+- `EngineConfig` gained `source_memory_db_path()` and `agent_history_db_path()`.
+- `_make_orchestrator` in `src/research_engine/main.py` now constructs both stores and injects them into `Orchestrator`.
+- `Orchestrator` records stage transitions, browser unblocking probes, and discovery search results into `AgentHistory`; discovery sources are remembered in `SourceMemory`.
+- Added unit tests:
+  - `tests/unit/storage/test_source_memory.py`
+  - `tests/unit/storage/test_agent_history.py`
+- Updated architecture docs in `docs/architecture/storage.md`.
+- Verification:
+  - `pytest -q` → all tests passing, 87% coverage.
+  - `mypy src/research_engine` → clean.
+  - `ruff check .` → clean.
+  - `bandit -r src` → 0 HIGH/CRITICAL findings.
+
 ## Notes for Next Agent
 - All routers live under `.claude/agents/` and learned routes under `.claude/research-engine-routes.md`.
 - The eval harness under `.claude/router_eval/` must remain isolated from `src/`.

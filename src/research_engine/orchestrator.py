@@ -32,6 +32,7 @@ from research_engine.extraction.structured import (
 from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
+from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
@@ -40,10 +41,17 @@ from research_engine.state import (
     CampaignStore,
     ResearchRequest,
 )
+from research_engine.storage._redaction import redact_payload, redact_secrets, redact_url
+from research_engine.storage.agent_history import (
+    AgentActionOutcome,
+    AgentHistory,
+    AgentHistoryRecord,
+)
 from research_engine.storage.artifacts import ArtifactManager
+from research_engine.storage.source_memory import SourceMemory
 
 
-class Orchestrator:
+class Orchestrator(OrchestratorInstrumentation):
     """Drive a research campaign through its lifecycle stages."""
 
     STAGE_ORDER: tuple[CampaignStage, ...] = (
@@ -76,6 +84,8 @@ class Orchestrator:
         telemetry_emitter: TelemetryEmitter | None = None,
         telemetry_analyzer: TelemetryAnalyzer | None = None,
         deep_auditor: DeepAuditor | None = None,
+        source_memory: SourceMemory | None = None,
+        agent_history: AgentHistory | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -95,6 +105,8 @@ class Orchestrator:
         self.telemetry_emitter = telemetry_emitter or TelemetryEmitter(self.event_bus)
         self.telemetry_analyzer = telemetry_analyzer or TelemetryAnalyzer(self.event_bus)
         self.deep_auditor = deep_auditor
+        self.source_memory = source_memory
+        self.agent_history = agent_history
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -216,6 +228,17 @@ class Orchestrator:
             campaign.status,
             {"stage": stage.value, "status": campaign.status.value},
         )
+        self.record_agent_action(
+            AgentHistoryRecord(
+                campaign_id=campaign.id,
+                agent_name="orchestrator",
+                action_type="stage_enter",
+                request_summary=f"Entering stage {stage.value} for campaign {campaign.id}",
+                outcome=AgentActionOutcome.SUCCESS,
+                audit_level="normal",
+                meta={"stage": stage.value, "status": campaign.status.value},
+            )
+        )
         return campaign
 
     def _execute_stage(self, campaign: Campaign, stage: CampaignStage) -> Campaign:
@@ -228,13 +251,13 @@ class Orchestrator:
             self.event_bus.emit(
                 campaign.id,
                 "stage_failed",
-                {"stage": stage.value, "error": str(exc)},
+                {"stage": stage.value, "error": redact_secrets(str(exc))},
             )
             raise
         self.event_bus.emit(
             campaign.id,
             "stage_exit",
-            {"stage": stage.value, "result": result},
+            {"stage": stage.value, "result": redact_payload(result)},
         )
         self.telemetry_emitter.stage_transition(
             campaign.id,
@@ -243,6 +266,22 @@ class Orchestrator:
             {"stage": stage.value, "status": campaign.status.value},
         )
         self.telemetry_analyzer.check(campaign.id, self.store)
+        self.record_agent_action(
+            AgentHistoryRecord(
+                campaign_id=campaign.id,
+                agent_name="orchestrator",
+                action_type="stage_exit",
+                request_summary=f"Completed stage {stage.value} for campaign {campaign.id}",
+                response_summary=f"ok={result.get('ok')} note={result.get('note')}",
+                outcome=(
+                    AgentActionOutcome.ERROR
+                    if not result.get("ok") or result.get("error")
+                    else AgentActionOutcome.SUCCESS
+                ),
+                audit_level="normal",
+                meta={"stage": stage.value, "status": campaign.status.value},
+            )
+        )
         return self._require_campaign(campaign.id)
 
     def _set_status(self, campaign: Campaign, status: CampaignStatus) -> Campaign:
@@ -312,8 +351,22 @@ class Orchestrator:
 
     def _run_discover(self, campaign: Campaign) -> dict[str, Any]:
         """Dispatch discovery or unblocking probe depending on campaign type."""
+        self._validate_request_input(campaign)
         if campaign.meta.get("campaign_type") == "unblocking" and self.browser is not None:
             result = self.browser.unblock(campaign.request.query)
+            self.record_agent_action(
+                AgentHistoryRecord(
+                    campaign_id=campaign.id,
+                    agent_name="browser",
+                    action_type="unblock_probe",
+                    request_summary=campaign.request.query,
+                    response_summary=str(result.content or "")[:500],
+                    outcome=AgentActionOutcome.SUCCESS if result.ok else AgentActionOutcome.FAILURE,
+                    reason=result.error or "",
+                    audit_level="normal",
+                    meta={"action": result.action.value},
+                )
+            )
             return {
                 "ok": result.ok,
                 "action": result.action.value,
@@ -331,8 +384,51 @@ class Orchestrator:
             resolved_map = {r.paper_key: r for r in discovery_result.resolved}
             self.store.update_campaign(
                 campaign.with_meta("canonical_papers", canonical_papers)
-                .with_meta("resolved_map", {k: {"url": r.url, "is_oa": r.is_oa, "source": r.source} for k, r in resolved_map.items()})
+                .with_meta(
+                    "resolved_map",
+                    {
+                        k: {
+                            "url": redact_url(r.url) if r.url else None,
+                            "is_oa": r.is_oa,
+                            "source": r.source,
+                        }
+                        for k, r in resolved_map.items()
+                    },
+                )
             )
+            for sr in discovery_result.search_results:
+                status_code = getattr(sr, "status_code", None)
+                self.record_agent_action(
+                    AgentHistoryRecord(
+                        campaign_id=campaign.id,
+                        agent_name=sr.source,
+                        action_type="discovery_search",
+                        api_endpoint=sr.query,
+                        response_status=status_code,
+                        response_summary=str(sr.error or f"{len(sr.papers)} papers")[:500],
+                        outcome=AgentActionOutcome.ERROR if sr.error else AgentActionOutcome.SUCCESS,
+                        reason=sr.error or "",
+                        source_name=sr.source,
+                        audit_level="normal",
+                    )
+                )
+                canonical_url = self.SOURCE_CANONICAL_URLS.get(sr.source)
+                if canonical_url is not None:
+                    self.remember_source(
+                        canonical_url=canonical_url,
+                        source_type="academic_api",
+                        information_types=["paper_metadata", "abstracts", "citations"],
+                        topic_tags=self._plan_keywords(campaign),
+                        access_method="api",
+                        reliability_score=0.7,
+                        quality_notes=sr.error or "",
+                        campaign_id=campaign.id,
+                        meta={
+                            "status_code": status_code,
+                            "paper_count": len(sr.papers),
+                            "adapter": sr.source,
+                        },
+                    )
             return {
                 "ok": True,
                 "canonical_count": len(discovery_result.deduped_groups),
@@ -374,6 +470,19 @@ class Orchestrator:
             paper = Paper.from_dict(paper_dict)
             resolved = resolved_map.get(paper.key, {})
             content_url = resolved.get("url")
+            try:
+                self._validate_url(content_url)
+            except ValueError as exc:
+                self.event_bus.emit(
+                    campaign.id,
+                    "extraction_url_rejected",
+                    {
+                        "paper_key": paper.key,
+                        "url": redact_url(content_url),
+                        "reason": str(exc),
+                    },
+                )
+                continue
             is_oa = bool(resolved.get("is_oa", False))
             source = self.extractor.extract(
                 paper,

@@ -94,3 +94,11 @@ class EngineConfig:
     def cache_db_path(self) -> Path:
         """Return the SQLite source cache DB path inside engine data dir."""
         return self.engine_data_dir / "cache.db"
+
+    def source_memory_db_path(self) -> Path:
+        """Return the SQLite source-memory DB path inside engine data dir."""
+        return self.engine_data_dir / "source_memory.db"
+
+    def agent_history_db_path(self) -> Path:
+        """Return the SQLite agent-history audit DB path inside engine data dir."""
+        return self.engine_data_dir / "agent_history.db"
