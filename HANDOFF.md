@@ -32,8 +32,16 @@
 - 389 tests pass; mypy+ruff clean (86 files).
 - STILL PARTIAL: `ModelLifecycleManager` (Phase 2) is NOT yet wired into the run loop — stages don't call `with_model`/`switch` to sequentially load per-`resolved_plan` lanes; each lane call currently relies on Ollama's own load/keep_alive. Full sequential VRAM handoff per quality-slider lane assignment is the main remaining integration (fold into P6 or a P5.1). Also: LLM query_planner still heuristic (optional, low priority).
 
-**OPEN / NEXT (Phase 6, see plan file):**
-- P6: prompt-injection guard already in prompts (paper text=data); add redaction before agent_history; docs.
+**Phase 6 DONE (`44b0bea`) — ALL 6 PHASES COMPLETE:**
+- Wired the Phase 2 lifecycle into the run loop (the gap): `orchestrator._switch_lane(stage)` loads the stage's `resolved_plan` lane model via LaneRoster, evicting the previous (one model resident, no VRAM stacking); emits switch telemetry; frees the model at FINALIZE. `main.py` builds ModelLifecycleManager + LaneRoster when Ollama reachable.
+- `docs/architecture/model-lanes.md` documents the whole LLM-driven system. Security confirmed (paper text = data, agent-history summaries-only + redaction).
+- 392 tests pass; mypy+ruff clean (86 files).
+
+**LOW-PRIORITY REMAINING (optional, next sessions):**
+- LLM query planner still heuristic (works fine; low value).
+- Overnight/synth_b IQ3 lanes are configured but only used if the quality slider/plan assigns them; not yet exercised live end-to-end.
+- Not pushed / no PR — user has not asked to push. Branch `feat/llm-fulltext-lanes` has Phases 0-6.
+- Consider a live full campaign on a real OA-paper query at `--quality 0.9` to exercise the full multi-lane handoff path end-to-end (unit-tested; not yet run live as a single campaign).
 - **Correct model tags:** user should supply real Ollama tags (or confirm the background-pull resolved ones) to replace the speculative lane tags; IQ3 lanes = synthesis/overnight only, never deep extraction.
 - Env: RTX 5080 16GB VRAM + 64GB RAM. Ollama auto-offloads to RAM (no custom bridge). MoE tolerates offload; dense does not.
 
