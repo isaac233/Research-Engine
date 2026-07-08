@@ -19,8 +19,10 @@
 - **ALL 7 lanes resolved to REAL models** (`be808af`, `validate-models` all ok): fast `gemma4:12b` (in-VRAM), deep `gemma4:12b` (in-VRAM; the aspirational `gemma4:26b-a4b` MoE does NOT exist, so deep uses 12b — user confirmed fine), overnight `gemma4:31b`, online_a `batiai/qwen3.6-27b:q3` (user-corrected tag), online_b `hf.co/unsloth/Qwen3.6-27B-GGUF:IQ4_XS`, synth_a `hf.co/lmstudio-community/Mistral-Small-3.2-24B-Instruct-2506-GGUF:Q4_K_M`, synth_b `hf.co/KikoCis/gemma-4-31b-it-IQ3_XS-GGUF:IQ3_XS`. Extra installed: `batiai/qwen3.6-35b:iq3` (unused spare).
 - **Pull script hardened:** captures raw bytes (no text-mode) to survive ollama's ANSI progress on Windows cp1252; strips control chars from stored errors; incremental report writes. `_resolve_deep_model` in main.py reads the report → deep extraction now runs on gemma4:12b.
 
-**OPEN / NEXT (Phases 3-6, see plan file):**
-- P3: model-usage + GPU-offload telemetry (`monitoring/gpu_probe.py`, new telemetry events, surface in `status`/dashboard). NOTE: per-paper extractor `record_agent_action` was deferred from P1 → do in P3.
+**Phase 3 DONE (`23c5cbb`), live-verified:**
+- `monitoring/gpu_probe.py::GpuProbe.snapshot()` (nvidia-smi VRAM + `/api/ps` per-model RAM-offload split; None on CI). `telemetry.py`: `model_event`/`gpu_snapshot` + `lifecycle_telemetry_hook`. `orchestrator.status_snapshot` includes live `gpu` + per-stage `models`; `_run_extract` emits model assignment + extractor agent-history action (the deferred P1 item). `status` CLI prints `model[extract]`, VRAM, per-model offload %. Live: probe read 1779/16303 MiB.
+
+**OPEN / NEXT (Phases 4-6, see plan file):**
 - P4: `planning/constraint_triangle.py` (2-of-3 derive 3rd; time-only→no slider), `cli/slider.py` (prompt_toolkit + non-TTY numbered fallback), `planning/quality_floor.py`.
 - P5: wire fast lane into screening (`build_llm_scorer`), LLM query planner, `planning/handoff.py`, `synthesis/synthesizer.py` + unique-insight filter.
 - P6: prompt-injection guard already in prompts (paper text=data); add redaction before agent_history; docs.
