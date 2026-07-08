@@ -322,6 +322,15 @@ class Orchestrator(OrchestratorInstrumentation):
         """Placeholder for stages whose subsystems are not yet implemented."""
         return {"note": f"{campaign.stage.value} not yet implemented"}
 
+    def _run_skipped(self, campaign: Campaign, reason: str) -> dict[str, Any]:
+        """Report an implemented stage that had no input to act on.
+
+        Distinct from ``_run_stub`` so telemetry and agent history record an
+        honest "skipped: <reason>" instead of a misleading "not yet
+        implemented", making a silently-empty pipeline visible.
+        """
+        return {"ok": True, "skipped": reason, "note": f"{campaign.stage.value} skipped: {reason}"}
+
     def _run_init(self, campaign: Campaign) -> dict[str, Any]:
         """Initialize campaign metadata and record start time."""
         now = datetime.now(UTC).isoformat()
@@ -443,26 +452,37 @@ class Orchestrator(OrchestratorInstrumentation):
         """Screen canonical papers from discovery using the configured ranker."""
         canonical_data = campaign.meta.get("canonical_papers", [])
         if not canonical_data or self.ranker is None:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no canonical papers or ranker unavailable")
         papers = [Paper.from_dict(d) for d in canonical_data]
         scorecards = self.ranker.rank(papers, query=campaign.request.query)
         included = [s for s in scorecards if s.included][: campaign.request.max_sources]
-        self.store.update_campaign(
-            campaign.with_meta("scorecards", [self._scorecard_to_dict(s) for s in scorecards])
-            .with_meta("included_papers", [s.paper.to_dict() for s in included])
-        )
-        return {
+        # Zero inclusions from a non-empty candidate set means downstream stages
+        # will silently no-op, so flag it rather than complete with an empty brief.
+        yielded_zero = bool(scorecards) and not included
+        campaign = campaign.with_meta(
+            "scorecards", [self._scorecard_to_dict(s) for s in scorecards]
+        ).with_meta("included_papers", [s.paper.to_dict() for s in included])
+        if yielded_zero:
+            campaign = campaign.with_meta("screening_yielded_zero", True)
+        self.store.update_campaign(campaign)
+        result: dict[str, Any] = {
             "ok": True,
             "screened_count": len(scorecards),
             "included_count": len(included),
             "criteria_set": self.ranker.criteria.name,
         }
+        if yielded_zero:
+            result["skipped"] = (
+                f"0 of {len(scorecards)} sources passed criteria "
+                f"'{self.ranker.criteria.name}'"
+            )
+        return result
 
     def _run_extract(self, campaign: Campaign) -> dict[str, Any]:
         """Extract structured fields from included papers."""
         included_data = campaign.meta.get("included_papers", [])
         if not included_data or self.extractor is None:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no included papers to extract")
         resolved_map = campaign.meta.get("resolved_map", {})
         fetch_fn = self.browser.fetch_bytes if self.browser is not None else None
         extracted: list[dict[str, Any]] = []
@@ -520,7 +540,7 @@ class Orchestrator(OrchestratorInstrumentation):
         """Run Devil and Verifier over extracted sources."""
         extracted_data = campaign.meta.get("extracted_sources", [])
         if not extracted_data:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no extracted sources to challenge")
         sources = [extracted_source_from_dict(d) for d in extracted_data]
         challenges = self.devil.challenge(sources, query=campaign.request.query)
         verifications = self.verifier.verify(sources)
@@ -545,7 +565,7 @@ class Orchestrator(OrchestratorInstrumentation):
         """Evaluate extracted output and produce a report."""
         inputs = self._load_evaluation_inputs(campaign)
         if inputs is None:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no extracted sources to evaluate")
         sources, challenges, verifications = inputs
         report, brief, proposals = self._build_report_and_brief(
             sources, challenges, verifications, campaign.request.query
@@ -661,7 +681,7 @@ class Orchestrator(OrchestratorInstrumentation):
         """Write the insight brief to the host project's Research/ layout."""
         brief = campaign.meta.get("insight_brief", "")
         if not brief:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no insight brief to deliver")
         insights_path = self.artifacts.write_campaign_brief(
             campaign.slug,
             brief,
