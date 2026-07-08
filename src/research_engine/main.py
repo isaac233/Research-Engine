@@ -18,7 +18,9 @@ from research_engine.discovery.schema import Paper
 from research_engine.discovery.source_registry import SourceRegistry
 from research_engine.evaluation.harness import EvaluationHarness
 from research_engine.events import EventBus
+from research_engine.extraction.llm_extractor import LLMSectionExtractor
 from research_engine.extraction.structured import StructuredExtractor
+from research_engine.llm.model_registry import ModelRegistry
 from research_engine.llm.validator import ModelStackValidator
 from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.orchestrator import Orchestrator
@@ -27,6 +29,35 @@ from research_engine.state import CampaignStore, ResearchRequest
 from research_engine.storage.agent_history import AgentHistory
 from research_engine.storage.cache import SourceCache
 from research_engine.storage.source_memory import SourceMemory
+
+
+def _resolve_deep_model(config: EngineConfig) -> str:
+    """Return the deep-lane model tag resolved by the pull report, else a fallback."""
+    report = config.engine_data_dir / "model_pull_report.json"
+    try:
+        data = json.loads(report.read_text(encoding="utf-8"))
+        for result in data.get("results", []):
+            if result.get("lane") == "deep":
+                return str(result.get("resolved_tag") or "gemma4:latest")
+    except (OSError, json.JSONDecodeError):
+        pass
+    return "gemma4:latest"
+
+
+def _build_llm_extractor(config: EngineConfig) -> LLMSectionExtractor | None:
+    """Build the full-text LLM extractor, or None if no local provider is reachable.
+
+    Keeping this best-effort means the engine still runs (regex fallback) offline
+    or in CI where Ollama is absent.
+    """
+    try:
+        registry = ModelRegistry(config.model_registry_path)
+        provider = registry.build_provider("ollama")
+        if not provider.ping().get("ok"):
+            return None
+        return LLMSectionExtractor(provider, model=_resolve_deep_model(config))
+    except Exception:  # noqa: BLE001 - any wiring/network failure -> regex fallback
+        return None
 
 
 def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
@@ -41,7 +72,7 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     registry = SourceRegistry()
     discovery = DiscoveryPipeline(registry=registry, cache=cache)
     ranker = SourceRanker()
-    extractor = StructuredExtractor()
+    extractor = StructuredExtractor(llm_extractor=_build_llm_extractor(config))
     event_bus = EventBus(store)
     estimator = TimeEstimator(store)
     return Orchestrator(

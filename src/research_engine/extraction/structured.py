@@ -10,6 +10,7 @@ from typing import Any
 from research_engine.browser.policy import URLPolicy
 from research_engine.discovery.schema import Paper
 from research_engine.extraction.citation import Citation, citations_to_dict, extract_citations
+from research_engine.extraction.llm_extractor import LLMSectionExtractor
 from research_engine.extraction.markdownify import markdownify
 from research_engine.extraction.pdf_converter import PDFConverter
 
@@ -40,6 +41,8 @@ class ExtractedSource:
     full_text_url: str | None
     is_oa: bool
     extraction_tool: str
+    conclusions: str = ""
+    replication_notes: str = ""
     error: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -51,9 +54,11 @@ class StructuredExtractor:
         self,
         pdf_converter: PDFConverter | None = None,
         url_policy: URLPolicy | None = None,
+        llm_extractor: LLMSectionExtractor | None = None,
     ) -> None:
         self.pdf_converter = pdf_converter or PDFConverter()
         self.url_policy = url_policy or URLPolicy()
+        self.llm_extractor = llm_extractor
 
     def extract(
         self,
@@ -81,12 +86,45 @@ class StructuredExtractor:
 
         title = paper.title
         summary = self._paragraph(text, 0) or paper.abstract or ""
-        methodology = self._section(text, ["method", "methodology", "approach"])
-        data_summary = self._section(text, ["data", "dataset", "materials", "corpus"])
-        results_summary = self._section(text, ["results", "findings", "evaluation"])
-
-        claims = self._extract_claims(text, paper.source_id)
         citations = extract_citations(text)
+        meta: dict[str, Any] = {"char_count": len(text), "citation_count": len(citations)}
+
+        # Only abstract text is available: do not fabricate a methods/data section.
+        abstract_only = tool == "abstract"
+        if abstract_only:
+            meta["degraded"] = "abstract_only"
+
+        conclusions = ""
+        replication_notes = ""
+        used_llm = False
+        if self.llm_extractor is not None and text and not abstract_only:
+            llm = self.llm_extractor.extract_sections(title, paper.abstract or "", text)
+            if llm.methodology or llm.results_summary or llm.claims:
+                used_llm = True
+                methodology = llm.methodology
+                data_summary = llm.data_summary
+                results_summary = llm.results_summary
+                conclusions = llm.conclusions
+                replication_notes = llm.replication_notes
+                claims = [
+                    ExtractedClaim(
+                        claim=c.claim,
+                        evidence=c.evidence,
+                        confidence=c.confidence,
+                        source_id=paper.source_id,
+                    )
+                    for c in llm.claims
+                ]
+                tool = f"llm:{self.llm_extractor.model or 'default'}"
+                meta["llm"] = llm.meta
+
+        if not used_llm:
+            # Regex fallback (LLM unavailable, failed, or abstract-only).
+            methodology = self._section(text, ["method", "methodology", "approach"])
+            data_summary = self._section(text, ["data", "dataset", "materials", "corpus"])
+            results_summary = self._section(text, ["results", "findings", "evaluation"])
+            claims = self._extract_claims(text, paper.source_id)
+
         conflicts = self._detect_conflicts(claims, project_data, paper.source_id)
 
         return ExtractedSource(
@@ -102,8 +140,10 @@ class StructuredExtractor:
             full_text_url=content_url or paper.pdf_url or paper.url,
             is_oa=is_oa,
             extraction_tool=tool,
+            conclusions=conclusions,
+            replication_notes=replication_notes,
             error=error,
-            meta={"char_count": len(text), "citation_count": len(citations)},
+            meta=meta,
         )
 
     def _load_content(
@@ -355,6 +395,8 @@ def extracted_source_to_dict(source: ExtractedSource) -> dict[str, Any]:
         "methodology": source.methodology,
         "data_summary": source.data_summary,
         "results_summary": source.results_summary,
+        "conclusions": source.conclusions,
+        "replication_notes": source.replication_notes,
         "claims": [
             {"claim": c.claim, "evidence": c.evidence, "confidence": c.confidence, "source_id": c.source_id}
             for c in source.claims
@@ -378,6 +420,8 @@ def extracted_source_from_dict(data: dict[str, Any]) -> ExtractedSource:
         methodology=data["methodology"],
         data_summary=data["data_summary"],
         results_summary=data["results_summary"],
+        conclusions=data.get("conclusions", ""),
+        replication_notes=data.get("replication_notes", ""),
         claims=[
             ExtractedClaim(
                 claim=c["claim"],
