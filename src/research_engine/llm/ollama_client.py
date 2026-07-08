@@ -14,10 +14,20 @@ class OllamaClient(LLMProvider):
 
     name = "ollama"
 
-    def __init__(self, base_url: str, default_model: str, timeout: float = 120.0) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        default_model: str,
+        timeout: float = 120.0,
+        think: bool = False,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self._default_model = default_model
         self.timeout = timeout
+        # Thinking models (e.g. gemma4) otherwise spend the token budget on a
+        # hidden reasoning preamble and return empty content. The engine wants
+        # direct structured output, so disable thinking by default.
+        self.think = think
 
     @property
     def default_model(self) -> str:
@@ -35,6 +45,7 @@ class OllamaClient(LLMProvider):
             "model": target_model,
             "messages": [{"role": m.role, "content": m.content} for m in messages],
             "stream": False,
+            "think": self.think,
             "options": {"temperature": temperature},
         }
         if max_tokens is not None:
