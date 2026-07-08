@@ -13,8 +13,13 @@
 - **Live acceptance PASSED:** `gemma4:latest` read full text → methodology/data/results/conclusions + 5 evidence-verified claims (0 hallucinated) in ~8s; `ollama ps` showed the model resident with 3.3 GB on the GPU. The GPU-driven full-text extraction the user wanted now works.
 - Verification: all tests pass, mypy clean (75 files), ruff clean. New tests: `tests/unit/extraction/test_llm_extractor.py` (8, incl. anti-hallucination + abstract-only skip).
 
-**OPEN / NEXT (Phases 2-6, see plan file):**
-- P2: `config/model_lanes.yaml` fill + `llm/lifecycle.py::ModelLifecycleManager` (keep_alive:0 evict, `/api/ps`) + `llm/lane_roster.py`; additive `OllamaClient` options (num_ctx/num_gpu/flash). 7 models can't co-reside in 16GB → sequential load/unload.
+**Phase 2 DONE (`71e162d`), live-verified:**
+- `llm/lane_roster.py::LaneRoster.from_yaml` (resolves effective tag from pull report); `llm/lifecycle.py::ModelLifecycleManager` (load/unload keep_alive=0, switch evicts old before loading new, `with_model` ctx-mgr evicts on error, `active()` via `/api/ps`, event hook). `ollama_client.py`: complete() options+keep_alive, `ps/warm/unload`. `model_registry.build_ollama_client()`. `validate-models` now prints a lane table.
+- Live: load→switch→unload keeps exactly ONE model resident (no VRAM stacking). Tests added (roster + lifecycle).
+- **Real tags confirmed pulled:** `gemma4:12b` (fast, in-VRAM) and `gemma4:31b` (overnight) EXIST. `gemma4:26b-a4b` 404s → deep falls back. online_a/b + synth_a/b (Qwen3.6/HF GGUF) still pulling/404 in background — re-check `validate-models` + `data/model_pull_report.json` next session.
+- **deep lane note:** currently resolves to `gemma4:latest` (8B) because the in-flight pull used the pre-edit config. Re-run `python scripts/pull_models.py` to repoint deep→`gemma4:12b` (better: fully fits VRAM, beats Gemma-3 27B). `_resolve_deep_model` in main.py reads the report.
+
+**OPEN / NEXT (Phases 3-6, see plan file):**
 - P3: model-usage + GPU-offload telemetry (`monitoring/gpu_probe.py`, new telemetry events, surface in `status`/dashboard). NOTE: per-paper extractor `record_agent_action` was deferred from P1 → do in P3.
 - P4: `planning/constraint_triangle.py` (2-of-3 derive 3rd; time-only→no slider), `cli/slider.py` (prompt_toolkit + non-TTY numbered fallback), `planning/quality_floor.py`.
 - P5: wire fast lane into screening (`build_llm_scorer`), LLM query planner, `planning/handoff.py`, `synthesis/synthesizer.py` + unique-insight filter.
