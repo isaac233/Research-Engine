@@ -348,11 +348,12 @@ class Orchestrator(OrchestratorInstrumentation):
             models["extract"] = ", ".join(sorted(tools))
         return models
 
-    # --- Stage stubs: real work delegated to future subsystems. ---
+    # --- Stage handlers ---
 
     def _run_stub(self, campaign: Campaign) -> dict[str, Any]:
-        """Placeholder for stages whose subsystems are not yet implemented."""
-        return {"note": f"{campaign.stage.value} not yet implemented"}
+        """Safety default for a stage with no handler. All stages are implemented;
+        this only fires if a new stage is added without a `_run_<stage>` method."""
+        return {"note": f"no handler for stage {campaign.stage.value}"}
 
     def _run_skipped(self, campaign: Campaign, reason: str) -> dict[str, Any]:
         """Report an implemented stage that had no input to act on.
