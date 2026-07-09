@@ -125,3 +125,19 @@ def test_non_json_still_parses_as_html() -> None:
     result = adapter.search("q")
     assert result.ok is True
     assert result.papers[0].url == "https://c.test/1"
+
+
+def test_parses_whoogle_json_href_alias() -> None:
+    """Whoogle JSON uses 'href' for the URL (vs SearXNG's 'url')."""
+    payload = (
+        '{"query":"q","results":['
+        '{"href":"https://w.test/1","title":"Whoogle Hit","content":"snip","text":"full"}]}'
+    )
+    adapter = SERPAdapter(endpoint="http://localhost:5000/search?q={query}&format=json",
+                          browser=FakeBrowser(payload))
+    result = adapter.search("q")
+    assert result.ok is True
+    assert len(result.papers) == 1
+    assert result.papers[0].url == "https://w.test/1"
+    assert result.papers[0].title == "Whoogle Hit"
+    assert result.papers[0].abstract == "snip"

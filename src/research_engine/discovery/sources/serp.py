@@ -119,7 +119,8 @@ class SERPAdapter(SourceAdapter):
         for item in results:
             if not isinstance(item, dict):
                 continue
-            url = item.get("url")
+            # SearXNG uses "url"; Whoogle's JSON uses "href".
+            url = item.get("url") or item.get("href")
             title = item.get("title")
             if not url or not title:
                 continue
