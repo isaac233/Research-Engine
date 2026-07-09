@@ -1,4 +1,28 @@
-# HANDOFF — 2026-07-06
+# HANDOFF — 2026-07-09
+
+## Track B — discovery relevance + citation grounding (2026-07-09, branch `feat/deepresearch-bench`, commits `327a39f` + `1531516`)
+
+**What was built (all TDD, mypy strict + ruff green, full unit suite green):**
+
+*Option 2 — discovery relevance:*
+- **Relevance rubric was blind**: the default prompt had no `{query}` placeholder, so `format(query=...)` was a no-op — the LLM scored papers without ever seeing the research query. Fixed; rubric is now a MUST gate.
+- **Rubric was unfailable**: `clamped = max(minimum_score, ...)` floored every low score up to passing. Pass/fail now uses the raw score.
+- No-LLM environments pass rubrics unchecked (offline CI safe); scorer errors fail visibly.
+- Query planner skips arXiv for non-STEM queries (keyword-term heuristic; screening's LLM gate is the backstop).
+- `has_full_text` demoted MUST→SHOULD (it excluded every crossref/openalex record wholesale); new `has_abstract` SHOULD (w=2.0) and **`readable` MUST** (abstract OR full text — a relevant-sounding title-only stub cannot be extracted or cited).
+- **OpenAlex abstracts were always empty**: adapter read `raw["abstract"]`, which the API never sends; now rebuilds text from `abstract_inverted_index` (live: 7/10 papers gained abstracts).
+- New honesty flag `screening_yielded_offtopic` (≥50% of candidates fail relevance) beside `screening_yielded_zero`.
+
+*Option 3 — citation grounding:*
+- Synthesizer renders per-source URLs, instructs inline `[n]` citations, and code-appends a deterministic `## References` section (URL-less sources listed so `[n]` never dangles). Reporter fallback same.
+- `drop_failed_claims`: Verifier-rejected claims are stripped before synthesis — unverified claims never ship.
+- `unique_insight_filter` keeps abstract-only sources that have content but 0 structured claims (they were silently dropped, collapsing briefs to 1 source).
+
+**Measured (1 en task, ollama judge, N=1 directional):** RACE 40.5 (unchanged), FACT extraction now finds (fact,url) pairs (0→2) but 0 supported — the single on-topic readable source is a paywalled IGI DOI the judge cannot verify. **Sources are now on-topic** (was: gravitational-wave papers for a Japan-demographics query; now: population-aging economics).
+
+**THE structural finding (next session's target):** DeepResearch Bench tasks are general web-research questions. For task 51 (Japan elderly market) only 1/30 academic candidates was both relevant and readable; for task 52 (Buffett/Munger investment philosophies) 0/21 — the engine honestly delivered nothing (`screening_yielded_zero` + `_offtopic` both fired; the anti-cover-up works). Academic APIs are the wrong lane for these tasks. **The engine needs the web discovery lane live**: `SERPAdapter` exists but requires a configured endpoint (SearXNG instance or paid API) — none configured. Wiring a SearXNG endpoint (or serper.dev key) + enabling `serp`/`web_crawl` in the planner for non-academic topics is the single highest-value next move for both RACE breadth and FACT (web sources are fetchable, unlike paywalled DOIs).
+
+**Bench gotchas learned:** `bench/out/engine.jsonl` is a resume cache — a re-run with the file present re-scores the OLD article (delete/move it to re-measure after engine changes). The local mistral judge at temp=0 can emit identical RACE grids for different mediocre articles — treat as coarse/directional only.
 
 ## DeepResearch Bench scoreboard — Track A (2026-07-09, branch `feat/deepresearch-bench`)
 
