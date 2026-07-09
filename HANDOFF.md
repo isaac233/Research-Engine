@@ -199,11 +199,14 @@ Audited cohesion/organization/consistency-with-both-prompts and — critically �
   - `CDPDriver._fetch` now applies per-action `BrowserAction.headers` via `page.set_extra_http_headers`.
 
 ## State of the Build
-- Phase: **v0.1.0 shipped**
-- Last passing commit on `main`: `33c393d`
-- Merged PR: #12 — https://github.com/isaac233/Research-Engine/pull/12
-- Tag: `v0.1.0` — https://github.com/isaac233/Research-Engine/releases/tag/v0.1.0
-- CI: `pytest`, `mypy`, `ruff` all green on `main`.
+- **Current work: LLM-driven full-text research engine — PR #17 OPEN** (branch `feat/llm-fulltext-lanes` → `main`, 30 commits).
+  - https://github.com/isaac233/Research-Engine/pull/17
+  - 7 model lanes + VRAM lifecycle, quality/speed + volume sliders + constraint triangle, replication-grade full-text extraction (methods/data/results), synthesizer + handoff docs, model/GPU telemetry.
+  - Audit fixed two blockers that made real research impossible: TLS trust-store (truststore) + gzip double-decode.
+  - **Verified:** ~395 tests green, mypy + ruff clean; live end-to-end campaign delivered replication-grade `Insights.MD` from full-text arXiv papers on GPU.
+- `main` still at **v0.1.0** (`33c393d`, PR #12, tag `v0.1.0`) until #17 merges.
+- To resume next session: `git checkout feat/llm-fulltext-lanes`; read the "PUSHED — PR #17" + audit sections above and `docs/architecture/model-lanes.md`.
+- Optional follow-ups: Semantic Scholar API key (429s without it, handled); LLM query planner (still heuristic); a live `--quality 0.9` full multi-lane campaign.
 
 ## Next Priority Tasks
 1. Gather real-world usage feedback and bug reports from v0.1.0.

@@ -5,8 +5,13 @@ research request from a main AI (Claude Code / Opus / Kimi) into a fully
 executed internet research campaign—delivering structured insights, evidence
 maps, and status updates while consuming minimal premium-AI tokens.
 
-> **Status:** v0.1.0 — Phases 0–10 complete. 230+ tests, 80%+ coverage, MCP/stdio
-> adapter, end-of-session PR automation, and Docker packaging included.
+> **Status:** `main` = v0.1.0. Active branch `feat/llm-fulltext-lanes` (PR #17)
+> makes the engine genuinely LLM-driven: local models read **full-text
+> methods/data/results** for replication-grade insight, routed across **7 model
+> lanes** by a quality/speed + source-volume slider (specify any two of
+> quality/time/volume and the third is derived), with sequential VRAM
+> load/unload and model/GPU telemetry. ~395 tests, mypy + ruff clean; verified
+> by a live end-to-end campaign. See `docs/architecture/model-lanes.md`.
 
 ## What it does
 
