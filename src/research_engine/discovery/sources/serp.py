@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 from urllib.parse import quote_plus
@@ -91,7 +92,52 @@ class SERPAdapter(SourceAdapter):
             meta={"content_length": len(result.content)},
         )
 
-    def _parse(self, html: str, limit: int) -> list[Paper]:
+    def _parse(self, body: str, limit: int) -> list[Paper]:
+        """Parse a SearXNG-style JSON body if present, else fall back to HTML."""
+        papers = self._parse_json(body, limit)
+        if papers is not None:
+            return papers
+        return self._parse_html(body, limit)
+
+    def _parse_json(self, body: str, limit: int) -> list[Paper] | None:
+        """Parse SearXNG JSON: {"results":[{"title","url","content"}]}.
+
+        Returns None (not []) when the body is not the expected JSON shape, so
+        the caller can fall back to HTML scraping.
+        """
+        stripped = body.lstrip()
+        if not stripped.startswith("{"):
+            return None
+        try:
+            data = json.loads(stripped)
+        except (json.JSONDecodeError, ValueError):
+            return None
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list):
+            return None
+        papers: list[Paper] = []
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            title = item.get("title")
+            if not url or not title:
+                continue
+            papers.append(
+                Paper(
+                    title=str(title).strip(),
+                    url=str(url),
+                    abstract=str(item.get("content", "")).strip(),
+                    source=self.name,
+                    source_id=str(url),
+                    meta={"engine": item.get("engine", ""), "extracted": True},
+                )
+            )
+            if len(papers) >= limit:
+                break
+        return papers
+
+    def _parse_html(self, html: str, limit: int) -> list[Paper]:
         """Naive result extraction: finds title + link pairs."""
         papers: list[Paper] = []
         # Look for anchor tags with preceding heading or title tag.

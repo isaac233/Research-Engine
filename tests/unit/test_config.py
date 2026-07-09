@@ -111,3 +111,15 @@ def test_get_returns_default_for_unknown_key(tmp_path: Path, monkeypatch: pytest
     monkeypatch.setattr(EngineConfig, "DEFAULTS_PATH", tmp_path / "missing.yaml")
     config = EngineConfig(tmp_path)
     assert config.get("does.not.exist", "fallback") == "fallback"
+
+
+def test_serp_endpoint_unset_is_none() -> None:
+    import os
+    os.environ.pop(EngineConfig.SERP_ENDPOINT_ENV, None)
+    assert EngineConfig().serp_endpoint is None
+
+
+def test_serp_endpoint_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    ep = "http://localhost:8080/search?q={query}&format=json"
+    monkeypatch.setenv(EngineConfig.SERP_ENDPOINT_ENV, ep)
+    assert EngineConfig().serp_endpoint == ep

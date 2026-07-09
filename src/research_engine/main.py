@@ -90,7 +90,13 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     agent_history = AgentHistory(config.agent_history_db_path())
     http = RawHTTPBrowser()
     browser = UnblockProbe(http)
-    registry = SourceRegistry()
+    # Enable the web `serp` lane when a SearXNG endpoint is configured
+    # (RESEARCH_ENGINE_SERP_ENDPOINT); otherwise stay academic-only.
+    serp_endpoint = config.serp_endpoint
+    enabled_sources = set(SourceRegistry.DEFAULT_SOURCES)
+    if serp_endpoint:
+        enabled_sources.add("serp")
+    registry = SourceRegistry(enabled=enabled_sources, serp_endpoint=serp_endpoint)
     discovery = DiscoveryPipeline(registry=registry, cache=cache)
 
     # One provider drives every lane (per-call model override). Absent Ollama =>

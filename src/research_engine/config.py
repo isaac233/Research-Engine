@@ -14,6 +14,15 @@ class EngineConfig:
 
     DEFAULTS_PATH = Path(__file__).resolve().parent.parent.parent / "config" / "default.yaml"
     MODEL_REGISTRY_ENV = "RESEARCH_ENGINE_MODEL_REGISTRY"
+    # A SearXNG (or compatible) JSON endpoint template, e.g.
+    #   http://localhost:8080/search?q={query}&format=json
+    # When set, the web `serp` discovery source is enabled; unset = academic-only.
+    SERP_ENDPOINT_ENV = "RESEARCH_ENGINE_SERP_ENDPOINT"
+
+    @property
+    def serp_endpoint(self) -> str | None:
+        """Web-search endpoint template from env, or None if unconfigured."""
+        return os.environ.get(self.SERP_ENDPOINT_ENV) or None
 
     def __init__(
         self,

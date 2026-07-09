@@ -82,3 +82,46 @@ def test_health_requires_endpoint() -> None:
     health = adapter.health()
     assert health["ok"] is False
     assert health["endpoint_configured"] is False
+
+
+def test_parses_searxng_json() -> None:
+    """SearXNG /search?format=json returns {results:[{title,url,content}]}."""
+    payload = (
+        '{"query":"q","number_of_results":2,"results":['
+        '{"url":"https://a.test/1","title":"First Hit","content":"snippet one","engine":"google"},'
+        '{"url":"https://b.test/2","title":"Second Hit","content":"snippet two","engine":"bing"}]}'
+    )
+    adapter = SERPAdapter(
+        endpoint="http://localhost:8080/search?q={query}&format=json",
+        browser=FakeBrowser(payload),
+    )
+    result = adapter.search("q")
+    assert result.ok is True
+    assert len(result.papers) == 2
+    assert result.papers[0].title == "First Hit"
+    assert result.papers[0].url == "https://a.test/1"
+    assert result.papers[0].abstract == "snippet one"
+    assert result.papers[0].source == "serp"
+
+
+def test_searxng_json_respects_limit() -> None:
+    payload = (
+        '{"results":['
+        '{"url":"https://a.test/1","title":"A","content":"x"},'
+        '{"url":"https://a.test/2","title":"B","content":"y"},'
+        '{"url":"https://a.test/3","title":"C","content":"z"}]}'
+    )
+    adapter = SERPAdapter(endpoint="http://localhost:8080/search?q={query}&format=json",
+                          browser=FakeBrowser(payload))
+    result = adapter.search("q", limit=2)
+    assert len(result.papers) == 2
+
+
+def test_non_json_still_parses_as_html() -> None:
+    """A malformed/HTML body must not crash; falls back to the HTML parser."""
+    html = '<h3>Only Hit</h3> <a href="https://c.test/1">link</a>'
+    adapter = SERPAdapter(endpoint="https://search.example/?q={query}",
+                          browser=FakeBrowser(html))
+    result = adapter.search("q")
+    assert result.ok is True
+    assert result.papers[0].url == "https://c.test/1"
