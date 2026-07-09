@@ -29,10 +29,14 @@ from research_engine.extraction.structured import (
     extracted_source_from_dict,
     extracted_source_to_dict,
 )
+from research_engine.llm.lane_roster import LaneRoster
+from research_engine.llm.lifecycle import ModelLifecycleManager
 from research_engine.monitoring.estimator import TimeEstimator
+from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
+from research_engine.planning.handoff import HandoffDoc
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
@@ -49,6 +53,7 @@ from research_engine.storage.agent_history import (
 )
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
+from research_engine.synthesis.synthesizer import Synthesizer, unique_insight_filter
 
 
 class Orchestrator(OrchestratorInstrumentation):
@@ -86,6 +91,10 @@ class Orchestrator(OrchestratorInstrumentation):
         deep_auditor: DeepAuditor | None = None,
         source_memory: SourceMemory | None = None,
         agent_history: AgentHistory | None = None,
+        gpu_probe: GpuProbe | None = None,
+        synthesizer: Synthesizer | None = None,
+        lifecycle: ModelLifecycleManager | None = None,
+        lane_roster: LaneRoster | None = None,
     ) -> None:
         self.store = store
         self.event_bus = event_bus or EventBus(store)
@@ -107,6 +116,10 @@ class Orchestrator(OrchestratorInstrumentation):
         self.deep_auditor = deep_auditor
         self.source_memory = source_memory
         self.agent_history = agent_history
+        self.gpu_probe = gpu_probe
+        self.synthesizer = synthesizer
+        self.lifecycle = lifecycle
+        self.lane_roster = lane_roster
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -306,7 +319,7 @@ class Orchestrator(OrchestratorInstrumentation):
                 campaign, self.progress_tracker
             )
         alerts = self.telemetry_analyzer.check(campaign_id, self.store)
-        return {
+        snapshot: dict[str, Any] = {
             "campaign_id": campaign.id,
             "stage": campaign.stage.value,
             "status": campaign.status.value,
@@ -314,13 +327,42 @@ class Orchestrator(OrchestratorInstrumentation):
             "eta_seconds": eta_seconds,
             "remaining_stages": remaining_stages,
             "alerts": alerts,
+            "models": self._stage_models(campaign),
         }
+        if self.gpu_probe is not None:
+            gpu = self.gpu_probe.snapshot()
+            snapshot["gpu"] = gpu.as_dict() if gpu is not None else None
+        return snapshot
 
-    # --- Stage stubs: real work delegated to future subsystems. ---
+    @staticmethod
+    def _stage_models(campaign: Campaign) -> dict[str, str]:
+        """Which model handled model-driven stages (from persisted extraction meta)."""
+        models: dict[str, str] = {}
+        extracted = campaign.meta.get("extracted_sources", [])
+        tools = {
+            s.get("extraction_tool", "")
+            for s in extracted
+            if isinstance(s, dict) and str(s.get("extraction_tool", "")).startswith("llm:")
+        }
+        if tools:
+            models["extract"] = ", ".join(sorted(tools))
+        return models
+
+    # --- Stage handlers ---
 
     def _run_stub(self, campaign: Campaign) -> dict[str, Any]:
-        """Placeholder for stages whose subsystems are not yet implemented."""
-        return {"note": f"{campaign.stage.value} not yet implemented"}
+        """Safety default for a stage with no handler. All stages are implemented;
+        this only fires if a new stage is added without a `_run_<stage>` method."""
+        return {"note": f"no handler for stage {campaign.stage.value}"}
+
+    def _run_skipped(self, campaign: Campaign, reason: str) -> dict[str, Any]:
+        """Report an implemented stage that had no input to act on.
+
+        Distinct from ``_run_stub`` so telemetry and agent history record an
+        honest "skipped: <reason>" instead of a misleading "not yet
+        implemented", making a silently-empty pipeline visible.
+        """
+        return {"ok": True, "skipped": reason, "note": f"{campaign.stage.value} skipped: {reason}"}
 
     def _run_init(self, campaign: Campaign) -> dict[str, Any]:
         """Initialize campaign metadata and record start time."""
@@ -443,26 +485,62 @@ class Orchestrator(OrchestratorInstrumentation):
         """Screen canonical papers from discovery using the configured ranker."""
         canonical_data = campaign.meta.get("canonical_papers", [])
         if not canonical_data or self.ranker is None:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no canonical papers or ranker unavailable")
         papers = [Paper.from_dict(d) for d in canonical_data]
         scorecards = self.ranker.rank(papers, query=campaign.request.query)
         included = [s for s in scorecards if s.included][: campaign.request.max_sources]
-        self.store.update_campaign(
-            campaign.with_meta("scorecards", [self._scorecard_to_dict(s) for s in scorecards])
-            .with_meta("included_papers", [s.paper.to_dict() for s in included])
-        )
-        return {
+        # Zero inclusions from a non-empty candidate set means downstream stages
+        # will silently no-op, so flag it rather than complete with an empty brief.
+        yielded_zero = bool(scorecards) and not included
+        campaign = campaign.with_meta(
+            "scorecards", [self._scorecard_to_dict(s) for s in scorecards]
+        ).with_meta("included_papers", [s.paper.to_dict() for s in included])
+        if yielded_zero:
+            campaign = campaign.with_meta("screening_yielded_zero", True)
+        self.store.update_campaign(campaign)
+        result: dict[str, Any] = {
             "ok": True,
             "screened_count": len(scorecards),
             "included_count": len(included),
             "criteria_set": self.ranker.criteria.name,
         }
+        if yielded_zero:
+            result["skipped"] = (
+                f"0 of {len(scorecards)} sources passed criteria "
+                f"'{self.ranker.criteria.name}'"
+            )
+        return result
+
+    def _switch_lane(self, campaign: Campaign, stage_name: str) -> None:
+        """Load the model assigned to this stage, evicting the previous one.
+
+        No-op unless a lifecycle manager + roster are configured. Keeps at most
+        one model resident (VRAM does not stack across stages) and records the
+        switch in telemetry.
+        """
+        if self.lifecycle is None or self.lane_roster is None:
+            return
+        plan = campaign.meta.get("resolved_plan", {})
+        lane_name = (plan.get("lane_assignment", {}) or {}).get(stage_name)
+        if not lane_name:
+            return
+        try:
+            tag = self.lane_roster.lane(lane_name).tag
+            num_ctx = self.lane_roster.lane(lane_name).num_ctx
+        except KeyError:
+            return
+        if tag and tag != self.lifecycle.current:
+            self.lifecycle.switch(tag, num_ctx=num_ctx)
+            self.telemetry_emitter.model_event(
+                campaign.id, "switch", {"stage": stage_name, "to_tag": tag}
+            )
 
     def _run_extract(self, campaign: Campaign) -> dict[str, Any]:
         """Extract structured fields from included papers."""
+        self._switch_lane(campaign, "extract")
         included_data = campaign.meta.get("included_papers", [])
         if not included_data or self.extractor is None:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no included papers to extract")
         resolved_map = campaign.meta.get("resolved_map", {})
         fetch_fn = self.browser.fetch_bytes if self.browser is not None else None
         extracted: list[dict[str, Any]] = []
@@ -493,9 +571,29 @@ class Orchestrator(OrchestratorInstrumentation):
             )
             extracted.append(extracted_source_to_dict(source))
         self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
+
+        # Make the model that did the work visible (telemetry + audit log).
+        tools = sorted({s.get("extraction_tool", "") for s in extracted})
+        model_tool = next((t for t in tools if t.startswith("llm:")), tools[0] if tools else "")
+        self.telemetry_emitter.model_event(
+            campaign.id, "assignment", {"stage": "extract", "tag": model_tool}
+        )
+        self.record_agent_action(
+            AgentHistoryRecord(
+                campaign_id=campaign.id,
+                agent_name="extractor",
+                action_type="extract",
+                request_summary=f"Extracted {len(extracted)} sources",
+                response_summary=f"tool={model_tool}",
+                outcome=AgentActionOutcome.SUCCESS,
+                audit_level="normal",
+                meta={"model": model_tool, "extracted_count": len(extracted)},
+            )
+        )
         return {
             "ok": True,
             "extracted_count": len(extracted),
+            "model": model_tool,
         }
 
     def _scorecard_to_dict(self, scorecard: Any) -> dict[str, Any]:
@@ -520,7 +618,7 @@ class Orchestrator(OrchestratorInstrumentation):
         """Run Devil and Verifier over extracted sources."""
         extracted_data = campaign.meta.get("extracted_sources", [])
         if not extracted_data:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no extracted sources to challenge")
         sources = [extracted_source_from_dict(d) for d in extracted_data]
         challenges = self.devil.challenge(sources, query=campaign.request.query)
         verifications = self.verifier.verify(sources)
@@ -541,12 +639,38 @@ class Orchestrator(OrchestratorInstrumentation):
             "triage": triage_counts,
         }
 
+    def _write_handoff(self, campaign: Campaign, sources: list[Any]) -> None:
+        """Record the extract->evaluate model switch so intent carries forward."""
+        extract_model = next(
+            (
+                s.get("extraction_tool", "")
+                for s in campaign.meta.get("extracted_sources", [])
+                if isinstance(s, dict)
+            ),
+            "",
+        )
+        synth_model = self.synthesizer.model if self.synthesizer else ""
+        HandoffDoc(
+            campaign_id=campaign.id,
+            from_stage="extract",
+            to_stage="evaluate",
+            from_model=extract_model,
+            to_model=synth_model or "synth",
+            goal=campaign.request.query,
+            produced=f"{len(sources)} sources extracted with methods/data/results",
+            open_questions="",
+            next_task="Synthesize replication-grade insights; keep unique per-source findings.",
+        ).write(self.config.engine_data_dir)
+
     def _run_evaluate(self, campaign: Campaign) -> dict[str, Any]:
         """Evaluate extracted output and produce a report."""
         inputs = self._load_evaluation_inputs(campaign)
         if inputs is None:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no extracted sources to evaluate")
         sources, challenges, verifications = inputs
+        if self.synthesizer is not None:
+            self._switch_lane(campaign, "evaluate")
+            self._write_handoff(campaign, sources)
         report, brief, proposals = self._build_report_and_brief(
             sources, challenges, verifications, campaign.request.query
         )
@@ -592,6 +716,16 @@ class Orchestrator(OrchestratorInstrumentation):
             verifications=verifications,
             query=query,
         )
+        # When a synthesis lane is configured, produce a replication-grade brief
+        # from the deep reads (unique-insight sources only). Fall back to the
+        # deterministic reporter brief if synthesis is empty.
+        if self.synthesizer is not None:
+            source_dicts = unique_insight_filter(
+                [extracted_source_to_dict(s) for s in sources]
+            )
+            synthesized = self.synthesizer.synthesize(source_dicts, query)
+            if synthesized.strip():
+                brief = synthesized
         proposer = ImprovementProposer()
         proposals = proposer.propose(report)
         return report, brief, proposals
@@ -626,6 +760,9 @@ class Orchestrator(OrchestratorInstrumentation):
                 "citation_count": report.citation_count,
                 "coverage_score": report.coverage_score,
                 "quality_score": report.quality_score,
+                "precision": report.precision,
+                "recall": report.recall,
+                "f1_score": report.f1_score,
                 "meta": report.meta,
             })
             .with_meta("insight_brief", brief)
@@ -644,6 +781,9 @@ class Orchestrator(OrchestratorInstrumentation):
             "ok": True,
             "coverage_score": report.coverage_score,
             "quality_score": report.quality_score,
+            "precision": report.precision,
+            "recall": report.recall,
+            "f1_score": report.f1_score,
             "brief_length": len(brief),
             "proposal_count": len(proposals),
         }
@@ -655,7 +795,7 @@ class Orchestrator(OrchestratorInstrumentation):
         """Write the insight brief to the host project's Research/ layout."""
         brief = campaign.meta.get("insight_brief", "")
         if not brief:
-            return self._run_stub(campaign)
+            return self._run_skipped(campaign, "no insight brief to deliver")
         insights_path = self.artifacts.write_campaign_brief(
             campaign.slug,
             brief,
@@ -699,7 +839,10 @@ class Orchestrator(OrchestratorInstrumentation):
         )
 
     def _run_finalize(self, campaign: Campaign) -> dict[str, Any]:
-        """Finalize a campaign: deduplicate files and vacuum state DB."""
+        """Finalize a campaign: free the resident model, dedup files, vacuum DB."""
+        # Release VRAM at session end (matches the "clear caches at end" vision).
+        if self.lifecycle is not None and self.lifecycle.current:
+            self.lifecycle.unload(self.lifecycle.current)
         now = datetime.now(UTC).isoformat()
         janitor = CleanupJanitor(
             self.store.db_path,

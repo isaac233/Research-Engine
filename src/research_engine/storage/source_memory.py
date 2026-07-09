@@ -234,7 +234,7 @@ class SourceMemory:
         access_method: str = "",
         requires_auth: bool = False,
         rate_limit_notes: str = "",
-        reliability_score: float = 0.5,
+        reliability_score: float | None = None,
         quality_notes: str = "",
         search_hints: dict[str, Any] | None = None,
         example_keys: list[str] | None = None,
@@ -242,32 +242,41 @@ class SourceMemory:
         discovery_campaign_id: str | None = None,
         meta: dict[str, Any] | None = None,
     ) -> SourceMemoryEntry:
-        """Upsert a source into memory and return the resulting entry."""
+        """Upsert a source into memory and return the resulting entry.
+
+        ``reliability_score=None`` means "no fresh evidence": an existing
+        source keeps its learned score and a new source starts neutral (0.5).
+        Passing an explicit score updates it. This prevents an incidental
+        re-remember from destructively overwriting a previously learned score.
+        """
         now = datetime.now(UTC)
-        v = self._normalize_inputs(
-            canonical_url,
-            source_type,
-            information_types,
-            topic_tags,
-            access_method,
-            requires_auth,
-            rate_limit_notes,
-            reliability_score,
-            quality_notes,
-            search_hints,
-            example_keys,
-            example_urls,
-            discovery_campaign_id,
-            meta,
-        )
+        source_id = self._canonical_source_id(redact_url(canonical_url))
 
         conn = self._connect()
         try:
             conn.row_factory = sqlite3.Row
-            existing = self._load_existing(conn, v["source_id"])
+            existing = self._load_existing(conn, source_id)
             source_pk = existing["id"] if existing else None
             created_at = (
                 datetime.fromisoformat(existing["created_at"]) if existing else now
+            )
+            effective_reliability = self._resolve_reliability(reliability_score, existing)
+
+            v = self._normalize_inputs(
+                canonical_url,
+                source_type,
+                information_types,
+                topic_tags,
+                access_method,
+                requires_auth,
+                rate_limit_notes,
+                effective_reliability,
+                quality_notes,
+                search_hints,
+                example_keys,
+                example_urls,
+                discovery_campaign_id,
+                meta,
             )
 
             source_pk = self._insert_source(conn, v, source_pk, created_at, now)
@@ -283,10 +292,25 @@ class SourceMemory:
         return cast(
             sqlite3.Row | None,
             conn.execute(
-                "SELECT id, created_at FROM source_memory WHERE source_id = ?",
+                "SELECT id, created_at, reliability_score FROM source_memory WHERE source_id = ?",
                 (source_id,),
             ).fetchone(),
         )
+
+    @staticmethod
+    def _resolve_reliability(
+        incoming: float | None, existing: sqlite3.Row | None
+    ) -> float:
+        """Resolve the reliability score to persist.
+
+        No incoming evidence keeps an existing source's learned score, or a
+        neutral 0.5 for a new source. An explicit score always updates.
+        """
+        if incoming is not None:
+            return incoming
+        if existing is not None:
+            return float(existing["reliability_score"])
+        return 0.5
 
     def _insert_source(
         self,

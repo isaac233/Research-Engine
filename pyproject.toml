@@ -28,6 +28,7 @@ dependencies = [
     "duckdb>=1.0",
     "anthropic>=0.30",
     "feedparser>=6.0",
+    "truststore>=0.9",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +38,10 @@ browser = [
 pdf = [
     "pypdf>=4.2",
     "pdfplumber>=0.11",
+]
+tui = [
+    # Arrow-key quality/speed slider; falls back to numbered prompt if absent.
+    "prompt_toolkit>=3.0",
 ]
 dev = [
     "pytest>=8.0",
@@ -63,7 +68,7 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-q --cov=research_engine --cov-report=term-missing"
 
 [tool.mypy]

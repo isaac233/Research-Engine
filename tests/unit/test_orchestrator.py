@@ -259,6 +259,66 @@ def test_screen_and_extract_stages_run() -> None:
     assert extract_event["payload"]["result"]["extracted_count"] == 1
 
 
+def test_screen_zero_inclusion_is_flagged_not_silent() -> None:
+    """A non-empty candidate set that includes nothing must be made visible."""
+    from types import SimpleNamespace
+
+    class AllExcludingRanker:
+        criteria = SimpleNamespace(name="strict")
+
+        def rank(self, papers: list[Paper], query: str = "") -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    paper=p,
+                    criterion_scores=[],
+                    total_score=0.0,
+                    included=False,
+                    reason="excluded",
+                )
+                for p in papers
+            ]
+
+    class FakeDiscoveryPipeline(DiscoveryPipeline):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, query: str, context: str = "", max_sources: int = 50) -> DiscoveryResult:
+            return DiscoveryResult(
+                query=query,
+                plan={"queries": [], "keywords": []},
+                search_results=[],
+                deduped_groups=[
+                    DuplicateGroup(
+                        canonical=Paper(title="Weak", source="fake", source_id="1", doi="10.1/1")
+                    )
+                ],
+                snowball_papers=[],
+                resolved=[],
+            )
+
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store,
+        EventBus(store),
+        discovery=FakeDiscoveryPipeline(),
+        ranker=AllExcludingRanker(),
+        extractor=StructuredExtractor(),
+    )
+    campaign = orch.start_campaign(ResearchRequest(query="zero inclusion test"))
+    final = orch.run_campaign(campaign.id)
+
+    assert final.status == CampaignStatus.COMPLETED
+    assert final.meta.get("screening_yielded_zero") is True
+    events = store.get_events(campaign.id, "stage_exit")
+    screen_event = next((e for e in events if e["payload"].get("stage") == "screen"), None)
+    assert screen_event is not None
+    assert "skipped" in screen_event["payload"]["result"]
+    # Downstream stages must report an honest skip, not "not yet implemented".
+    extract_event = next((e for e in events if e["payload"].get("stage") == "extract"), None)
+    assert extract_event is not None
+    assert "not yet implemented" not in extract_event["payload"]["result"].get("note", "")
+
+
 def test_adversarial_and_evaluate_stages_run() -> None:
     from research_engine.discovery.pipeline import DiscoveryPipeline
     from research_engine.discovery.schema import DiscoveryResult, DuplicateGroup, ResolveResult

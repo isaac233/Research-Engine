@@ -155,6 +155,31 @@ def test_update_existing_source(memory: SourceMemory) -> None:
     assert loaded.reliability_score == 0.8
 
 
+def test_remember_does_not_downgrade_learned_score(memory: SourceMemory) -> None:
+    """An incidental re-remember without a score must not wipe a learned score."""
+    first = memory.remember(
+        canonical_url="https://learned.example.com/feed",
+        source_type="api",
+        reliability_score=0.7,
+    )
+    # Re-seen during a later campaign with no fresh reliability evidence.
+    second = memory.remember(
+        canonical_url="https://learned.example.com/feed",
+        source_type="api",
+    )
+    assert first.source_id == second.source_id
+    assert second.reliability_score == 0.7
+    assert memory.get(second.source_id).reliability_score == 0.7
+
+
+def test_remember_defaults_new_source_to_neutral_score(memory: SourceMemory) -> None:
+    entry = memory.remember(
+        canonical_url="https://fresh.example.com/api",
+        source_type="api",
+    )
+    assert entry.reliability_score == 0.5
+
+
 def test_stats(memory: SourceMemory) -> None:
     memory.remember(
         canonical_url="https://a.b/c",

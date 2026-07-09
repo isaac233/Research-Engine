@@ -19,6 +19,15 @@ the engine's self-improvement loop.
 - `precision@k` — fraction of top-k claims that are supported.
 - `recall@k` — fraction of expected claims found.
 - `F1` — harmonic mean of precision and recall.
+
+Claims are matched to golden answers with maximum bipartite matching over a
+paraphrase-aware predicate. Semantic-conflict guards reject opposite-meaning
+matches: negation parity, directional opposites, morphological antonyms,
+qualifier/scope mismatch, numeric **and unit** mismatch (`12 mg` ≠ `12 kg`),
+causal-vs-correlational, comparative operand swap (`A outperforms B` ≠
+`B outperforms A`), and tautologies. Fixtures are tagged `utility` or `trap`;
+traps must score F1 0 (robustness), so a saturated benchmark (all pass) signals
+the need for a harder fixture.
 - `token_savings` — tokens the main AI did not have to spend because the engine
   handled discovery and synthesis.
 
@@ -30,7 +39,9 @@ Subsequent releases must not regress the baseline without an explicit note.
 ## Usage
 
 ```powershell
-python -m research_engine.evaluation.harness --dataset tests/fixtures/eval_qa.json
+research-engine self-eval --fixture tests/fixtures/eval_qa.json
 ```
 
-The harness is also exercised by CI on every PR.
+Reports mean F1, utility mean F1, and trap robustness; `--output` writes a JSON
+report and `--threshold` fails the command below a mean-F1 floor. The harness is
+also exercised by CI on every PR.

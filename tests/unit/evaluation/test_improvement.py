@@ -44,3 +44,28 @@ def test_proposals_never_auto_apply() -> None:
     proposals = ImprovementProposer().propose(report)
 
     assert all(p.get("auto_apply") is False for p in proposals)
+
+
+def test_proposer_flags_low_f1() -> None:
+    report = EvaluationReport(total_claims=2, f1_score=0.5)
+    proposals = ImprovementProposer().propose(report)
+    assert any(p["area"] == "evaluation" and "F1" in p["issue"] for p in proposals)
+
+
+def test_proposer_flags_missing_golden_claims() -> None:
+    report = EvaluationReport(total_claims=1, meta={"expected_claim_count": 0})
+    proposals = ImprovementProposer().propose(report)
+    assert any(
+        p["area"] == "evaluation" and "golden-answer" in p["suggested_action"]
+        for p in proposals
+    )
+
+
+def test_proposer_flags_saturated_benchmark() -> None:
+    report = EvaluationReport(
+        total_claims=2,
+        f1_score=1.0,
+        meta={"expected_claim_count": 2},
+    )
+    proposals = ImprovementProposer().propose(report)
+    assert any(p["area"] == "evaluation" and "saturated" in p["issue"] for p in proposals)

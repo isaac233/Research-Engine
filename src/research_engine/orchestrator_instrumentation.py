@@ -59,7 +59,7 @@ class OrchestratorInstrumentation:
         access_method: str = "",
         requires_auth: bool = False,
         rate_limit_notes: str = "",
-        reliability_score: float = 0.5,
+        reliability_score: float | None = None,
         quality_notes: str = "",
         search_hints: dict[str, Any] | None = None,
         example_keys: list[str] | None = None,
