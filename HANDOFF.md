@@ -1,6 +1,17 @@
 # HANDOFF — 2026-07-06
 
-## LLM Full-Text Extraction + 7-Lane Plan — 2026-07-08 (LATEST)
+## Whole-Project Audit + "does it actually research?" — 2026-07-08 (LATEST)
+
+Audited cohesion/organization/consistency-with-both-prompts and — critically — ran a REAL end-to-end campaign. Found and fixed TWO blockers that made real research impossible; the engine now genuinely performs research.
+
+- **Structure:** clean, domain-organized, no orphan files (only `_run_stub` remains as a safety default; its "future subsystems" comment is now stale — all stages implemented).
+- **BLOCKER 1 (TLS) — fixed (`15a5929`):** every HTTPS source failed with CERTIFICATE_VERIFY_FAILED (corporate TLS-inspection root CA absent from certifi). `src/research_engine/__init__.py` now injects `truststore` at import → all httpx/urllib use the OS trust store. Added truststore dependency.
+- **BLOCKER 2 (gzip) — fixed (`15a5929`):** crossref/openalex failed "incorrect header check" — `ssrf_guard.safe_request` rebuilt the response with decompressed body but kept `Content-Encoding: gzip` → double-decode. Now strips content-encoding/length on the reconstructed response.
+- **PROOF IT WORKS:** live campaign `run "efficient routing in sparse mixture-of-experts models" --sources 3 --quality 0.5` completed end-to-end and delivered `Research/.../*_Insights.MD` with 3 REAL arXiv papers, real quantitative results (e.g. within/across routing similarity 0.8435±0.0879, Cohen's d 1.44), method + data + **replication steps** per source, a source's GitHub code repo, and cross-source synthesis. gemma4:12b (extract) + Mistral-Small (synth) ran on GPU. This is the vision realized (full-text, replication-grade, local-model-driven).
+- Discovery now: arxiv + crossref + openalex return papers; semantic_scholar 429s without an API key (graceful, handled). Multi-source works.
+- FOLLOW-UP (minor): semantic_scholar needs an API key or backoff for reliability; clean the stale `_run_stub` comment.
+
+## LLM Full-Text Extraction + 7-Lane Plan — 2026-07-08
 
 **Why this work:** user observed the research phase was seconds long and the GPU never spiked. Root cause: the local LLM was **never wired into a run** (`_make_orchestrator` built `SourceRanker()`/`StructuredExtractor()` with no provider), and extraction was regex on abstract-level text — the exact "reads only abstracts, can't replicate" failure the project exists to kill. New spec in `Research Engine Prompt 2.txt`: 7 model lanes, quality/speed + volume sliders, constraint triangle, sequential VRAM load/unload, replication-grade full-text insight.
 
