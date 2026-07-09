@@ -145,17 +145,22 @@ class SourceRanker:
         query: str,
     ) -> CriterionScore:
         if self.llm_scorer is None:
+            # Offline / no-LLM environments must still screen on the other
+            # criteria; an unscoreable rubric passes unchecked rather than
+            # excluding everything via MUST.
             return CriterionScore(
                 criterion_name=criterion.name,
-                passed=False,
+                passed=True,
                 value=None,
                 score=None,
-                reason="No LLM scorer configured",
+                reason="No LLM scorer configured; rubric unchecked",
             )
         try:
             score = self.llm_scorer(paper, criterion.prompt.format(query=query))
+            # Pass/fail on the raw score; clamping below would floor every
+            # low score up to minimum_score and make the rubric unfailable.
+            passed = score >= criterion.minimum_score
             clamped = max(criterion.minimum_score, min(criterion.maximum_score, score))
-            passed = clamped >= criterion.minimum_score
             normalized = (
                 (clamped - criterion.minimum_score)
                 / (criterion.maximum_score - criterion.minimum_score)

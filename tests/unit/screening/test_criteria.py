@@ -76,10 +76,17 @@ def test_criterion_set_round_trip() -> None:
     assert isinstance(restored.criteria[1], NumericCriterion)
 
 
-def test_default_academic_criteria_has_three_criteria() -> None:
+def test_default_academic_criteria_members() -> None:
     criteria = default_academic_criteria()
     assert criteria.name == "default_academic"
-    assert len(criteria.criteria) == 3
-    assert any(c.name == "has_full_text" for c in criteria.criteria)
-    assert any(c.name == "recent_enough" for c in criteria.criteria)
-    assert any(c.name == "relevance" for c in criteria.criteria)
+    names = {c.name for c in criteria.criteria}
+    assert names == {"has_full_text", "has_abstract", "recent_enough", "relevance"}
+
+def test_default_full_text_is_preference_not_gate() -> None:
+    """Abstract-only papers (common on crossref/openalex) must remain includable;
+    relevance is the gate, full text is a ranking preference."""
+    criteria = default_academic_criteria()
+    full_text = next(c for c in criteria.criteria if c.name == "has_full_text")
+    relevance = next(c for c in criteria.criteria if c.name == "relevance")
+    assert full_text.match_mode == MatchMode.SHOULD
+    assert relevance.match_mode == MatchMode.MUST

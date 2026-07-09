@@ -53,7 +53,11 @@ from research_engine.storage.agent_history import (
 )
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
-from research_engine.synthesis.synthesizer import Synthesizer, unique_insight_filter
+from research_engine.synthesis.synthesizer import (
+    Synthesizer,
+    drop_failed_claims,
+    unique_insight_filter,
+)
 
 
 class Orchestrator(OrchestratorInstrumentation):
@@ -492,11 +496,22 @@ class Orchestrator(OrchestratorInstrumentation):
         # Zero inclusions from a non-empty candidate set means downstream stages
         # will silently no-op, so flag it rather than complete with an empty brief.
         yielded_zero = bool(scorecards) and not included
+        # Honesty flag: a discovery pool that is mostly off-topic means the
+        # query hit the wrong sources — surface it, don't ship a thin brief.
+        relevance_failures = sum(
+            1
+            for s in scorecards
+            for c in s.criterion_scores
+            if c.criterion_name == "relevance" and c.value is not None and not c.passed
+        )
+        yielded_offtopic = bool(scorecards) and relevance_failures * 2 >= len(scorecards)
         campaign = campaign.with_meta(
             "scorecards", [self._scorecard_to_dict(s) for s in scorecards]
         ).with_meta("included_papers", [s.paper.to_dict() for s in included])
         if yielded_zero:
             campaign = campaign.with_meta("screening_yielded_zero", True)
+        if yielded_offtopic:
+            campaign = campaign.with_meta("screening_yielded_offtopic", True)
         self.store.update_campaign(campaign)
         result: dict[str, Any] = {
             "ok": True,
@@ -508,6 +523,11 @@ class Orchestrator(OrchestratorInstrumentation):
             result["skipped"] = (
                 f"0 of {len(scorecards)} sources passed criteria "
                 f"'{self.ranker.criteria.name}'"
+            )
+        if yielded_offtopic:
+            result["offtopic"] = (
+                f"{relevance_failures} of {len(scorecards)} candidates failed the "
+                "relevance rubric; discovery likely queried the wrong sources"
             )
         return result
 
@@ -720,8 +740,11 @@ class Orchestrator(OrchestratorInstrumentation):
         # from the deep reads (unique-insight sources only). Fall back to the
         # deterministic reporter brief if synthesis is empty.
         if self.synthesizer is not None:
+            # Unverified claims must not reach the deliverable (grounding gate).
             source_dicts = unique_insight_filter(
-                [extracted_source_to_dict(s) for s in sources]
+                drop_failed_claims(
+                    [extracted_source_to_dict(s) for s in sources], verifications
+                )
             )
             synthesized = self.synthesizer.synthesize(source_dicts, query)
             if synthesized.strip():

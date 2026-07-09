@@ -52,3 +52,25 @@ def test_health_returns_enabled_sources() -> None:
     health = planner.health()
     assert health["ok"] is True
     assert health["enabled_sources"] == ["arxiv"]
+
+
+def test_non_stem_query_skips_arxiv() -> None:
+    """A demographics/market query must not fire keyword noise at arXiv."""
+    planner = QueryPlanner()
+    plan = planner.plan("elderly demographic market size in Japan 2020-2050")
+    sources = {q.source for q in plan.queries}
+    assert "arxiv" not in sources
+    assert {"crossref", "openalex"} <= sources
+
+
+def test_stem_query_keeps_arxiv() -> None:
+    planner = QueryPlanner()
+    plan = planner.plan("efficient routing in sparse mixture-of-experts neural networks")
+    assert any(q.source == "arxiv" for q in plan.queries)
+
+
+def test_arxiv_only_planner_keeps_arxiv_for_any_query() -> None:
+    """Never produce an empty plan: sole source is kept even off-domain."""
+    planner = QueryPlanner(enabled_sources={"arxiv"})
+    plan = planner.plan("elderly demographic market size in Japan 2020-2050")
+    assert any(q.source == "arxiv" for q in plan.queries)

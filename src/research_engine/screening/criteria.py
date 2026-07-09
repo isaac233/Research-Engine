@@ -177,8 +177,23 @@ def default_academic_criteria() -> CriterionSet:
                 name="has_full_text",
                 field="has_full_text",
                 expected=True,
-                match_mode=MatchMode.MUST,
-                rationale="Only include papers we can resolve to full text",
+                match_mode=MatchMode.SHOULD,
+                weight=1.5,
+                rationale=(
+                    "Prefer papers with resolvable full text, but do not exclude "
+                    "abstract-only records — extraction degrades gracefully"
+                ),
+            ),
+            BooleanCriterion(
+                name="has_abstract",
+                field="abstract",
+                expected=True,
+                match_mode=MatchMode.SHOULD,
+                weight=2.0,
+                rationale=(
+                    "Title-only records (common on Crossref) give extraction "
+                    "nothing to read; rank readable papers above stubs"
+                ),
             ),
             NumericCriterion(
                 name="recent_enough",
@@ -190,11 +205,15 @@ def default_academic_criteria() -> CriterionSet:
             ),
             LLMRubricCriterion(
                 name="relevance",
-                prompt="Rate how directly this paper addresses the research query on a scale of 1-5.",
+                prompt=(
+                    "Research query: {query}\n"
+                    "Rate how directly this paper addresses the research query "
+                    "on a scale of 1-5 (1 = unrelated topic, 5 = directly on-topic)."
+                ),
                 minimum_score=3.0,
                 maximum_score=5.0,
-                match_mode=MatchMode.SHOULD,
-                rationale="Relevance judged by local LLM rubric",
+                match_mode=MatchMode.MUST,
+                rationale="Off-topic sources poison the whole campaign; gate on LLM relevance",
             ),
         ],
     )

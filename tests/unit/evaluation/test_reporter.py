@@ -38,3 +38,25 @@ def test_reporter_includes_summary_claims_and_challenges() -> None:
     assert "missing_evidence" in md
     assert "Caveats" in md
     assert "F1 score" in md
+
+
+def test_reporter_emits_numbered_citations_and_references() -> None:
+    source = ExtractedSource(
+        paper=Paper(title="T", source="test", doi="10.1/1", url="https://x.test/landing"),
+        title="T",
+        summary="s",
+        methodology="m",
+        data_summary="d",
+        results_summary="r",
+        claims=[ExtractedClaim(claim="claim one", evidence="ev", confidence="high")],
+        citations=[],
+        conflicts=[],
+        full_text_url="https://x.test/paper.pdf",
+        is_oa=True,
+        extraction_tool="test",
+    )
+    report = EvaluationHarness().evaluate([source], [], [], query="q")
+    md = Reporter().to_markdown(report, sources=[source], query="q")
+    assert "[1]" in md
+    assert "## References" in md
+    assert "[1] T — https://x.test/paper.pdf" in md
