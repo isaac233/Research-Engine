@@ -195,6 +195,16 @@ def default_academic_criteria() -> CriterionSet:
                     "nothing to read; rank readable papers above stubs"
                 ),
             ),
+            BooleanCriterion(
+                name="readable",
+                field="is_readable",
+                expected=True,
+                match_mode=MatchMode.MUST,
+                rationale=(
+                    "A source with neither abstract nor full text cannot be "
+                    "extracted or cited — a relevant-sounding title is not evidence"
+                ),
+            ),
             NumericCriterion(
                 name="recent_enough",
                 field="year",

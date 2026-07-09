@@ -190,6 +190,8 @@ class SourceRanker:
         value = getattr(paper, field, None)
         if value is None and field == "has_full_text":
             return paper.pdf_url is not None
+        if value is None and field == "is_readable":
+            return bool((paper.abstract or "").strip()) or paper.pdf_url is not None
         return value
 
     def _weight(self, criterion: BooleanCriterion | NumericCriterion | LLMRubricCriterion) -> float:

@@ -80,7 +80,7 @@ def test_default_academic_criteria_members() -> None:
     criteria = default_academic_criteria()
     assert criteria.name == "default_academic"
     names = {c.name for c in criteria.criteria}
-    assert names == {"has_full_text", "has_abstract", "recent_enough", "relevance"}
+    assert names == {"has_full_text", "has_abstract", "readable", "recent_enough", "relevance"}
 
 def test_default_full_text_is_preference_not_gate() -> None:
     """Abstract-only papers (common on crossref/openalex) must remain includable;

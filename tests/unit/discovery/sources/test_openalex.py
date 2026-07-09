@@ -100,3 +100,31 @@ def test_fetch_by_id_returns_none_on_error() -> None:
         paper = adapter.fetch_by_id("Wmissing")
 
     assert paper is None
+
+
+def test_abstract_reconstructed_from_inverted_index() -> None:
+    """Real OpenAlex works carry abstract_inverted_index, never a plain abstract."""
+    work = make_work("Aging economy")
+    del work["abstract"]
+    work["abstract_inverted_index"] = {
+        "Japan's": [0],
+        "population": [1],
+        "is": [2],
+        "aging": [3, 5],
+        "rapidly": [4],
+    }
+    adapter = OpenAlexAdapter()
+    response = FakeResponse(200, {"meta": {"count": 1}, "results": [work]})
+    with patch("httpx.Client.request", return_value=response):
+        result = adapter.search("aging")
+    assert result.papers[0].abstract == "Japan's population is aging rapidly aging"
+
+
+def test_missing_abstract_index_yields_empty_abstract() -> None:
+    work = make_work("No abstract")
+    del work["abstract"]
+    adapter = OpenAlexAdapter()
+    response = FakeResponse(200, {"meta": {"count": 1}, "results": [work]})
+    with patch("httpx.Client.request", return_value=response):
+        result = adapter.search("x")
+    assert result.papers[0].abstract == ""

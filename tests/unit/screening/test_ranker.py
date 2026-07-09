@@ -202,3 +202,34 @@ def test_default_criteria_rank_abstractful_above_abstractless() -> None:
     scorecards = ranker.rank(papers, query="q")
     assert scorecards[0].paper.title == "Readable"
     assert scorecards[0].total_score > scorecards[1].total_score
+
+
+def test_default_criteria_exclude_unreadable_stub() -> None:
+    """No abstract + no full text = nothing to extract or cite; must exclude."""
+
+    def scorer(paper: Paper, prompt: str) -> float:
+        return 5.0  # perfectly on-topic title, still unreadable
+
+    ranker = SourceRanker(llm_scorer=scorer)
+    papers = [
+        Paper(title="Stub", source="crossref", year=2024, doi="10.1/stub"),
+        Paper(
+            title="Readable",
+            source="openalex",
+            year=2024,
+            doi="10.1/read",
+            abstract="Real abstract.",
+        ),
+    ]
+    by_title = {s.paper.title: s.included for s in ranker.rank(papers, query="q")}
+    assert by_title["Stub"] is False
+    assert by_title["Readable"] is True
+
+
+def test_readable_check_survives_none_abstract() -> None:
+    """Papers deserialized from APIs can carry abstract=None."""
+    ranker = SourceRanker(llm_scorer=lambda paper, prompt: 5.0)
+    paper = Paper(title="NoneAbs", source="crossref", year=2024, doi="10.1/n")
+    object.__setattr__(paper, "abstract", None)
+    scorecards = ranker.rank([paper], query="q")
+    assert scorecards[0].included is False
