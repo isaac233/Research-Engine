@@ -116,6 +116,13 @@ class ModelRegistry:
             if api_key_env != "ANTHROPIC_API_KEY":
                 raise ValueError(f"Unsupported Anthropic API key env var: {api_key_env}")
             return AnthropicClient(api_key_env=api_key_env, default_model=cfg.default_model)
+        if provider_name == "gemini":
+            from research_engine.llm.gemini_cli_client import GeminiCLIClient
+
+            return GeminiCLIClient(
+                default_model=cfg.default_model or "gemini-2.5-pro",
+                timeout=float(extra.get("timeout", 300.0)),
+            )
         raise ValueError(f"Unsupported provider: {provider_name}")
 
     def build_ollama_client(self) -> Any:

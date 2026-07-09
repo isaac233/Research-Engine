@@ -1,5 +1,39 @@
 # HANDOFF — 2026-07-06
 
+## DeepResearch Bench scoreboard — Track A (2026-07-09, branch `feat/deepresearch-bench`)
+
+**Why:** the engine had never been scored against any external benchmark or against Opus — "hasn't beaten Opus" was a feeling, not a number. Built the apples-to-apples scoreboard first (measure before upgrading), per the approved plan `C:\Users\Isaac\.claude\plans\lexical-bubbling-starfish.md`.
+
+- **Ported DeepResearch Bench** (arXiv:2506.11763, Apache-2.0) into a new top-level `bench/` package: **RACE** (report quality vs a vendored reference report, 4 weighted dims, 0-100 where 50 = ties reference) + **FACT** (extract cited (fact,url) pairs → fetch via the engine's own `raw_http`+`markdownify` → judge support → citation accuracy + effective citations).
+- **Vendored** `bench/data/{query,criteria,reference}.jsonl` (100 tasks / criteria / reference reports) + `LICENSE.md` provenance.
+- **Model-agnostic judge**: new `src/research_engine/llm/gemini_cli_client.py` (shells to `gemini -p`, stdin for bulk, auth-error surfaced) + `bench/judge.py build_judge(gemini|ollama|anthropic)`. Registered `gemini` in `model_registry`.
+- **CLI**: `research-engine bench --tasks N --judge {gemini|ollama|anthropic} [--reuse-engine --quality]` → writes `Research/benchmarks/<date>_scorecard.MD` (engine row vs published Opus/Gemini/OpenAI bar in `bench/leaderboard.py`, flags weakest dimension = Track B target).
+- **Verified:** 22 new bench unit tests + full unit suite green (EXIT=0); mypy strict clean (87 files); ruff clean. RACE math + scorecard render verified with a fake judge.
+- **Judge availability in this env:** Gemini CLI + MCP are NOT authenticated (no key/oauth; MCP `spawn EINVAL`). Ollama IS up (gemma4:31b, mistral-small3.2, qwen3.6-27b) — used as the offline validation judge. For the closest-to-official number the user must authenticate `gemini` once (or set `GEMINI_API_KEY`) and run `--judge gemini`.
+- **TLS note:** corporate cert revocation blocks `curl`; used `--ssl-no-revoke` to vendor data (engine itself already fixed via truststore).
+
+### FIRST REAL SCORECARD (1 en task, local mistral-small judge — directional, N=1)
+`Research/benchmarks/2026-07-09_scorecard.MD`:
+
+| | RACE Overall | Comp | Depth | Inst | Read | FACT C.Acc | E.Cit |
+|---|---|---|---|---|---|---|---|
+| **Research Engine** | **40.52** | 42.86 | 37.78 | 41.50 | 40.15 | **0.00** | **0** |
+| Claude-3.7-Sonnet w/Search | 40.67 | 38.99 | 37.66 | 45.77 | 41.46 | 93.68 | 32 |
+| OpenAI Deep Research | 46.98 | 46.87 | 45.25 | 49.27 | 47.14 | 77.96 | 41 |
+
+**What the scoreboard exposed on run one (the whole point of measuring):**
+1. **FACT = 0.** The delivered brief had **zero citations** (0 URLs, 0 `[n]` refs). The engine reads full text but does not ground claims to sources in the deliverable — the vision's "citation-rich report" is measurably absent.
+2. **Off-topic sources.** Task = "elderly demographic market size in Japan 2020-2050"; the engine returned **particle-physics / gravitational-wave arXiv papers** ($B^0_s$ decay, CMS/LHCb). Discovery has an arXiv/physics bias and failed relevance for a demographics query.
+3. **RACE ~40 is judge-inflated.** A lenient local judge scored fluent-but-off-topic prose near Claude's level. FACT + a stronger judge (Gemini) expose what RACE alone hides. Without the scoreboard this run reads "campaign completed, Insights.MD delivered" — a green check over an ungrounded, off-topic result. That is the exact cover-up failure the project fears, now visible.
+
+### CHOSEN TRACK B WORK (user picked both, 2026-07-09) — build next, then re-measure
+- **Option 2 — Discovery relevance (biggest gap).** Off-topic sources are the #1 problem. The query planner + source registry over-weight arXiv and don't filter for topical relevance, so a demographics/market query pulled physics papers. Fixes: (a) relevance gate in screening that scores paper-vs-query semantic match and drops off-topic sources (reuse `screening/ranker.py` + a local-LLM relevance criterion in `screening/criteria.py`); (b) query planner should pick sources by topic (OpenAlex/Crossref/web for non-CS topics, not arXiv-first) in `discovery/query_planner.py` + `discovery/source_registry.py`; (c) add a "screening_yielded_offtopic" honesty flag like the existing `screening_yielded_zero`. Target metric: on-topic sources -> RACE Comp/Depth up.
+- **Option 3 — In-pipeline citation grounding (FACT 0 -> real).** Every delivered claim must carry a verified statement->source-URL span; unsupported claims dropped/flagged before DELIVER. Fixes: the synthesizer (`synthesis/synthesizer.py`) + reporter (`evaluation/reporter.py`) must emit inline citations (`[n]` + a reference list with URLs) from `ExtractedSource.citations`/paper URLs, and the adversarial `Verifier` (`adversarial/verifier.py`) already checks quote/URL presence — wire its pass/fail so uncited claims don't ship. Reuse the bench `FactScorer` logic as the in-loop grounding check. Target metric: FACT C.Acc 0 -> competitive; E.Cit > 0.
+
+**Verify each with the scoreboard:** after a change, run `research-engine bench --tasks 5 --judge ollama --reuse-engine` (re-score) or without `--reuse-engine` (fresh campaigns), and diff the scorecard. Authenticate `gemini` for a trustworthy multi-task number: `research-engine bench --tasks 20 --judge gemini`.
+
+**Files added this session (branch `feat/deepresearch-bench`):** `bench/` (package + `data/{query,criteria,reference}.jsonl` + `LICENSE.md`), `src/research_engine/llm/gemini_cli_client.py`, `bench` command in `main.py`, gemini branch in `model_registry.py`, `tests/unit/bench/` (22 tests), `docs/architecture/benchmark.md`. Approved plan: `C:\Users\Isaac\.claude\plans\lexical-bubbling-starfish.md`.
+
 ## PUSHED — PR #17 open (2026-07-08)
 Branch `feat/llm-fulltext-lanes` (29 commits) pushed to origin; **PR #17**: https://github.com/isaac233/Research-Engine/pull/17 (base `main`). Covers golden-eval + anti-poison + self-improvement loops + the full LLM-fulltext 7-lane upgrade (Phases 0-6) + audit TLS/gzip fixes. ~395 tests green, mypy+ruff clean, live campaign verified.
 

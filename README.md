@@ -111,6 +111,7 @@ for a full step-by-step runbook.
 | Evaluation | Harness, reporter, improvement proposer, deep audit | [`docs/architecture/evaluation.md`](docs/architecture/evaluation.md) |
 | Monitoring | Progress %, ETA, calibration, anomaly detection | [`docs/architecture/monitoring.md`](docs/architecture/monitoring.md) |
 | Storage | SQLite state/cache, artifact manager, cleanup janitor | [`docs/architecture/storage.md`](docs/architecture/storage.md) |
+| Benchmark | DeepResearch Bench (RACE + FACT) scoreboard vs the published Opus/Gemini bar | [`docs/architecture/benchmark.md`](docs/architecture/benchmark.md) |
 
 ## Development
 
@@ -130,6 +131,24 @@ python scripts/end_session.py --message "feat: describe change"
 # Open a PR (dry-run by default)
 python scripts/github_pr.py --message "feat: describe change" --branch finish/feature
 ```
+
+## Benchmarking (does it beat Opus?)
+
+The engine scores itself on **DeepResearch Bench** — 100 PhD-level tasks graded by
+**RACE** (report quality vs a reference report) and **FACT** (citation accuracy) —
+so it can be compared head-to-head against the published Opus/Gemini leaderboard.
+
+```powershell
+# Smoke run: 3 English tasks, local Ollama judge (no external auth)
+research-engine bench --tasks 3 --judge ollama
+
+# Closest to official: Gemini judge (authenticate `gemini` once first)
+research-engine bench --tasks 100 --judge gemini
+```
+
+Writes `Research/benchmarks/<date>_scorecard.MD` with the engine's RACE/FACT next
+to the published bar and the weakest dimension to improve. See
+[`docs/architecture/benchmark.md`](docs/architecture/benchmark.md).
 
 ## Docker
 

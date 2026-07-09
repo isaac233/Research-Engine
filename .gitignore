@@ -57,3 +57,10 @@ Thumbs.db
 # Router eval scratch
 .claude/router_eval/__pycache__/
 .claude/router_eval/*.pyc
+
+# Benchmark run outputs (vendored bench/data/ IS tracked)
+bench/out/
+
+# Engine runtime data (handoffs/state written during bench + campaigns)
+data/data/
+data/handoffs/

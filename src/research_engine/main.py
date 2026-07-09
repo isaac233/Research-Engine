@@ -520,5 +520,50 @@ def self_eval(
         sys.exit(1)
 
 
+@cli.command(name="bench")
+@click.option("--tasks", type=click.IntRange(1, 100), default=10, help="Number of tasks (subset for smoke; 100 = full).")
+@click.option("--language", type=click.Choice(["en", "zh", "all"]), default="en", help="Task language subset.")
+@click.option("--judge", "judge_kind", type=click.Choice(["gemini", "ollama", "anthropic"]), default="gemini", help="Judge provider for RACE/FACT.")
+@click.option("--judge-model", default=None, help="Override the judge model tag.")
+@click.option("--reuse-engine", is_flag=True, help="Reuse a prior engine.jsonl instead of re-running campaigns.")
+@click.option("--quality", type=click.FloatRange(0.0, 1.0), default=None, help="Engine quality slider for the runs.")
+@click.pass_context
+def bench(
+    ctx: click.Context,
+    tasks: int,
+    language: str,
+    judge_kind: str,
+    judge_model: str | None,
+    reuse_engine: bool,
+    quality: float | None,
+) -> None:
+    """Score the engine on DeepResearch Bench (RACE + FACT) vs the published bar."""
+    # bench/ lives at the engine repo root (not in the installed package); ensure it's importable.
+    engine_root = Path(__file__).resolve().parents[2]
+    if str(engine_root) not in sys.path:
+        sys.path.insert(0, str(engine_root))
+    from bench.runner import run_benchmark
+    from bench.scorecard import write_scorecard
+
+    project_root = ctx.obj.get("project_root")
+    config = EngineConfig(project_root)
+    summary = run_benchmark(
+        limit=tasks,
+        language=None if language == "all" else language,
+        judge_kind=judge_kind,
+        judge_model=judge_model,
+        project_root=project_root,
+        reuse_engine=reuse_engine,
+        quality=quality,
+    )
+    path = write_scorecard(summary, project_root=config.project_root)
+    click.echo(
+        f"RACE overall: {summary['race_overall']:.2f}/100 "
+        f"(50 = ties reference) | FACT c.acc: {summary['fact_citation_accuracy']:.1f}% | "
+        f"scored {summary['n_scored']}/{summary['n_tasks']}"
+    )
+    click.echo(f"Scorecard: {path}")
+
+
 if __name__ == "__main__":
     cli()
