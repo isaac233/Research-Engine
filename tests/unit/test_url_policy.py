@@ -122,6 +122,46 @@ def test_blocks_url_encoded_local_hosts(policy: URLPolicy, url: str) -> None:
     assert allowed is False, f"{url} should be blocked, got: {reason}"
 
 
+def test_trusted_origin_allows_configured_local_endpoint() -> None:
+    policy = URLPolicy(
+        trusted_origins=["http://localhost:8080/search?q={query}&format=json"]
+    )
+    allowed, reason = policy.allow("http://localhost:8080/search?q=test&format=json")
+    assert allowed is True
+    assert reason == "trusted origin"
+
+
+def test_trusted_origin_requires_exact_scheme_host_port() -> None:
+    policy = URLPolicy(trusted_origins=["http://localhost:8080/search"])
+    for url in (
+        "http://localhost:8081/",
+        "https://localhost:8080/",
+        "http://127.0.0.1:8080/",
+        "http://localhost/",
+    ):
+        allowed, reason = policy.allow(url)
+        assert allowed is False, f"{url} should stay blocked, got: {reason}"
+
+
+def test_trusted_origin_rejects_credentials() -> None:
+    policy = URLPolicy(trusted_origins=["http://localhost:8080/"])
+    allowed, _ = policy.allow("http://user:pass@localhost:8080/")
+    assert allowed is False
+
+
+def test_trusted_origin_in_rules_summary() -> None:
+    policy = URLPolicy(trusted_origins=["http://localhost:8080/search"])
+    summary = policy.rules_summary()
+    assert summary["trusted_origins"] == ["http://localhost:8080"]
+
+
+def test_is_trusted_origin() -> None:
+    policy = URLPolicy(trusted_origins=["http://localhost:8080/search"])
+    assert policy.is_trusted_origin("http://localhost:8080/search?q=x") is True
+    assert policy.is_trusted_origin("http://localhost:9999/") is False
+    assert URLPolicy().is_trusted_origin("http://localhost:8080/") is False
+
+
 def test_idna_homoglyph_does_not_match_allow_list(policy: URLPolicy) -> None:
     # Cyrillic 'е' (U+0435) instead of Latin 'e' in "example.com".
     homoglyph = "https://еxample.com/"

@@ -32,8 +32,16 @@ class SERPAdapter(SourceAdapter):
         policy: URLPolicy | None = None,
     ) -> None:
         self.endpoint = endpoint
+        # The configured endpoint is trusted operator infrastructure (often a
+        # local SearXNG instance the default SSRF policy would block); trust
+        # exactly that origin, nothing else.
+        self._trusted_policy = (
+            URLPolicy(trusted_origins=[endpoint]) if endpoint else None
+        )
+        if browser is None and policy is None:
+            policy = self._trusted_policy
         self.browser = browser or RawHTTPBrowser(policy=policy, fingerprints=None)
-        self.robots = robots or RobotsChecker()
+        self.robots = robots or RobotsChecker(browser=self.browser)
 
     def search(self, query: str, limit: int | None = None, offset: int = 0) -> SearchResult:
         limit = limit or self.default_limit
@@ -49,13 +57,19 @@ class SERPAdapter(SourceAdapter):
             limit=int(limit),
             offset=int(offset),
         )
-        robots_ok, robots_reason = self.robots.can_fetch(url)
-        if not robots_ok:
-            return SearchResult(
-                source=self.name,
-                query=query,
-                error=f"robots.txt disallows: {robots_reason}",
-            )
+        if self._trusted_policy is not None and self._trusted_policy.is_trusted_origin(url):
+            # Operator's own search instance: its robots.txt targets external
+            # crawlers, not the operator. Result URLs are still robots-checked
+            # by downstream fetchers.
+            robots_reason = "trusted endpoint (robots skipped)"
+        else:
+            robots_ok, robots_reason = self.robots.can_fetch(url)
+            if not robots_ok:
+                return SearchResult(
+                    source=self.name,
+                    query=query,
+                    error=f"robots.txt disallows: {robots_reason}",
+                )
 
         result = self.browser.fetch(url)
         if not result.ok:

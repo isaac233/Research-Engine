@@ -200,7 +200,9 @@ class RawHTTPBrowser(AIBrowser):
                 url=current_url,
                 headers=headers,
                 content=content,
-                resolve_hosts=True,
+                # Trusted origins (operator-configured local endpoints, e.g.
+                # SearXNG) skip DNS pinning; everything else stays pinned.
+                resolve_hosts=not self.policy.is_trusted_origin(current_url),
                 max_body_size=self.MAX_BODY_SIZE,
             )
             if 500 <= response.status_code < 600:

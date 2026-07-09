@@ -32,19 +32,20 @@ def test_missing_endpoint_returns_error() -> None:
     assert "endpoint" in (result.error or "").lower()
 
 
-def test_robots_disallow_blocks() -> None:
+def test_robots_disallow_blocks_result_fetch() -> None:
+    """The configured endpoint is an operator-chosen search API (robots
+    skipped), but fetching a *result* URL still honors robots.txt."""
+
     class DisallowRobots(RobotsChecker):
         def can_fetch(self, url: str, user_agent: str = "*") -> tuple[bool, str]:
             return False, "disallowed"
 
     adapter = SERPAdapter(
         endpoint="https://search.example/?q={query}",
-        browser=FakeBrowser(""),
+        browser=FakeBrowser("<title>Page</title>"),
         robots=DisallowRobots(),
     )
-    result = adapter.search("query")
-    assert result.ok is False
-    assert "robots" in (result.error or "").lower()
+    assert adapter.fetch_by_id("https://blocked.example/page") is None
 
 
 def test_parses_results_from_html() -> None:
@@ -141,3 +142,33 @@ def test_parses_whoogle_json_href_alias() -> None:
     assert result.papers[0].url == "https://w.test/1"
     assert result.papers[0].title == "Whoogle Hit"
     assert result.papers[0].abstract == "snip"
+
+
+def test_default_browser_policy_trusts_configured_endpoint() -> None:
+    adapter = SERPAdapter(endpoint="http://localhost:8080/search?q={query}&format=json")
+    allowed, reason = adapter.browser.policy.allow(
+        "http://localhost:8080/search?q=test&format=json"
+    )
+    assert allowed is True, reason
+    # Other local URLs stay blocked.
+    blocked, _ = adapter.browser.policy.allow("http://localhost:9999/")
+    assert blocked is False
+
+
+def test_trusted_endpoint_skips_robots() -> None:
+    """Operator's own local search instance: its robots.txt targets external
+    crawlers, not the operator. Trusted origin => no robots gate."""
+
+    class DisallowRobots(RobotsChecker):
+        def can_fetch(self, url: str, user_agent: str = "*") -> tuple[bool, str]:
+            return False, "disallowed"
+
+    body = '{"results": [{"title": "T", "url": "https://example.com/a", "content": "c"}]}'
+    adapter = SERPAdapter(
+        endpoint="http://localhost:8080/search?q={query}&format=json",
+        browser=FakeBrowser(body),
+        robots=DisallowRobots(),
+    )
+    result = adapter.search("query")
+    assert result.ok is True
+    assert len(result.papers) == 1
