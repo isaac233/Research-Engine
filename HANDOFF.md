@@ -1,6 +1,9 @@
 # HANDOFF — 2026-07-06
 
-## Whole-Project Audit + "does it actually research?" — 2026-07-08 (LATEST)
+## PUSHED — PR #17 open (2026-07-08)
+Branch `feat/llm-fulltext-lanes` (29 commits) pushed to origin; **PR #17**: https://github.com/isaac233/Research-Engine/pull/17 (base `main`). Covers golden-eval + anti-poison + self-improvement loops + the full LLM-fulltext 7-lane upgrade (Phases 0-6) + audit TLS/gzip fixes. ~395 tests green, mypy+ruff clean, live campaign verified.
+
+## Whole-Project Audit + "does it actually research?" — 2026-07-08
 
 Audited cohesion/organization/consistency-with-both-prompts and — critically — ran a REAL end-to-end campaign. Found and fixed TWO blockers that made real research impossible; the engine now genuinely performs research.
 
