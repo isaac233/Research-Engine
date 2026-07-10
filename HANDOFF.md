@@ -1,5 +1,17 @@
 # HANDOFF — 2026-07-09
 
+## Snippet-rubric calibration — lever 1 DONE (2026-07-09 night, commit `8ce0309`)
+
+**The task-51 blocker is fixed.** Web snippets (~150 chars) can never "directly address" a query, so the strict relevance rubric MUST-failed every good web source. New `LLMRubricCriterion.snippet_prompt`: when source text is snippet-thin (<300 chars, `SNIPPET_TEXT_CHARS` in ranker.py), the rubric judges **topic match** of title+snippet instead of answer completeness. Still 1-5, still MUST — off-topic floodgate stays closed (test-guarded). Also neutralized scorer labels (Title/Text, "research sources" system prompt — the old "academic papers"/"Abstract:" framing biased against web results).
+
+**Measured (2 en tasks, ollama judge, fresh caches):** RACE 52.82 (~flat, within judge noise) | **FACT c.acc 50.0%** (was 33.3), e.cit total 8 (was 6).
+- Task 51 (Japan demographics): **0 → 5/8 supported citations (62.5%)**, 6 real web sources included (Carnegie, WHO, UNDP, AARP, EU-Japan report) — exactly the ones previously rejected. RACE stuck at 40.5: known mistral-judge coarseness (identical grids), treat directional.
+- Task 52 (Buffett/Munger/Duan): RACE 65.1, FACT 3/8 (was 6/9 — run variance; different serp results each run).
+
+**Remaining levers, ranked:** (1) resolver full-text fetch for web URLs pre-screening (snippet→page text, makes rubric + extraction stronger); (2) authenticated `--judge gemini` run for trustworthy numbers; (3) `--tasks 20` sweep; (4) task-52-class FACT variance — consider fetching result pages before support judging.
+
+**Session ops reminder:** `podman machine start` → `cd beta/search-infra && podman-compose up -d searxng whoogle` (pip `podman-compose`, NOT `podman compose`); export `RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`; archive `bench/out/*.jsonl` before re-measuring (resume caches). Old runs parked in `bench/out/prev_20260709/`.
+
 ## Web lane LIVE + FACT>0 (2026-07-09 evening, branch `feat/deepresearch-bench`, commits `2d54dbe`, `2f8f5c9`, `2752d84`)
 
 **Container stack + loop closed.** `beta/search-infra`: `searxng` + `whoogle` containers running (websurfx/yacy skipped — flaky image / empty index). SearXNG JSON verified at `http://localhost:8080/search?q={query}&format=json`. Bench invocation: `export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'` then `python -m research_engine.main bench --tasks 2 --judge ollama`.
