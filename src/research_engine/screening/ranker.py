@@ -172,7 +172,7 @@ class SourceRanker:
                 passed=passed,
                 value=clamped,
                 score=round(normalized, 4),
-                reason=f"LLM rubric score {clamped} vs minimum {criterion.minimum_score}",
+                reason=f"LLM rubric raw score {score} vs minimum {criterion.minimum_score}",
             )
         except Exception as exc:  # noqa: BLE001
             return CriterionScore(

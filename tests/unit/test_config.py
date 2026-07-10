@@ -123,3 +123,20 @@ def test_serp_endpoint_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     ep = "http://localhost:8080/search?q={query}&format=json"
     monkeypatch.setenv(EngineConfig.SERP_ENDPOINT_ENV, ep)
     assert EngineConfig().serp_endpoint == ep
+
+
+def test_serp_blocklist_parses_env(monkeypatch) -> None:
+    from research_engine.config import EngineConfig
+
+    monkeypatch.setenv(
+        "RESEARCH_ENGINE_SERP_BLOCKLIST", "huggingface.co/datasets, zhipuai-infra.cn ,"
+    )
+    config = EngineConfig()
+    assert config.serp_blocklist == ("huggingface.co/datasets", "zhipuai-infra.cn")
+
+
+def test_serp_blocklist_empty_when_unset(monkeypatch) -> None:
+    from research_engine.config import EngineConfig
+
+    monkeypatch.delenv("RESEARCH_ENGINE_SERP_BLOCKLIST", raising=False)
+    assert EngineConfig().serp_blocklist == ()

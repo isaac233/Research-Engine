@@ -96,7 +96,11 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     enabled_sources = set(SourceRegistry.DEFAULT_SOURCES)
     if serp_endpoint:
         enabled_sources.add("serp")
-    registry = SourceRegistry(enabled=enabled_sources, serp_endpoint=serp_endpoint)
+    registry = SourceRegistry(
+        enabled=enabled_sources,
+        serp_endpoint=serp_endpoint,
+        serp_blocklist=config.serp_blocklist,
+    )
     discovery = DiscoveryPipeline(registry=registry, cache=cache)
 
     # One provider drives every lane (per-call model override). Absent Ollama =>

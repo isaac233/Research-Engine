@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 BENCH_DIR = Path(__file__).resolve().parent
 DATA_DIR = BENCH_DIR / "data"
 _DIMS = ("comprehensiveness", "insight", "instruction_following", "readability")
+
+# Hosts that republish DeepResearch Bench's own tasks/reference reports.
+# Searching a task's verbatim prompt surfaces these pages, which leak the
+# benchmark's reference answers into discovery — exclude them from web search.
+LEAKAGE_BLOCKLIST = "deepresearch-bench,zhipuai-infra.cn,huggingface.co/datasets"
 
 
 def _load_maps() -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
@@ -63,6 +69,9 @@ def run_benchmark(
     scores_path = out_dir / "scores.jsonl"
 
     tasks = _load_tasks(limit, language)
+
+    # Leakage guard: keep the benchmark's own dataset pages out of discovery.
+    os.environ.setdefault("RESEARCH_ENGINE_SERP_BLOCKLIST", LEAKAGE_BLOCKLIST)
 
     # 1) Engine reports (resumable).
     done_ids = {a["id"] for a in load_jsonl(engine_path)} if engine_path.exists() else set()

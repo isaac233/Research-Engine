@@ -172,3 +172,21 @@ def test_trusted_endpoint_skips_robots() -> None:
     result = adapter.search("query")
     assert result.ok is True
     assert len(result.papers) == 1
+
+
+def test_blocklist_filters_results() -> None:
+    """Benchmark leakage guard: URLs matching a blocklist substring are dropped."""
+    body = (
+        '{"results": ['
+        '{"title": "Leak", "url": "https://huggingface.co/datasets/x/DeepResearch-Bench-Dataset", "content": "c"},'
+        '{"title": "Good", "url": "https://example.com/report", "content": "c"}'
+        ']}'
+    )
+    adapter = SERPAdapter(
+        endpoint="http://localhost:8080/search?q={query}&format=json",
+        browser=FakeBrowser(body),
+        blocklist=("huggingface.co/datasets", "zhipuai-infra.cn"),
+    )
+    result = adapter.search("query")
+    assert result.ok is True
+    assert [p.title for p in result.papers] == ["Good"]

@@ -19,10 +19,20 @@ class EngineConfig:
     # When set, the web `serp` discovery source is enabled; unset = academic-only.
     SERP_ENDPOINT_ENV = "RESEARCH_ENGINE_SERP_ENDPOINT"
 
+    # Comma-separated URL substrings dropped from web search results, e.g.
+    # benchmark-dataset hosts during bench runs (leakage guard).
+    SERP_BLOCKLIST_ENV = "RESEARCH_ENGINE_SERP_BLOCKLIST"
+
     @property
     def serp_endpoint(self) -> str | None:
         """Web-search endpoint template from env, or None if unconfigured."""
         return os.environ.get(self.SERP_ENDPOINT_ENV) or None
+
+    @property
+    def serp_blocklist(self) -> tuple[str, ...]:
+        """URL substrings to exclude from web search results."""
+        raw = os.environ.get(self.SERP_BLOCKLIST_ENV, "")
+        return tuple(part.strip() for part in raw.split(",") if part.strip())
 
     def __init__(
         self,

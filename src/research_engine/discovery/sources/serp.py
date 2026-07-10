@@ -30,8 +30,12 @@ class SERPAdapter(SourceAdapter):
         browser: RawHTTPBrowser | None = None,
         robots: RobotsChecker | None = None,
         policy: URLPolicy | None = None,
+        blocklist: tuple[str, ...] = (),
     ) -> None:
         self.endpoint = endpoint
+        # URL substrings to drop from results (e.g. benchmark-dataset hosts
+        # that leak the benchmark's own reference answers into discovery).
+        self.blocklist = tuple(b.lower() for b in blocklist if b)
         # The configured endpoint is trusted operator infrastructure (often a
         # local SearXNG instance the default SSRF policy would block); trust
         # exactly that origin, nothing else.
@@ -138,6 +142,8 @@ class SERPAdapter(SourceAdapter):
             title = item.get("title")
             if not url or not title:
                 continue
+            if self._blocked(str(url)):
+                continue
             papers.append(
                 Paper(
                     title=str(title).strip(),
@@ -163,6 +169,8 @@ class SERPAdapter(SourceAdapter):
         ):
             title = match.group(1).strip()
             url = match.group(2)
+            if self._blocked(url):
+                continue
             papers.append(
                 Paper(
                     title=title,
@@ -175,6 +183,10 @@ class SERPAdapter(SourceAdapter):
             if len(papers) >= limit:
                 break
         return papers
+
+    def _blocked(self, url: str) -> bool:
+        lowered = url.lower()
+        return any(fragment in lowered for fragment in self.blocklist)
 
     def _extract_title(self, html: str) -> str | None:
         match = re.search(r"<title>([^<]+)</title>", html, re.IGNORECASE)
