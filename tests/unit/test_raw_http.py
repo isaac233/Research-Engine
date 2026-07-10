@@ -142,3 +142,11 @@ def test_close_shuts_client(browser: RawHTTPBrowser, monkeypatch: pytest.MonkeyP
     browser._get_client()
     browser.close()
     assert fake.is_closed
+
+
+def test_httpx_can_decode_advertised_encodings() -> None:
+    """Fingerprint headers advertise Accept-Encoding "br"; without the brotli
+    decoder installed, httpx silently returns raw compressed bytes."""
+    import httpx._decoders as decoders
+
+    assert "br" in decoders.SUPPORTED_DECODERS
