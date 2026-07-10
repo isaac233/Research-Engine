@@ -64,3 +64,6 @@ bench/out/
 # Engine runtime data (handoffs/state written during bench + campaigns)
 data/data/
 data/handoffs/
+
+# Distributed secrets — never commit
+API_KEYS.MD
