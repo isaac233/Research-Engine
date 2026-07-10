@@ -226,6 +226,115 @@ def test_default_criteria_exclude_unreadable_stub() -> None:
     assert by_title["Readable"] is True
 
 
+def _snippet_criteria() -> CriterionSet:
+    return CriterionSet(
+        name="test",
+        criteria=[
+            LLMRubricCriterion(
+                name="relevance",
+                prompt="STRICT: {query}",
+                snippet_prompt="SNIPPET: {query}",
+                minimum_score=3.0,
+                maximum_score=5.0,
+                match_mode=MatchMode.MUST,
+            )
+        ],
+    )
+
+
+def test_snippet_thin_source_scored_with_snippet_prompt() -> None:
+    """A web result with only a short snippet must get the snippet-calibrated
+    rubric, not the strict 'directly addresses' one."""
+    seen: list[str] = []
+
+    def scorer(paper: Paper, prompt: str) -> float:
+        seen.append(prompt)
+        return 4.0
+
+    ranker = SourceRanker(criteria=_snippet_criteria(), llm_scorer=scorer)
+    ranker.rank(
+        [Paper(title="Japan ageing report", source="serp", abstract="Short 150-char snippet.")],
+        query="elderly market Japan",
+    )
+    assert seen == ["SNIPPET: elderly market Japan"]
+
+
+def test_long_abstract_uses_main_prompt() -> None:
+    seen: list[str] = []
+
+    def scorer(paper: Paper, prompt: str) -> float:
+        seen.append(prompt)
+        return 4.0
+
+    ranker = SourceRanker(criteria=_snippet_criteria(), llm_scorer=scorer)
+    ranker.rank(
+        [Paper(title="Full paper", source="openalex", abstract="A" * 400)],
+        query="elderly market Japan",
+    )
+    assert seen == ["STRICT: elderly market Japan"]
+
+
+def test_empty_snippet_prompt_always_uses_main_prompt() -> None:
+    """Criteria without a snippet prompt behave exactly as before."""
+    seen: list[str] = []
+
+    def scorer(paper: Paper, prompt: str) -> float:
+        seen.append(prompt)
+        return 4.0
+
+    criteria = CriterionSet(
+        name="test",
+        criteria=[
+            LLMRubricCriterion(
+                name="relevance",
+                prompt="STRICT: {query}",
+                match_mode=MatchMode.MUST,
+            )
+        ],
+    )
+    ranker = SourceRanker(criteria=criteria, llm_scorer=scorer)
+    ranker.rank([Paper(title="T", source="serp", abstract="tiny")], query="q")
+    assert seen == ["STRICT: q"]
+
+
+def test_default_criteria_snippet_offtopic_still_excluded() -> None:
+    """Snippet calibration must not re-open the off-topic floodgate."""
+
+    def scorer(paper: Paper, prompt: str) -> float:
+        return 1.0  # unrelated topic
+
+    ranker = SourceRanker(llm_scorer=scorer)
+    scorecards = ranker.rank(
+        [Paper(title="Best pizza in Tokyo", source="serp", abstract="Top 10 pizza spots.")],
+        query="elderly demographics market size in Japan",
+    )
+    assert scorecards[0].included is False
+
+
+def test_default_criteria_snippet_ontopic_included() -> None:
+    """An on-topic web snippet passes the calibrated rubric."""
+    seen: list[str] = []
+
+    def scorer(paper: Paper, prompt: str) -> float:
+        seen.append(prompt)
+        return 4.0
+
+    ranker = SourceRanker(llm_scorer=scorer)
+    scorecards = ranker.rank(
+        [
+            Paper(
+                title="Japan's ageing consumer market",
+                source="serp",
+                abstract="Report on Japan's senior consumer spending trends.",
+            )
+        ],
+        query="elderly demographics market size in Japan",
+    )
+    assert scorecards[0].included is True
+    # The calibrated prompt judges topic match, not answer completeness.
+    assert any("snippet" in p.lower() for p in seen)
+
+
 def test_readable_check_survives_none_abstract() -> None:
     """Papers deserialized from APIs can carry abstract=None."""
     ranker = SourceRanker(llm_scorer=lambda paper, prompt: 5.0)

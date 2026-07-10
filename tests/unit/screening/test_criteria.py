@@ -60,6 +60,27 @@ def test_llm_rubric_criterion_round_trip() -> None:
     assert restored.maximum_score == 5.0
 
 
+def test_llm_rubric_snippet_prompt_round_trip() -> None:
+    criterion = LLMRubricCriterion(
+        name="relevance",
+        prompt="Strict: {query}",
+        snippet_prompt="Snippet: {query}",
+    )
+    restored = criterion_from_dict(criterion.to_dict())
+    assert isinstance(restored, LLMRubricCriterion)
+    assert restored.snippet_prompt == "Snippet: {query}"
+
+
+def test_default_relevance_has_snippet_prompt() -> None:
+    """Web results carry ~150-char snippets; the default relevance criterion
+    must ship a calibrated snippet rubric that judges topic match."""
+    criteria = default_academic_criteria()
+    relevance = next(c for c in criteria.criteria if c.name == "relevance")
+    assert isinstance(relevance, LLMRubricCriterion)
+    assert relevance.snippet_prompt
+    assert "{query}" in relevance.snippet_prompt
+
+
 def test_criterion_set_round_trip() -> None:
     criteria = CriterionSet(
         name="test",
