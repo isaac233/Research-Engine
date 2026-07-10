@@ -1,5 +1,21 @@
 # HANDOFF — 2026-07-09
 
+## Web lane LIVE + FACT>0 (2026-07-09 evening, branch `feat/deepresearch-bench`, commits `2d54dbe`, `2f8f5c9`, `2752d84`)
+
+**Docker installed; loop closed.** `beta/search-infra`: `searxng` + `whoogle` containers running (websurfx/yacy skipped — flaky image / empty index). SearXNG JSON verified at `http://localhost:8080/search?q={query}&format=json`. Bench invocation: `export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'` then `python -m research_engine.main bench --tasks 2 --judge ollama`.
+
+**Three real bugs found only by running live (each TDD-fixed, suite+mypy+ruff green):**
+1. **SSRF policy blocked the local endpoint** (`2d54dbe`): localhost + non-80/443 ports rejected before the allow-list could apply, and `ssrf_guard` DNS-pinned everything to public IPs. New `URLPolicy(trusted_origins=[...])` — exact (scheme,host,port) from operator's endpoint config; bypasses localhost/port/DNS-pinning gates only, never scheme/credential checks; SERPAdapter endpoint calls also skip robots.txt (SearXNG ships `Disallow: /*?*q=*` for external crawlers — meaningless for the operator's own instance). Result-URL fetches stay fully gated.
+2. **Benchmark leakage** (`2f8f5c9`): web-searching the verbatim task prompt returned pages republishing the benchmark's own dataset/reference reports (huggingface datasets page, `research-hb.zhipuai-infra.cn/samples/...`) — and they beat real sources on the relevance rubric (verbatim match → 5/5). New `RESEARCH_ENGINE_SERP_BLOCKLIST` (comma-separated URL substrings) filtered in SERPAdapter; bench runner sets a default leakage blocklist. **Purge `data/cache.db` serp rows when changing the blocklist** — cached results bypass the adapter filter.
+3. **Brotli corruption** (`2752d84`): fingerprint headers advertise `Accept-Encoding: br` but the decoder wasn't installed — httpx silently returned raw brotli bytes and ssrf_guard strips Content-Encoding, hiding it. Every br-served page (tikr, substack) was garbage for extraction AND for FACT support checks. Dep now `httpx[brotli]`.
+   Also: scorecard reasons printed the CLAMPED rubric score (everything below minimum displayed as "3.0 vs minimum 3.0") — now prints the raw score.
+
+**RESULT (2 en tasks, ollama judge, directional):** RACE overall **52.96** (was 40.5; 50 = ties reference) | FACT c.acc **33.3%**, eff.cit 6 (was 0 / 0).
+- Task 52 (Buffett/Munger/Duan): 0 included → **6 real web sources** (tikr/gainify/yahoo/llmquant), RACE 65.4, FACT 6/9 supported (67%).
+- Task 51 (Japan demographics): unchanged 40.5, 1 source. Web lane found excellent sources (Carnegie, WHO, UNDP, EU-Japan consumer report) but **screening rejects them: raw relevance <3 on the strict "directly addresses" rubric** while snippet-thin. THE next lever: relevance-rubric calibration for web snippets (score topical relevance of title+snippet; don't demand the full answer in a 150-char snippet). Careful: don't re-open the off-topic floodgate Track B closed.
+
+**Next levers, ranked:** (1) rubric calibration above → task-51-class breadth; (2) resolver full-text fetch for web URLs pre-screening (snippet→page text makes rubric fair); (3) authenticated `--judge gemini` run for trustworthy numbers; (4) `--tasks 20` sweep.
+
 ## Track B — discovery relevance + citation grounding (2026-07-09, branch `feat/deepresearch-bench`, commits `327a39f` + `1531516`)
 
 **What was built (all TDD, mypy strict + ruff green, full unit suite green):**
