@@ -1,4 +1,19 @@
-# HANDOFF — 2026-07-09
+# HANDOFF — 2026-07-13
+
+## Snippet enrichment — next lever DONE (2026-07-13, commit `e2274a1`, branch `feat/deepresearch-bench`)
+
+**The HANDOFF's top-ranked remaining lever is shipped.** "Resolver full-text fetch for web URLs pre-screening (snippet→page text)" is now `src/research_engine/screening/enricher.py::enrich_snippets`. A red TDD test (`tests/unit/screening/test_enricher.py`, was untracked/unbuilt) drove it green (7/7).
+
+- Fetches the page for thin **web** sources (`serp`/`web_crawl`/`web`) whose abstract is <300 chars (`SNIPPET_TEXT_CHARS`), replaces the snippet with a capped `markdownify` page excerpt (default 2000 chars), preserves the original snippet in `meta["snippet"]`, flags `meta["enriched_from_page"]`. Immutable (`dataclasses.replace`), `URLPolicy`-gated (blocks link-local/private before fetch), `max_fetches`-capped (default 8), non-fatal on fetch failure, academic sources untouched.
+- Wired into `orchestrator._run_screen`: enriches before `ranker.rank` when a browser is present (`self.browser.fetch_bytes`). So the relevance rubric + extraction now see real page text, not a 150-char snippet.
+- **Verified:** full unit suite green (`pytest -q --no-cov`), mypy clean, ruff clean.
+- **NOT exercised live** — the enricher's path only fires on the web/serp lane, which needs the Podman+SearXNG stack up (per-session manual, see below). Unit-proven; a live bench run with the stack up is the confirmation.
+
+## Finish-line status (2026-07-13) — user chose STOP HERE
+
+Branch `feat/deepresearch-bench` is **47 commits ahead of `main`** (v0.1.0). It subsumes PR #17's 7-lane full-text work + benchmark scoreboard + Track B + web lane + this enricher. All green. Local ~3 commits ahead of origin (**unpushed**; no PR to main).
+
+**The finite objectives (v0.1.0 DoD, the 7-lane prompt-2 spec) are met.** What remains is not finite code work — it forks into (a) **release**: push branch → PR → merge → tag v0.2.0 (irreversible; user-gated), and (b) **benchmark grind** ("beat Opus"): open-ended, needs the stack up + `gemini` auth for trustworthy numbers. User elected to defer both. Next session: pick a fork. Remaining ranked levers if grinding: authenticated `--judge gemini` run; `--tasks 20` sweep; task-52-class FACT variance (fetch result pages before support judging). LLM query planner still heuristic (low value).
 
 ## Snippet-rubric calibration — lever 1 DONE (2026-07-09 night, commit `8ce0309`)
 
