@@ -14,6 +14,21 @@ Per task: t51 RACE 15.0 / FACT 2-of-4 (50%); t52 25.8 / 0-of-6 (0%); t53 23.7 / 
 
 **HONEST STATE:** the engine is **~half** Claude-3.7's RACE and **~1/5** its citation accuracy. Beating Opus is a large, multi-lever gap, NOT one session. Weakest RACE dims = Depth (18) + Comprehensiveness (20); best = Readability (31). FACT is the biggest gap (20 vs 94). **This is the real starting line** — the mistral 52.82 was judge inflation, now exposed (the anti-cover-up working as designed). Roadmap levers: (1) FACT — cite HTML-verifiable pages + tighter claim↔source binding (raises c_acc + e_cit); (2) Depth/Comp — more sources + deeper synthesis (quality slider → bigger synth lane, higher volume); (3) re-measure every change with `--judge ollama --judge-model kimi-k2.7-code:cloud`.
 
+## Lever results — what moved the benchmark and what didn't (2026-07-13 PM, kimi judge, N=3 en)
+
+| Run | RACE | FACT c_acc | commit |
+|---|---|---|---|
+| baseline (default quality) | 21.48 | 20.4% | enricher+guard |
+| `--quality 1.0` (best 7-lane models) | 19.78 | 19.2% | — |
+| synth-specificity + conservative guard + 3500-tok briefs | 21.17 | 13.8% | `a388367` |
+| **Claude-3.7 w/Search (bar)** | **40.67** | **93.68%** | — |
+
+**Honest conclusion: no session-scale lever closed the gap.** Engine is pinned at RACE ~21 / FACT ~15-20% across every config. At N=3 the ±3-pt moves are noise. Two findings worth keeping:
+- **The quality slider does NOT improve the benchmark** — bigger models per lane gave flat/worse RACE+FACT. The bottleneck is structural (discovery breadth, report comprehensiveness, per-sentence citation binding), not model size. Important negative result about the Prompt-2 investment.
+- **Local-model synthesis is the ceiling**: it writes reports ~half as comprehensive as the reference and citations that mostly don't verify. Specific-claim prompting + longer budget did not fix it at N=3.
+
+**Roadmap to actually beat the bar (multi-session, structural):** (1) **Discovery breadth+depth** — more relevant sources per task (the reference reports draw on many); current campaigns deliver ~5-9 sources. (2) **Per-sentence retrieval-grounded synthesis** — bind each sentence to the exact source span (RAG-style), not free-form synth then post-hoc guard; this is the only reliable path to Claude's 93.68% c_acc. (3) **Cite HTML-verifiable pages** — the FACT verifier can't read PDFs/DOIs; prefer/relabel citations to the readable landing page. (4) **Longer multi-pass reports** for RACE Comp/Depth. (5) **Always measure with `--judge ollama --judge-model kimi-k2.7-code:cloud`** at N>=10 to beat the noise floor. What NOT to repeat: the lexical/word-overlap grounding (proven harmful), the quality slider as a benchmark lever (no effect).
+
 ## "Beat Opus" grind — honest findings (2026-07-13 PM, commits `e2274a1`, `8962181`, `0d7aef9`)
 
 **Goal reframed by user:** finish = accomplish the Prompt-1 vision — gemma4-class local models drive the whole campaign and deliver **better insights than Opus**, measured by the DeepResearch Bench scoreboard vs the Claude-3.7-Sonnet-w/Search bar (RACE 40.67 / FACT c_acc **93.68%** / e_cit 32).
