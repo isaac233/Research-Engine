@@ -33,7 +33,9 @@ def default_fetcher(browser: RawHTTPBrowser | None = None) -> Callable[[str], st
         result = b.act(BrowserAction(action=BrowserActionType.FETCH, url=url))
         if not result.ok or not result.content:
             return f"scrape failed: {result.error or 'no content'}"
-        content = result.content
+        # Cap before markdownify so a multi-MB PDF/page never blows up the regex
+        # pass; the first slice already exceeds the content window we keep.
+        content = result.content[: _MAX_CONTENT_CHARS * 8]
         if "<html" in content.lower() or "<body" in content.lower():
             content = markdownify(content).markdown
         return content[:_MAX_CONTENT_CHARS]

@@ -33,6 +33,9 @@ SupportsFn = Callable[[str, str], bool]
 
 # Characters of preceding text treated as the claim a citation supports.
 _CLAIM_WINDOW = 240
+# Below this many content tokens, a re-fetch is treated as unreadable (empty,
+# PDF bytes, paywall) and its citations are kept rather than stripped.
+_MIN_READABLE_TOKENS = 5
 
 
 def _source_text(source: dict[str, Any]) -> str:
@@ -54,10 +57,13 @@ def _content_tokens(text: str) -> set[str]:
 def _lexical_supports(sentence: str, source_text: str, min_overlap: float) -> bool:
     sent_tokens = _content_tokens(sentence)
     if not sent_tokens:
-        return False
+        return True  # nothing to check — keep
     src_tokens = _content_tokens(source_text)
-    if not src_tokens:
-        return False
+    if len(src_tokens) < _MIN_READABLE_TOKENS:
+        # Source did not re-fetch to readable text (empty, PDF bytes, paywall).
+        # We cannot disprove the citation, so we keep it — stripping a source we
+        # simply failed to re-read would hide a real citation, not verify it.
+        return True
     # Any concrete number in the claim must appear in the source — a mismatched
     # figure is the classic FACT failure, so a shared number is strong evidence.
     numeric = {t for t in sent_tokens if _NUMERIC.search(t)}
@@ -110,10 +116,19 @@ def ground_citations(
     # of text preceding it. Position-based removal handles repeated [n] with
     # different verdicts and never splits decimals mid-number.
     keep: list[tuple[int, int]] = []  # spans to drop
+    distinct_all: set[str] = set()
+    distinct_dropped: set[str] = set()
     for m in _CITATION.finditer(body):
+        distinct_all.add(m.group(1))
         claim = body[max(0, m.start() - _CLAIM_WINDOW) : m.start()]
         if not supported(claim, int(m.group(1))):
             keep.append((m.start(), m.end()))
+            distinct_dropped.add(m.group(1))
+    # Safety floor: if every distinct citation would be stripped, assume a
+    # systemic re-fetch failure rather than a wholly fabricated brief, and keep
+    # the original — shipping a citation-less brief is worse than an unpruned one.
+    if len(distinct_all) >= 3 and distinct_dropped >= distinct_all:
+        return body + references
     if keep:
         out: list[str] = []
         cursor = 0
