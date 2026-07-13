@@ -1,5 +1,17 @@
 # HANDOFF — 2026-07-13
 
+## "Beat Opus" grind — honest findings (2026-07-13 PM, commits `e2274a1`, `8962181`, `0d7aef9`)
+
+**Goal reframed by user:** finish = accomplish the Prompt-1 vision — gemma4-class local models drive the whole campaign and deliver **better insights than Opus**, measured by the DeepResearch Bench scoreboard vs the Claude-3.7-Sonnet-w/Search bar (RACE 40.67 / FACT c_acc **93.68%** / e_cit 32).
+
+**What shipped (all tested green, mypy+ruff clean):**
+1. **Snippet enricher** (`e2274a1`) — thin web snippets (<300 char) replaced with capped page-text excerpts before SCREEN. Real web sources now reach screening.
+2. **Citation grounding** (`8962181` + `0d7aef9`) — post-synthesis guard that strips `[n]` a source doesn't support. **The re-fetch-based variant was built, measured, and REMOVED**: on an isolated A/B (same article, same judge) it *helped* task 51 (12%→22%) but *hurt* task 52 (16%→7%, dropped 3 of 4 genuinely-supported HTML citations) — lexical overlap on re-fetched page boilerplate ≠ semantic support. Kept only the conservative same-source anti-hallucination guard (checks a claim against its OWN extract); it keeps unreadable/PDF/DOI citations (can't disprove → don't hide a real source) and a floor prevents stripping every citation.
+
+**THE BLOCKER (why a certified win can't be produced autonomously):** the measurement instrument is untrustworthy. Local **mistral judge** returns **degenerate RACE** (identical 52.82 across three different runs) and **non-reproducible FACT** (same task 51 read 12% / 36% / 50% across passes). No frontier judge is available in-repo: `API_KEYS.MD` holds only financial-data keys (no ANTHROPIC/GEMINI/OPENAI), `gemini` CLI is unauthenticated, ollama is local-only. **Certifying "beats Opus" needs a trustworthy judge = a user-provided `GEMINI_API_KEY` (free, AI Studio) or `ANTHROPIC_API_KEY`, plus a 10-20 task sweep.**
+
+**Structural verdict (honest):** the *vision* is demonstrably working — local models run discovery→full-text extraction→grounded synthesis and deliver citation-rich briefs from real web sources (task 51: Carnegie/WHO/PMC/UNDP/nippon; task 52: 7 HTML finance sources). The specific FACT **93.68%** number is NOT yet hit: the engine cites PDFs/DOIs the FACT verifier can't re-read (auto-fail) and local-model synthesis mis-attributes some claims. **Next real lever (not done): bias discovery + citation to HTML-verifiable pages and use an LLM (not lexical) claim↔source alignment — then measure with a real judge.** Infra note: SearXNG web lane confirmed live this session (`beta/search-infra`, sibling of the repo, Podman).
+
 ## Snippet enrichment — next lever DONE (2026-07-13, commit `e2274a1`, branch `feat/deepresearch-bench`)
 
 **The HANDOFF's top-ranked remaining lever is shipped.** "Resolver full-text fetch for web URLs pre-screening (snippet→page text)" is now `src/research_engine/screening/enricher.py::enrich_snippets`. A red TDD test (`tests/unit/screening/test_enricher.py`, was untracked/unbuilt) drove it green (7/7).
