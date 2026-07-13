@@ -24,6 +24,7 @@ from research_engine.evaluation.harness import EvaluationHarness
 from research_engine.evaluation.improvement import ImprovementProposer
 from research_engine.evaluation.reporter import Reporter
 from research_engine.events import EventBus
+from research_engine.extraction.markdownify import markdownify
 from research_engine.extraction.structured import (
     StructuredExtractor,
     extracted_source_from_dict,
@@ -57,6 +58,7 @@ from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.synthesizer import (
     Synthesizer,
     drop_failed_claims,
+    source_url,
     unique_insight_filter,
 )
 
@@ -751,12 +753,43 @@ class Orchestrator(OrchestratorInstrumentation):
                     [extracted_source_to_dict(s) for s in sources], verifications
                 )
             )
+            # Ground citations against a re-fetch of each cited URL (the same
+            # path FACT uses), so citations to unreadable PDFs/paywalled DOIs
+            # are stripped and every surviving [n] re-verifies.
+            if self.browser is not None:
+                self.synthesizer.source_text_fn = self._refetch_source_text
             synthesized = self.synthesizer.synthesize(source_dicts, query)
             if synthesized.strip():
                 brief = synthesized
         proposer = ImprovementProposer()
         proposals = proposer.propose(report)
         return report, brief, proposals
+
+    def _refetch_source_text(self, source: dict[str, Any]) -> str:
+        """Re-fetch a source's citable URL as text for citation grounding.
+
+        Uses the same policy-guarded fetch + markdownify the FACT metric uses,
+        so a citation only survives when its URL actually re-reads as supporting
+        text (PDFs / paywalled DOIs return unusable text and get dropped).
+        Cached per campaign call; empty string on any failure.
+        """
+        url = source_url(source)
+        if not url or self.browser is None:
+            return ""
+        cache: dict[str, str] | None = getattr(self, "_refetch_cache", None)
+        if cache is None:
+            cache = {}
+            self._refetch_cache = cache
+        if url in cache:
+            return cache[url]
+        text: str = ""
+        try:
+            raw = self.browser.fetch_bytes(url)
+            text = markdownify(raw.decode("utf-8", errors="replace")).markdown
+        except Exception:  # noqa: BLE001 — a failed re-fetch simply drops the citation
+            text = ""
+        cache[url] = text
+        return text
 
     def _build_deep_audit_payload(self, campaign: Campaign) -> dict[str, Any] | None:
         """Run the optional deep auditor and return a serializable payload."""
