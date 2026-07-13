@@ -12,9 +12,8 @@ Two parts:
 from __future__ import annotations
 
 import re
-from typing import Any
-
 from collections.abc import Callable
+from typing import Any
 
 from research_engine.llm.provider import LLMProvider, Message
 from research_engine.synthesis.grounding import ground_citations
@@ -30,11 +29,16 @@ _SYNTH_USER = (
     "Sources (methods/data/results/conclusions + evidenced claims):\n{sources}\n\n"
     "Write a markdown insight brief. For each source give: the key finding, the "
     "method + data behind it (enough to replicate), and one way to build on it. "
-    "End with a short 'Cross-source synthesis' section. Ground every claim in the "
-    "provided evidence; do not add facts not present above. Cite every factual "
-    "statement inline with its source's bracketed number (e.g. [1], [2]) exactly "
-    "as numbered above. Do NOT write your own References section; it is appended "
-    "automatically."
+    "End with a short 'Cross-source synthesis' section.\n\n"
+    "CITATION RULES (these determine whether the brief is trustworthy):\n"
+    "- Make each claim SPECIFIC: name the concrete finding, figure, entity, or "
+    "quote from the source — not a vague summary. 'PDD, Tencent and Moutai are "
+    "Duan's top holdings [2]' beats 'Duan favors value investing [2]'.\n"
+    "- Cite the source that LITERALLY contains that specific fact; never attach a "
+    "number to a source that does not state it.\n"
+    "- Every factual sentence must carry an inline [n] using the numbers above.\n"
+    "- Do not invent figures. If a claim is not backed by the evidence above, omit it.\n"
+    "Do NOT write your own References section; it is appended automatically."
 )
 
 
@@ -132,7 +136,7 @@ class Synthesizer:
         self,
         provider: LLMProvider,
         model: str | None = None,
-        max_tokens: int = 2000,
+        max_tokens: int = 3500,
         source_text_fn: Callable[[dict[str, Any]], str] | None = None,
     ) -> None:
         self.provider = provider

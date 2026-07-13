@@ -54,25 +54,25 @@ def _content_tokens(text: str) -> set[str]:
     return {t for t in _TOKEN.findall(text.lower()) if t not in _STOP and len(t) > 1}
 
 
-def _lexical_supports(sentence: str, source_text: str, min_overlap: float) -> bool:
+def _lexical_supports(sentence: str, source_text: str) -> bool:
+    """Conservative support test: strip only clear numeric fabrication.
+
+    A cited number absent from the source is the classic FACT failure and a
+    high-precision signal. Word-overlap was tried and dropped: it stripped valid
+    paraphrase citations (a synthesis legitimately rewords its source), which
+    lowered effective citations without improving accuracy. So a citation is
+    kept unless the claim asserts a specific figure the source never states.
+    """
     sent_tokens = _content_tokens(sentence)
     if not sent_tokens:
-        return True  # nothing to check — keep
+        return True
     src_tokens = _content_tokens(source_text)
     if len(src_tokens) < _MIN_READABLE_TOKENS:
-        # Source did not re-fetch to readable text (empty, PDF bytes, paywall).
-        # We cannot disprove the citation, so we keep it — stripping a source we
-        # simply failed to re-read would hide a real citation, not verify it.
-        return True
-    # Any concrete number in the claim must appear in the source — a mismatched
-    # figure is the classic FACT failure, so a shared number is strong evidence.
-    numeric = {t for t in sent_tokens if _NUMERIC.search(t)}
-    if numeric & src_tokens:
-        return True
-    if numeric and not (numeric & src_tokens):
-        return False
-    overlap = len(sent_tokens & src_tokens) / len(sent_tokens)
-    return overlap >= min_overlap
+        return True  # source unreadable — cannot disprove, keep
+    numeric = {t for t in sent_tokens if _NUMERIC.search(t) and len(t) > 1}
+    if not numeric:
+        return True  # no checkable figure — keep the paraphrase citation
+    return bool(numeric & src_tokens)
 
 
 def _split_body_and_references(brief: str) -> tuple[str, str]:
@@ -87,7 +87,6 @@ def ground_citations(
     brief: str,
     sources: list[dict[str, Any]],
     *,
-    min_overlap: float = 0.2,
     supports: SupportsFn | None = None,
     source_text_fn: Callable[[dict[str, Any]], str] | None = None,
 ) -> str:
@@ -110,7 +109,7 @@ def ground_citations(
         text = source_texts[idx - 1]
         if supports is not None:
             return supports(claim, text)
-        return _lexical_supports(claim, text, min_overlap)
+        return _lexical_supports(claim, text)
 
     # A citation sits after the claim it supports; judge each against the clause
     # of text preceding it. Position-based removal handles repeated [n] with

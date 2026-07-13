@@ -16,13 +16,23 @@ def test_supported_citation_kept() -> None:
     assert "[1]" in out
 
 
-def test_unsupported_citation_dropped() -> None:
-    brief = "Quantum tunneling accelerates semiconductor decay [1]."
-    sources = [_source("The elderly share of Japan rises steadily through 2050.")]
+def test_numeric_fabrication_dropped() -> None:
+    # A cited figure absent from the source is the high-precision fabrication
+    # signal — that citation is stripped; the sentence text survives.
+    brief = "Japan's elderly share will hit 72% by 2035 [1]."
+    sources = [_source("Japan's elderly share reaches 35% by 2040 nationwide.")]
     out = ground_citations(brief, sources)
     assert "[1]" not in out
-    # The sentence text itself survives; only the citation marker is stripped.
-    assert "Quantum tunneling" in out
+    assert "72%" in out
+
+
+def test_nonnumeric_paraphrase_kept() -> None:
+    # A reworded, non-numeric claim is kept — word-overlap stripping wrongly
+    # removed valid paraphrase citations, so only numeric fabrication is caught.
+    brief = "Buffett prizes durable competitive moats and honest managers [1]."
+    sources = [_source("The author stresses economic moats and management integrity.")]
+    out = ground_citations(brief, sources)
+    assert "[1]" in out
 
 
 def test_numeric_match_supports() -> None:
@@ -33,14 +43,14 @@ def test_numeric_match_supports() -> None:
 
 
 def test_multi_citation_keeps_supported_drops_other() -> None:
-    brief = "Aging raises health spending [1][2]."
+    brief = "Health spending rose 12% as the population aged [1][2]."
     sources = [
-        _source("Health spending rises sharply as the population ages."),
-        _source("Unrelated: gravitational waves from black-hole mergers."),
+        _source("Health spending rose 12% over the decade as ageing accelerated."),
+        _source("An unrelated source about 99 gravitational-wave detections."),
     ]
     out = ground_citations(brief, sources)
-    assert "[1]" in out
-    assert "[2]" not in out
+    assert "[1]" in out  # 12% present in source 1
+    assert "[2]" not in out  # 12% absent from source 2
 
 
 def test_out_of_range_citation_dropped_no_crash() -> None:
@@ -62,11 +72,11 @@ def test_empty_source_keeps_citation() -> None:
 def test_floor_keeps_all_when_every_citation_unsupported() -> None:
     # >=3 citations all failing means a systemic re-fetch failure, not a wholly
     # fabricated brief; keep the original rather than ship a citation-less brief.
-    brief = "Alpha claim [1]. Beta claim [2]. Gamma claim [3]."
+    brief = "Metric A was 11% [1]. Metric B was 22% [2]. Metric C was 33% [3]."
     sources = [
-        _source("totally unrelated readable text one two three four five"),
-        _source("another unrelated readable passage six seven eight nine"),
-        _source("yet more unrelated readable content ten eleven twelve"),
+        _source("totally unrelated readable text with the figure 90 in it"),
+        _source("another unrelated readable passage citing 91 somewhere"),
+        _source("yet more unrelated readable content mentioning 92 here"),
     ]
     out = ground_citations(brief, sources)
     assert "[1]" in out and "[2]" in out and "[3]" in out
