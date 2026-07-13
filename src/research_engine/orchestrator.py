@@ -37,6 +37,7 @@ from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
 from research_engine.planning.handoff import HandoffDoc
+from research_engine.screening.enricher import enrich_snippets
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
     Campaign,
@@ -491,6 +492,10 @@ class Orchestrator(OrchestratorInstrumentation):
         if not canonical_data or self.ranker is None:
             return self._run_skipped(campaign, "no canonical papers or ranker unavailable")
         papers = [Paper.from_dict(d) for d in canonical_data]
+        # Web snippets (~150 chars) starve the relevance rubric and extraction;
+        # fetch the page for thin web sources so screening sees real content.
+        if self.browser is not None:
+            papers = enrich_snippets(papers, fetch_fn=self.browser.fetch_bytes)
         scorecards = self.ranker.rank(papers, query=campaign.request.query)
         included = [s for s in scorecards if s.included][: campaign.request.max_sources]
         # Zero inclusions from a non-empty candidate set means downstream stages
