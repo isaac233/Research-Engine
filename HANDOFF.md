@@ -1,5 +1,19 @@
 # HANDOFF — 2026-07-13
 
+## TRUSTWORTHY BASELINE established — kimi judge (2026-07-13 PM)
+
+**Judge unblocked:** user's Ollama Cloud key → judge = **`kimi-k2.7-code:cloud`** (the real tag; no plain `kimi-k2.7:cloud` — see [[kimi-judge-tag]] / memory). Returns clean JSON (`think=false`). Replaces the degenerate local mistral (which reported a mirage RACE 52.82).
+
+**First trustworthy number (3 en tasks, kimi judge, enricher + safe guard active):**
+| | RACE Overall | Comp | Depth | Inst | Read | FACT C.Acc | E.Cit |
+|---|---|---|---|---|---|---|---|
+| **Research Engine** | **21.48** | 19.89 | 17.97 | 23.01 | 30.71 | **20.37%** | 1.33 |
+| Claude-3.7 w/Search (bar) | 40.67 | 38.99 | 37.66 | 45.77 | 41.46 | 93.68% | 32.48 |
+
+Per task: t51 RACE 15.0 / FACT 2-of-4 (50%); t52 25.8 / 0-of-6 (0%); t53 23.7 / 2-of-18 (11%). Differentiated, non-degenerate → trustworthy.
+
+**HONEST STATE:** the engine is **~half** Claude-3.7's RACE and **~1/5** its citation accuracy. Beating Opus is a large, multi-lever gap, NOT one session. Weakest RACE dims = Depth (18) + Comprehensiveness (20); best = Readability (31). FACT is the biggest gap (20 vs 94). **This is the real starting line** — the mistral 52.82 was judge inflation, now exposed (the anti-cover-up working as designed). Roadmap levers: (1) FACT — cite HTML-verifiable pages + tighter claim↔source binding (raises c_acc + e_cit); (2) Depth/Comp — more sources + deeper synthesis (quality slider → bigger synth lane, higher volume); (3) re-measure every change with `--judge ollama --judge-model kimi-k2.7-code:cloud`.
+
 ## "Beat Opus" grind — honest findings (2026-07-13 PM, commits `e2274a1`, `8962181`, `0d7aef9`)
 
 **Goal reframed by user:** finish = accomplish the Prompt-1 vision — gemma4-class local models drive the whole campaign and deliver **better insights than Opus**, measured by the DeepResearch Bench scoreboard vs the Claude-3.7-Sonnet-w/Search bar (RACE 40.67 / FACT c_acc **93.68%** / e_cit 32).
