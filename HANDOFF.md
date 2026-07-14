@@ -1,5 +1,25 @@
 # HANDOFF — 2026-07-14
 
+## 2026-07-14 (EVENING) — FIRST scored page-bound run; FACT ↑ but RACE ↓ (autonomous session)
+
+**Measured (N=3 en, kimi judge, page-bound attribute-first path, all fixes below active):**
+| Run | RACE | Comp | Depth | Read | FACT c_acc | E.Cit |
+|---|---|---|---|---|---|---|
+| Legacy baseline | 21.48 | 19.89 | 17.97 | 30.71 | 20.4% | 1.33 |
+| **Page-bound v1 (6 spans/src)** | **9.56** | 9.11 | 6.76 | 16.73 | **34.26%** | 4.33 |
+| Claude bar (DoD) | 40.67 | 38.99 | 37.66 | 41.46 | 93.68% | 32.48 |
+
+**Read:** page-bound citation mechanism WORKS — FACT 20→34% (~1.7×), E.Cit 1.3→4.3. But RACE CRASHED 21→9.6: the minimal spike writer emits ~1 sentence per span over only 1-3 fetchable sources → tiny briefs (~1k chars vs ~20k reference). **Below the 40% FACT gate AND a RACE regression.** The tradeoff is now measured: accuracy up, breadth down. Net-win needs the comprehensive Writer (plan Phase 4) + more fetchable sources.
+
+**Fetchability is the breadth ceiling:** per task only 1-3 of ~3-6 included sources yield page text — researchgate 403s bots, igi-global 429s (rate-limited this session), publisher DOIs paywalled. Public web pages (e.g. tokyoesque.com) fetch clean and give full page_text. So discovery/source-mix toward fetchable PUBLIC pages is a real lever.
+
+**Tuning in flight (v2):** raised `_MAX_PAGE_SPANS` 6→20 + writer max_tokens 1200→3000 (all spans verified-by-construction, so more = more RACE at no FACT cost). Measuring now. If RACE recovers materially → continue; if not → the real Writer agent (Phase 4) is required.
+
+**Session commits (all TDD, mypy+ruff clean, on `feat/deepresearch-bench`, NOT pushed):**
+`9fb15ce` from_pages · `70043e6` UnblockProbe fetch-bug fix (was gutting extraction/enrichment engine-wide) · `adc32b0` fetch-once (store page_text) · `3f02931` e2e chain test · `00e4798` extraction reads public HTML landing pages (POLICY REFINEMENT — refuse non-OA PDF/DOI, allow public HTML; review) · density-tune commit.
+
+---
+
 ## 2026-07-14 (PM) — Phase 3.2 shipped + 2 latent bugs fixed; live FACT number blocked UPSTREAM
 
 **Code state (all committed, TDD + mypy + ruff clean):**
