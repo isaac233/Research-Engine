@@ -40,6 +40,7 @@ from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
 from research_engine.planning.handoff import HandoffDoc
+from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.screening.enricher import enrich_snippets
 from research_engine.screening.ranker import SourceRanker
 from research_engine.state import (
@@ -58,6 +59,7 @@ from research_engine.storage.agent_history import (
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
+from research_engine.synthesis.section_writer import SectionWriter
 from research_engine.synthesis.synthesizer import (
     Synthesizer,
     drop_failed_claims,
@@ -795,12 +797,23 @@ class Orchestrator(OrchestratorInstrumentation):
                     )
                 else:
                     bank = EvidenceBank.from_sources(source_dicts, query)
-                # Page-bound spans are verbatim substrings of the page they cite
-                # (mined from the fetched page text stored at extraction), so each
-                # citation verifies by construction — no re-fetch/verify pass needed.
-                synthesized = AttributeFirstWriter(
+                # Outline-driven, section-by-section writing (WebWeaver): the
+                # Planner organizes the bank's verified spans into a structured
+                # outline, then the Writer writes each section from ONLY that
+                # section's evidence. This is what lifts comprehensiveness, depth,
+                # and readability together vs a flat pile of restated spans. Spans
+                # are verbatim substrings of the page they cite, so citations verify
+                # by construction. Falls back to the flat writer if no outline forms.
+                outline = OutlineBuilder(
                     self.synthesizer.provider, self.synthesizer.model
-                ).write(bank, query)
+                ).build(bank, query)
+                synthesized = SectionWriter(
+                    self.synthesizer.provider, self.synthesizer.model
+                ).write(outline, bank, query)
+                if not synthesized.strip():
+                    synthesized = AttributeFirstWriter(
+                        self.synthesizer.provider, self.synthesizer.model
+                    ).write(bank, query)
             else:
                 # Citations grounded against each source's own extract inside the
                 # synthesizer. A re-fetch-based check was tried and removed:
