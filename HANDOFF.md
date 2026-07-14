@@ -13,7 +13,12 @@
 
 **Fetchability is the breadth ceiling:** per task only 1-3 of ~3-6 included sources yield page text — researchgate 403s bots, igi-global 429s (rate-limited this session), publisher DOIs paywalled. Public web pages (e.g. tokyoesque.com) fetch clean and give full page_text. So discovery/source-mix toward fetchable PUBLIC pages is a real lever.
 
-**Tuning in flight (v2):** raised `_MAX_PAGE_SPANS` 6→20 + writer max_tokens 1200→3000 (all spans verified-by-construction, so more = more RACE at no FACT cost). Measuring now. If RACE recovers materially → continue; if not → the real Writer agent (Phase 4) is required.
+**v2 (20 spans/src, 3000-tok writer) — MEASURED:** RACE **12.66** (↑ from 9.56), FACT **35.0%** (≈flat), E.Cit **7.33** (↑ from 4.33). Briefs bigger (task52 9251 chars/4 src) but task51 stuck 3012/1 src — **source-fetchability variance dominates breadth**, and choppy 1-span-per-sentence writing keeps Readability at 18.9 (vs 41 bar). **Diminishing returns: 3× spans → only +3 RACE.** Span-density is not the lever that reaches 40.
+
+**CONCLUSION (data-backed):** page-bound evidence is a validated FACT lever (20→35%, ~1.75×) but the minimal spike writer cannot carry RACE — briefs stay ~1/5 reference length, choppy. Cheap tuning is exhausted. **The path to the bar is the structural rebuild the finish-line plan already specifies:**
+- **Phase 3.3 Planner (breadth):** more fetchable sources per task. The #1 constraint is fetchability — researchgate 403s, publisher DOIs paywall; PUBLIC web pages (serp lane) fetch clean. Bias discovery/inclusion to fetchable public pages; raise source count well above the current 1-4.
+- **Phase 4 Writer agent (RACE):** section-by-section, reference-length, COHERENT prose (not 1-sentence-per-span) — this is what lifts Comp/Depth/Readability together. Needs Phase 2 grammar-constrained decoding for reliable section planning.
+- Do NOT keep micro-tuning span caps at N=3 (noise + diminishing returns). Next real work is the Writer build; measure at N≥10.
 
 **Session commits (all TDD, mypy+ruff clean, on `feat/deepresearch-bench`, NOT pushed):**
 `9fb15ce` from_pages · `70043e6` UnblockProbe fetch-bug fix (was gutting extraction/enrichment engine-wide) · `adc32b0` fetch-once (store page_text) · `3f02931` e2e chain test · `00e4798` extraction reads public HTML landing pages (POLICY REFINEMENT — refuse non-OA PDF/DOI, allow public HTML; review) · density-tune commit.
