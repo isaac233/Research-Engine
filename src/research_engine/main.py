@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, cast
@@ -127,7 +128,7 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
 
     event_bus = EventBus(store)
     estimator = TimeEstimator(store)
-    return Orchestrator(
+    orchestrator = Orchestrator(
         store,
         event_bus,
         browser=browser,
@@ -143,6 +144,10 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         lifecycle=lifecycle,
         lane_roster=lane_roster,
     )
+    # Phase 1.0 spike toggle: RESEARCH_ENGINE_WRITER=attribute_first switches the
+    # deliverable writer to attribute-first (span-grounded) generation.
+    orchestrator.writer_mode = os.environ.get("RESEARCH_ENGINE_WRITER", "synth")
+    return orchestrator
 
 
 def _safe_cli_project_root(project_root: Path | None) -> Path | None:

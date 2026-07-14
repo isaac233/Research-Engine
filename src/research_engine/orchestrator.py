@@ -31,6 +31,7 @@ from research_engine.extraction.structured import (
 )
 from research_engine.llm.lane_roster import LaneRoster
 from research_engine.llm.lifecycle import ModelLifecycleManager
+from research_engine.memory.evidence_bank import EvidenceBank
 from research_engine.monitoring.estimator import TimeEstimator
 from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.monitoring.progress import StageProgressTracker
@@ -54,6 +55,7 @@ from research_engine.storage.agent_history import (
 )
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
+from research_engine.synthesis.attribute_writer import AttributeFirstWriter
 from research_engine.synthesis.synthesizer import (
     Synthesizer,
     drop_failed_claims,
@@ -125,6 +127,8 @@ class Orchestrator(OrchestratorInstrumentation):
         self.synthesizer = synthesizer
         self.lifecycle = lifecycle
         self.lane_roster = lane_roster
+        # Deliverable writer: "synth" (default) or "attribute_first" (Phase 1.0).
+        self.writer_mode = "synth"
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -751,12 +755,20 @@ class Orchestrator(OrchestratorInstrumentation):
                     [extracted_source_to_dict(s) for s in sources], verifications
                 )
             )
-            # Citations are grounded against each source's own extract inside
-            # the synthesizer (catches synthesis drift/hallucinated cites). A
-            # re-fetch-based check was tried and removed: lexical overlap on a
-            # re-fetched page's boilerplate wrongly stripped genuinely-supported
-            # HTML citations (measured FACT regression), so it is not used.
-            synthesized = self.synthesizer.synthesize(source_dicts, query)
+            if getattr(self, "writer_mode", "synth") == "attribute_first":
+                # Phase 1.0 spike: attribute-first writing — each sentence is
+                # generated FROM a verbatim evidence span and cites it, so the
+                # citation is grounded by construction (vs post-hoc guarding).
+                bank = EvidenceBank.from_sources(source_dicts)
+                synthesized = AttributeFirstWriter(
+                    self.synthesizer.provider, self.synthesizer.model
+                ).write(bank, query)
+            else:
+                # Citations grounded against each source's own extract inside the
+                # synthesizer. A re-fetch-based check was tried and removed:
+                # lexical overlap on re-fetched boilerplate wrongly stripped
+                # genuinely-supported HTML citations (measured FACT regression).
+                synthesized = self.synthesizer.synthesize(source_dicts, query)
             if synthesized.strip():
                 brief = synthesized
         proposer = ImprovementProposer()
