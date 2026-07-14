@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from research_engine.adversarial.challenge import (
     ChallengeDispatcher,
@@ -63,6 +64,21 @@ from research_engine.synthesis.synthesizer import (
     unique_insight_filter,
 )
 from research_engine.synthesis.verify_citations import verify_citations
+
+
+def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
+    """Return a callable that actually fetches page bytes for ``browser``.
+
+    The default browser is an ``UnblockProbe`` whose own ``fetch_bytes`` only
+    serves unblock actions and raises on a normal URL — but it wraps a working
+    ``RawHTTPBrowser`` at ``.http``. Prefer that inner client; a browser that
+    fetches directly (RawHTTPBrowser, CDP driver) is used as-is. Without this,
+    page enrichment, full-text extraction, page-bound evidence, and
+    verify-before-cite all silently fail to fetch.
+    """
+    inner = getattr(browser, "http", None)
+    fetcher = inner.fetch_bytes if inner is not None else browser.fetch_bytes
+    return cast("Callable[[str], bytes]", fetcher)
 
 
 class Orchestrator(OrchestratorInstrumentation):
@@ -501,7 +517,7 @@ class Orchestrator(OrchestratorInstrumentation):
         # Web snippets (~150 chars) starve the relevance rubric and extraction;
         # fetch the page for thin web sources so screening sees real content.
         if self.browser is not None:
-            papers = enrich_snippets(papers, fetch_fn=self.browser.fetch_bytes)
+            papers = enrich_snippets(papers, fetch_fn=_resolve_byte_fetcher(self.browser))
         scorecards = self.ranker.rank(papers, query=campaign.request.query)
         included = [s for s in scorecards if s.included][: campaign.request.max_sources]
         # Zero inclusions from a non-empty candidate set means downstream stages
@@ -573,7 +589,7 @@ class Orchestrator(OrchestratorInstrumentation):
         if not included_data or self.extractor is None:
             return self._run_skipped(campaign, "no included papers to extract")
         resolved_map = campaign.meta.get("resolved_map", {})
-        fetch_fn = self.browser.fetch_bytes if self.browser is not None else None
+        fetch_fn = _resolve_byte_fetcher(self.browser) if self.browser is not None else None
         extracted: list[dict[str, Any]] = []
         for paper_dict in included_data:
             paper = Paper.from_dict(paper_dict)
@@ -797,7 +813,7 @@ class Orchestrator(OrchestratorInstrumentation):
         """Re-fetch a URL as markdownified text (same transform FACT uses)."""
         if self.browser is None:
             return ""
-        raw = self.browser.fetch_bytes(url)
+        raw = _resolve_byte_fetcher(self.browser)(url)
         return markdownify(raw[:200_000].decode("utf-8", errors="replace")).markdown[:6000]
 
     def _build_deep_audit_payload(self, campaign: Campaign) -> dict[str, Any] | None:
