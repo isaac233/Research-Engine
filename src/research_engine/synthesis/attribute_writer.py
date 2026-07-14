@@ -29,10 +29,11 @@ _SYSTEM = (
 _USER = (
     "Research question: {query}\n\n"
     "Evidence spans (each with an ID) from ONE source:\n{evidence}\n\n"
-    "Write a concise paragraph answering the question using ONLY these spans. Every "
-    "sentence must state only what a span says and END with that span's citation, "
-    "e.g. [e3]. Use each span at least once. Do not add facts, numbers, comparisons, "
-    "or conclusions not present in the spans. Output only the paragraph."
+    "Write one sentence PER span, in order. Each sentence must restate that span "
+    "KEEPING its exact facts, figures, names, and wording as closely as possible — "
+    "lightly clean grammar only, do NOT paraphrase, generalize, combine spans, or "
+    "add anything not in the span. End each sentence with its citation, e.g. [e3]. "
+    "Output only the sentences."
 )
 
 

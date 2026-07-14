@@ -24,6 +24,7 @@ from research_engine.evaluation.harness import EvaluationHarness
 from research_engine.evaluation.improvement import ImprovementProposer
 from research_engine.evaluation.reporter import Reporter
 from research_engine.events import EventBus
+from research_engine.extraction.markdownify import markdownify
 from research_engine.extraction.structured import (
     StructuredExtractor,
     extracted_source_from_dict,
@@ -61,6 +62,7 @@ from research_engine.synthesis.synthesizer import (
     drop_failed_claims,
     unique_insight_filter,
 )
+from research_engine.synthesis.verify_citations import verify_citations
 
 
 class Orchestrator(OrchestratorInstrumentation):
@@ -763,6 +765,12 @@ class Orchestrator(OrchestratorInstrumentation):
                 synthesized = AttributeFirstWriter(
                     self.synthesizer.provider, self.synthesizer.model
                 ).write(bank, query)
+                # Verify-before-cite: keep only citations whose span is actually on
+                # its re-fetched page (the same fetch FACT performs), so paywalled
+                # stubs / wrong URLs / writer drift are dropped and every delivered
+                # citation verifies.
+                if synthesized.strip() and self.browser is not None:
+                    synthesized = verify_citations(synthesized, bank, self._fetch_page_text)
             else:
                 # Citations grounded against each source's own extract inside the
                 # synthesizer. A re-fetch-based check was tried and removed:
@@ -774,6 +782,13 @@ class Orchestrator(OrchestratorInstrumentation):
         proposer = ImprovementProposer()
         proposals = proposer.propose(report)
         return report, brief, proposals
+
+    def _fetch_page_text(self, url: str) -> str:
+        """Re-fetch a URL as markdownified text (same transform FACT uses)."""
+        if self.browser is None:
+            return ""
+        raw = self.browser.fetch_bytes(url)
+        return markdownify(raw[:200_000].decode("utf-8", errors="replace")).markdown[:6000]
 
     def _build_deep_audit_payload(self, campaign: Campaign) -> dict[str, Any] | None:
         """Run the optional deep auditor and return a serializable payload."""
