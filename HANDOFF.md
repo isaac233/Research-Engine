@@ -1,5 +1,35 @@
 # HANDOFF — 2026-07-14
 
+## 2026-07-14 (LATE) — Planner/Writer rebuild: Writer half BUILT + proven; binding constraint = FETCHABILITY
+
+**User greenlit the WebWeaver-style Planner/Writer rebuild.** Built the Writer half this session (all TDD, mypy+ruff clean, committed on `feat/deepresearch-bench`):
+- `planning/outline.py` — `Outline`/`OutlineSection` (sections: title/intent/evidence_ids; prune hallucinated IDs).
+- `planning/outline_builder.py` — LLM organizes the Evidence Bank's verified spans into 4-7 grounded sections; tolerant JSON parse; flat-fallback.
+- `synthesis/section_writer.py` — walks the outline, retrieves ONLY each section's evidence, writes attribute-first prose per section (verbatim-tight to protect FACT), headers + References.
+- Orchestrator `attribute_first` path: bank → outline → section-writer → (fallback) flat writer → (fallback) legacy synth. Empty bank no longer drops to the bare Reporter.
+
+**LIVE-PROVEN the writer works:** from ONE WHO page, 20-span bank → 4-section outline (Global Aging Trends / Demographics / Regional / Health) → 4110-char coherent cited brief. Night-and-day vs the old ~535-char one-sentence-per-span list.
+
+**RESULT — when banks have evidence, the rebuild is the BEST RACE of the session.** rebuild-v1 (before synth-fallback) scored 10.3 only because 2/3 tasks had empty/zero banks (fetchability variance) → fallback. The FINAL run (synth-fallback + verbatim-tightened section writer) got fetchable banks on ALL 3 tasks → **RACE 23.29 (Comp 20.6 / Depth 17.3 / Read 32.6), above legacy 21.48 and 2× the flat writer's 12.66. Readability 32.6 vs 18.9.** The outline+section structure is a VALIDATED RACE lever. **Tradeoff: FACT dropped to 16.7%** (flat writer was 35%) — coherent section prose paraphrases spans so citations verify less than near-verbatim restating, despite the verbatim-tightening. FACT is also high-variance run-to-run (which sources fetched).
+
+**DEFINITIVE binding constraint = SOURCE FETCHABILITY + COUNT.** Academic sources (researchgate, crossref/openalex DOIs) dominate screening inclusion but 403/paywall on fetch → empty page-bound banks. Public web pages (serp lane: tokyoesque, WHO, etc.) fetch clean. WebWeaver gets ~200 effective citations by *iteratively searching for more*; we get 0.5-7 from ONE discovery pass over mostly-unfetchable sources.
+
+**TWO NEXT BUILDS (ranked):**
+1. **Recover FACT without losing the RACE win.** Section prose paraphrases → citations verify at 16.7% vs the flat writer's 35%. Options: (a) re-add a verify pass over the section-writer output — for each cited `[eN]`, check the delivered sentence still contains enough of the span's verbatim text; drop/re-tighten if not (spans are page-bound so this needs no re-fetch — compare against the bank span, not the live page); (b) push the writer even closer to verbatim per sentence; (c) generate sentence-by-sentence conditioned on one span (true attribute-first) inside each section. Target: keep RACE ≥ 23 AND lift FACT back toward 35%+.
+2. **Breadth via the Planner half** (the ceiling on Comp/Depth/E.Cit): iterative ReAct loop + **two-stage URL filter that SELECTS FETCHABLE public sources** (drop researchgate/DOI-only up front, prefer HTML) and keeps searching until the outline is well-supported (many sources, not 1-4). WebWeaver ~200 cites vs our 3.7. This fills the bank so the Writer covers more.
+
+Then grammar-constrained decoding (ReAct reliability) + policy-refinement review (commit 00e4798). Re-measure N≥10 (N=3 FACT/source variance is large — this session saw 0-4 sources/task run-to-run).
+
+**Rebuild scoreboard (kimi N=3):**
+| Run | RACE | Read | FACT | E.Cit | note |
+|---|---|---|---|---|---|
+| legacy synth | 21.48 | 30.71 | 20.4% | 1.33 | baseline |
+| page-bound flat writer (20 spans) | 12.66 | 18.91 | 35.0% | 7.33 | FACT↑ RACE↓ |
+| outline+section writer v1 | 10.31 | 21.94 | 25.0% | 0.50 | 2/3 banks empty (fetchability) |
+| **outline+section (all 3 fed)** | **23.29** | **32.56** | 16.7% | 3.67 | **best RACE this session, > legacy; FACT is the tradeoff** |
+
+---
+
 ## 2026-07-14 (EVENING) — FIRST scored page-bound run; FACT ↑ but RACE ↓ (autonomous session)
 
 **Measured (N=3 en, kimi judge, page-bound attribute-first path, all fixes below active):**
