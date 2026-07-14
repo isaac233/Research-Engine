@@ -814,6 +814,11 @@ class Orchestrator(OrchestratorInstrumentation):
                     synthesized = AttributeFirstWriter(
                         self.synthesizer.provider, self.synthesizer.model
                     ).write(bank, query)
+                if not synthesized.strip():
+                    # No page-bound evidence (sources didn't fetch / abstract-only):
+                    # fall back to legacy synthesis over the claim-filtered sources
+                    # rather than the bare deterministic Reporter brief.
+                    synthesized = self.synthesizer.synthesize(source_dicts, query)
             else:
                 # Citations grounded against each source's own extract inside the
                 # synthesizer. A re-fetch-based check was tried and removed:

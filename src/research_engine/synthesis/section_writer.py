@@ -25,10 +25,12 @@ _USER = (
     "Research question: {query}\n\n"
     "Section: {title}\nThis section should cover: {intent}\n\n"
     "Evidence spans (id: text) — use ONLY these:\n{evidence}\n\n"
-    "Write this section as {n} to {n2} sentences of coherent, readable prose that "
-    "flows naturally and fully covers the section's topic. Keep each span's exact "
-    "facts, figures, and names; do not invent anything not in the spans. End each "
-    "sentence with the citation(s) it draws from, e.g. [e3]. Output only the prose."
+    "Write this section as {n} to {n2} sentences. Each sentence must restate one "
+    "span, PRESERVING its exact facts, figures, names, and key wording (light "
+    "connective phrasing between sentences is fine, but do NOT paraphrase away the "
+    "span's specifics or merge multiple spans into vague summary). Invent nothing "
+    "not in the spans. End each sentence with the span citation it draws from, e.g. "
+    "[e3]. Output only the prose."
 )
 
 
