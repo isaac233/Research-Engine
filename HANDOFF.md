@@ -1,5 +1,16 @@
 # HANDOFF — 2026-07-13
 
+## Phase 1.0 falsification spike — FAILED gate, sharp diagnosis (2026-07-13, commits 594258d/6e79eeb/397bcfd)
+
+Built the attribute-first writer + Evidence Bank spike (`RESEARCH_ENGINE_WRITER=attribute_first`). Gate = FACT c_acc ≥ 40% on 3-task kimi. **Did not pass; 3 honest attempts, declining:**
+- v1 claims-only (verbatim `claims[].evidence` spans): overall 22%, but **t51 = 2/3 = 67%** (up from 50% baseline) — verbatim spans verify. t52/t53 = empty bank (finance pages yield no structured claims) → 0 cites.
+- v2 + summary-field spans (results_summary/conclusions): FACT 17.6% — paraphrased summaries DON'T re-verify (t51 crashed 67%→8%).
+- v3 + verbatim page-spans from `paper.abstract`, query-ranked: FACT 8.1%.
+
+**Diagnosis (from reading t51 v3's delivered brief):** three concrete leaks — (1) **writer distortion**: local synth model expands spans into fluent claims not literally on the page (not true attribute-first); (2) **bad citable URLs**: `_citable_url`'s "not .pdf/not doi.org ⇒ verifiable" heuristic trusted a paywalled `igi-global.com/viewtitle.aspx` stub → 6 citations to one unverifiable page; (3) coverage additions multiplied cites against unverifiable sources, dragging the ratio down.
+
+**Verdict:** direction validated (verbatim claim-spans → 67% on the one HTML-rich task), naive implementation leaks. Real fix = a proper build, not a spike tweak: **(a) verify-before-cite** — re-fetch each span's URL the FACT way, keep the span only if its verbatim text is found on the page (auto-drops paywalled stubs, guarantees every cite verifies); **(b) quote-tight writer** — delivered sentence must track the verbatim span; **(c) real readability gate** (fetch+check, not URL-suffix); needs **grammar-constrained decoding** (plan Phase 2) so the local writer stops distorting. Spike code is committed behind the flag (default off — legacy synth path unchanged). Next: build the corrected Phase 1 per `docs/plan/finish_line_plan.md`.
+
 ## TRUSTWORTHY BASELINE established — kimi judge (2026-07-13 PM)
 
 **Judge unblocked:** user's Ollama Cloud key → judge = **`kimi-k2.7-code:cloud`** (the real tag; no plain `kimi-k2.7:cloud` — see [[kimi-judge-tag]] / memory). Returns clean JSON (`think=false`). Replaces the degenerate local mistral (which reported a mirage RACE 52.82).
