@@ -11,7 +11,18 @@ the HTML page the FACT verifier can re-read, not a PDF/DOI it cannot.
 from __future__ import annotations
 
 import dataclasses
+import re
 from typing import Any
+
+# Split a summary field into sentence spans (keep the terminator; ignore
+# decimals like "3.5%" by requiring whitespace/end after the .!? ).
+_SENTENCE = re.compile(r"[^.!?]*(?:[.!?](?=\s|$)|$)")
+
+
+def _sentences(text: str) -> list[str]:
+    if not text.strip():
+        return []
+    return [s.strip() for s in _SENTENCE.findall(text) if len(s.strip()) >= 25]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -51,24 +62,35 @@ class EvidenceBank:
 
     @classmethod
     def from_sources(cls, sources: list[dict[str, Any]]) -> EvidenceBank:
-        """Build a bank from serialized ExtractedSource dicts (verbatim evidence)."""
+        """Build a bank of evidence spans from serialized ExtractedSource dicts.
+
+        Primary spans are the verbatim, substring-guarded ``claims[].evidence``.
+        Many web pages yield summaries but no structured claims, so we also mine
+        each source's ``results_summary``/``conclusions``/``data_summary`` as
+        sentence spans — these are LLM extracts OF the page, so a sentence built
+        from one is still page-grounded for the FACT re-fetch. Verbatim claim
+        spans are added first (higher trust) and duplicates are dropped.
+        """
         spans: list[EvidenceSpan] = []
+        seen: set[str] = set()
+
+        def add(text: str, url: str, title: str, verifiable: bool) -> None:
+            key = " ".join(text.lower().split())
+            if not key or key in seen:
+                return
+            seen.add(key)
+            spans.append(
+                EvidenceSpan(id=f"e{len(spans) + 1}", text=text, url=url, title=title, verifiable=verifiable)
+            )
+
         for source in sources:
             url, verifiable = _citable_url(source)
             title = str(source.get("title") or (source.get("paper") or {}).get("title") or "")
             for claim in source.get("claims", []) or []:
-                text = str(claim.get("evidence", "")).strip()
-                if not text:
-                    continue
-                spans.append(
-                    EvidenceSpan(
-                        id=f"e{len(spans) + 1}",
-                        text=text,
-                        url=url,
-                        title=title,
-                        verifiable=verifiable,
-                    )
-                )
+                add(str(claim.get("evidence", "")).strip(), url, title, verifiable)
+            for field in ("results_summary", "conclusions", "data_summary", "summary"):
+                for sentence in _sentences(str(source.get(field, ""))):
+                    add(sentence, url, title, verifiable)
         return cls(spans)
 
     def spans(self) -> list[EvidenceSpan]:
