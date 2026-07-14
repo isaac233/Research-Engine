@@ -161,45 +161,54 @@ class StructuredExtractor:
         is_oa: bool = False,
         fetch_fn: Callable[[str], bytes] | None = None,
     ) -> tuple[str, str, str | None]:
-        """Load text content for a paper. Returns (text, tool, error)."""
-        url = content_url or paper.pdf_url or paper.url
-        if url and fetch_fn is not None:
+        """Load text content for a paper. Returns (text, tool, error).
+
+        Tries readable URLs in order (resolved content_url, then the PDF, then the
+        HTML landing page) and returns the first that yields text. This matters
+        because the resolver often hands a non-OA ``doi.org`` content_url whose
+        landing is paywalled, while the source's ``paper.url`` is a public HTML
+        page (news/gov/org) that is freely readable — and is exactly what the FACT
+        metric re-fetches. Paywall principle preserved: a non-open-access
+        full-text **PDF or DOI** is still refused; only public HTML pages are read
+        when not flagged open-access.
+        """
+        if fetch_fn is None:
+            return (paper.abstract or "", "abstract", None)
+
+        candidates: list[str] = []
+        for candidate in (content_url, paper.pdf_url, paper.url):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        last_error: str | None = None
+        for url in candidates:
             allowed, reason = self.url_policy.allow(url, resolve_hosts=True)
             if not allowed:
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    f"URL blocked by policy: {reason}",
-                )
-            if not is_oa:
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    "URL is not open-access; fetch refused",
-                )
+                last_error = f"URL blocked by policy: {reason}"
+                continue
+            lu = url.lower()
+            is_pdf_url = lu.endswith(".pdf") or url == paper.pdf_url
+            is_doi = "doi.org" in lu
+            if not is_oa and (is_pdf_url or is_doi):
+                last_error = "non-open-access PDF/DOI; fetch refused"
+                continue
             try:
                 data = fetch_fn(url)
-            except Exception as exc:  # noqa: BLE001
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    f"Fetch failed: {exc}",
-                )
-            is_pdf_url = url.lower().endswith(".pdf") or url == paper.pdf_url
+            except Exception as exc:  # noqa: BLE001 — try the next candidate
+                last_error = f"Fetch failed: {exc}"
+                continue
             if is_pdf_url:
                 result = self.pdf_converter.convert_bytes(data)
                 if result.ok:
                     return (result.markdown, f"pdf:{result.tool}", None)
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    f"PDF conversion failed: {result.error}",
-                )
-            text = self._decode_text(data)
-            md = markdownify(text)
-            return (md.markdown, "markdownify", None)
+                last_error = f"PDF conversion failed: {result.error}"
+                continue
+            md = markdownify(self._decode_text(data))
+            if md.markdown.strip():
+                return (md.markdown, "markdownify", None)
+            last_error = "fetched page had no readable text"
 
-        return (paper.abstract or "", "abstract", None)
+        return (paper.abstract or "", "abstract", last_error)
 
     def _decode_text(self, data: bytes) -> str:
         """Decode fetched bytes to text, tolerating binary drift."""
