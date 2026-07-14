@@ -62,6 +62,34 @@ def test_one_call_per_source() -> None:
     assert provider.calls == 2  # grouped by source URL
 
 
+def test_page_bound_chain_delivers_multi_source_brief() -> None:
+    # Full Phase 3.2 chain: page-bound bank (from stored page text, no fetch) ->
+    # writer -> attributed brief citing every source. A model that echoes the
+    # evidence block keeps each in-cluster [eN].
+    def boom(url: str) -> str:
+        raise AssertionError("stored page_text must be reused, not fetched")
+
+    sources = [
+        {
+            "title": f"S{i}",
+            "paper": {"url": f"https://s{i}.org", "title": f"S{i}"},
+            "meta": {"page_text": f"Source {i} reports a distinct finding number {i} clearly."},
+            "claims": [],
+        }
+        for i in range(3)
+    ]
+    bank = EvidenceBank.from_pages(sources, boom, query="finding")
+
+    class _Echo:
+        def complete(self, messages, model=None, temperature=0.0, max_tokens=None):  # noqa: ANN001
+            # Echo the evidence lines back (they already carry [eN] tags).
+            return messages[-1].content.split("source:\n", 1)[-1].split("\n\n")[0]
+
+    out = AttributeFirstWriter(_Echo()).write(bank, "finding")
+    assert all(f"https://s{i}.org" in out for i in range(3))  # every source cited
+    assert out.count("[e") >= 3
+
+
 def test_provider_failure_is_nonfatal() -> None:
     class _Boom:
         def complete(self, *a, **k):  # noqa: ANN002, ANN003
