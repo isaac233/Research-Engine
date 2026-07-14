@@ -54,7 +54,20 @@ def _section(bank: EvidenceBank, query: str, provider: LLMProvider, model: str |
     return str(SectionWriter(provider, model).write(outline, bank, query))
 
 
-WRITERS: dict[str, WriterFn] = {"flat": _flat, "section": _section}
+def _section_faithful(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # Section structure (RACE) + near-verbatim per-span sentences (FACT). Hypothesis:
+    # best of both — outline lifts RACE, quote-tight keeps citations verifiable.
+    outline = OutlineBuilder(provider, model).build(bank, query)
+    return str(SectionWriter(provider, model, quote_tight=True).write(outline, bank, query))
+
+
+WRITERS: dict[str, WriterFn] = {
+    "flat": _flat,
+    "section": _section,
+    "section_faithful": _section_faithful,
+}
 
 
 def collect(tasks_limit: int, language: str, project_root: Path | None = None) -> None:

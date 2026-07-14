@@ -32,15 +32,36 @@ _USER = (
     "not in the spans. End each sentence with the span citation it draws from, e.g. "
     "[e3]. Output only the prose."
 )
+# Quote-tight variant: near-verbatim per span (like the flat writer, which verifies
+# at ~35% FACT), but organized under the section. Research (arXiv:2604.01432) shows
+# paraphrasing to "flow" fractures the span↔claim dependency and tanks attribution;
+# staying close to the span keeps citations verifiable while the outline gives RACE.
+_USER_TIGHT = (
+    "Research question: {query}\n\n"
+    "Section: {title}\nThis section should cover: {intent}\n\n"
+    "Evidence spans (id: text) — use ONLY these:\n{evidence}\n\n"
+    "Write one sentence PER span, in order. Each sentence must restate that span "
+    "KEEPING its exact facts, figures, names, and wording as closely as possible — "
+    "lightly clean grammar only; do NOT paraphrase, generalize, or combine spans. "
+    "End each sentence with its citation, e.g. [e3]. Output only the sentences."
+)
 
 
 class SectionWriter:
     """Write a report from an :class:`Outline` over an :class:`EvidenceBank`."""
 
-    def __init__(self, provider: LLMProvider, model: str | None = None, max_tokens: int = 1200) -> None:
+    def __init__(
+        self,
+        provider: LLMProvider,
+        model: str | None = None,
+        max_tokens: int = 1200,
+        *,
+        quote_tight: bool = False,
+    ) -> None:
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
+        self.quote_tight = quote_tight
 
     def write(self, outline: Outline, bank: EvidenceBank, query: str) -> str:
         parts: list[str] = []
@@ -63,11 +84,12 @@ class SectionWriter:
         allowed = {s.id for s in spans}
         # Target a sentence count that scales with the evidence available.
         n = max(2, min(len(spans), 8))
+        template = _USER_TIGHT if self.quote_tight else _USER
         messages = [
             Message(role="system", content=_SYSTEM),
             Message(
                 role="user",
-                content=_USER.format(
+                content=template.format(
                     query=query, title=title, intent=intent, evidence=evidence, n=n, n2=n + 4
                 ),
             ),
