@@ -761,7 +761,17 @@ class Orchestrator(OrchestratorInstrumentation):
                 # Phase 1.0 spike: attribute-first writing — each sentence is
                 # generated FROM a verbatim evidence span and cites it, so the
                 # citation is grounded by construction (vs post-hoc guarding).
-                bank = EvidenceBank.from_sources(source_dicts, query)
+                # Page-bound evidence: fetch each source's citable URL and mine
+                # spans FROM that fetch, so every span is a verbatim substring of
+                # the page a citation points to (verify-before-cite then passes by
+                # construction). Falls back to abstract-mined spans when no browser
+                # is available to fetch pages.
+                if self.browser is not None:
+                    bank = EvidenceBank.from_pages(
+                        source_dicts, self._fetch_page_text, query
+                    )
+                else:
+                    bank = EvidenceBank.from_sources(source_dicts, query)
                 synthesized = AttributeFirstWriter(
                     self.synthesizer.provider, self.synthesizer.model
                 ).write(bank, query)

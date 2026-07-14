@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from collections.abc import Callable
 from typing import Any
 
 # Split page text into sentence spans (keep the terminator; ignore decimals like
@@ -116,6 +117,59 @@ class EvidenceBank:
             page_text = str((source.get("paper") or {}).get("abstract", ""))
             for sentence in _query_ranked(_sentences(page_text), query_terms, _MAX_PAGE_SPANS):
                 add(sentence, url, title, verifiable)
+        return cls(spans)
+
+    @classmethod
+    def from_pages(
+        cls,
+        sources: list[dict[str, Any]],
+        fetch_fn: Callable[[str], str],
+        query: str = "",
+        *,
+        max_fetches: int = 8,
+    ) -> EvidenceBank:
+        """Build a PAGE-BOUND bank: fetch each source's citable URL, extract
+        verbatim spans FROM that fetch, and key every span to that exact URL.
+
+        This is the fix for the disconnect that sank the spike: ``from_sources``
+        mines ``paper.abstract``, which for academic sources is NOT the live
+        content at ``paper.url`` that the FACT metric re-fetches — so those spans
+        never re-verify. Here the span text is a verbatim substring of the very
+        page a citation points to (``fetch_fn`` is the same markdownify transform
+        FACT performs), so verify-before-cite passes by construction. PDF/DOI-only
+        sources are skipped (the fetcher cannot read them); fetch failures are
+        non-fatal; fetches are capped.
+        """
+        spans: list[EvidenceSpan] = []
+        seen: set[str] = set()
+        query_terms = _terms(query)
+        fetched = 0
+
+        def add(text: str, url: str, title: str) -> None:
+            key = " ".join(text.lower().split())
+            if not key or key in seen:
+                return
+            seen.add(key)
+            spans.append(
+                EvidenceSpan(id=f"e{len(spans) + 1}", text=text, url=url, title=title, verifiable=True)
+            )
+
+        for source in sources:
+            if fetched >= max_fetches:
+                break
+            url, verifiable = _citable_url(source)
+            if not url or not verifiable:  # PDF/DOI-only can't be re-fetched → skip
+                continue
+            try:
+                page_text = fetch_fn(url)
+            except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
+                continue
+            if not page_text.strip():
+                continue
+            fetched += 1
+            title = str(source.get("title") or (source.get("paper") or {}).get("title") or "")
+            for sentence in _query_ranked(_sentences(page_text), query_terms, _MAX_PAGE_SPANS):
+                add(sentence, url, title)
         return cls(spans)
 
     def spans(self) -> list[EvidenceSpan]:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from research_engine.memory.evidence_bank import EvidenceBank
+from research_engine.synthesis.verify_citations import verify_citations
 
 
 def _source(claims, url="https://example.org/page", pdf_url=None, full_text_url=None, title="T"):
@@ -93,3 +94,68 @@ def test_empty_bank() -> None:
     bank = EvidenceBank.from_sources([])
     assert bank.spans() == []
     assert bank.references() == ""
+
+
+# --- Phase 3.2: page-bound evidence extraction -------------------------------
+
+
+def _pages(mapping):
+    """A fetch_fn that returns the markdownified page text for a known URL."""
+
+    def fetch(url: str) -> str:
+        return mapping.get(url, "")
+
+    return fetch
+
+
+def test_from_pages_binds_spans_to_fetched_url() -> None:
+    # The span text is extracted FROM the fetched page, so it is a verbatim
+    # substring of that page, keyed to the exact URL that was fetched.
+    page = (
+        "Japan's elderly population is growing rapidly toward 2040. "
+        "Consumer spending by seniors reshapes the retail market."
+    )
+    src = _source([], url="https://a.org/report")
+    bank = EvidenceBank.from_pages(
+        [src], _pages({"https://a.org/report": page}), query="elderly consumer spending"
+    )
+    spans = bank.spans()
+    assert spans, "page-bound bank should yield spans"
+    for s in spans:
+        assert s.url == "https://a.org/report"
+        assert s.verifiable is True
+        assert s.text in page  # verbatim substring of the fetched page
+
+
+def test_from_pages_verifies_by_construction() -> None:
+    # The whole point: a brief citing every page-bound span passes
+    # verify-before-cite against the SAME fetch, because each span came from it.
+    page = (
+        "Health spending rose twelve percent over the decade. "
+        "The elderly share reaches thirty-five percent by 2040."
+    )
+    fetch = _pages({"https://who.int/report": page})
+    src = _source([], url="https://who.int/report")
+    bank = EvidenceBank.from_pages([src], fetch, query="health spending elderly share")
+    brief = " ".join(f"{s.text} [{s.id}]" for s in bank.spans()) + bank.references()
+    grounded = verify_citations(brief, bank, fetch)
+    # No citation stripped — every span is on its page by construction.
+    for s in bank.spans():
+        assert f"[{s.id}]" in grounded
+
+
+def test_from_pages_skips_unfetchable_and_pdf_only() -> None:
+    pdf_only = _source([], url=None, pdf_url="https://x.org/a.pdf")
+    dead = _source([], url="https://dead.org/gone")  # fetch returns ""
+    bank = EvidenceBank.from_pages(
+        [pdf_only, dead], _pages({}), query="anything"
+    )
+    assert bank.spans() == []
+
+
+def test_from_pages_caps_fetches() -> None:
+    pages = {f"https://s{i}.org": f"Relevant sentence about topic number {i} here." for i in range(20)}
+    srcs = [_source([], url=u) for u in pages]
+    bank = EvidenceBank.from_pages(srcs, _pages(pages), query="topic", max_fetches=3)
+    urls = {s.url for s in bank.spans()}
+    assert len(urls) <= 3
