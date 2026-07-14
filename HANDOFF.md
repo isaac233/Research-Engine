@@ -1,5 +1,19 @@
 # HANDOFF — 2026-07-13
 
+## ⏭️ NEXT SESSION — START HERE
+
+**Goal (user's finish line):** local-model (gemma4/qwen) engine BEATS Opus on DeepResearch Bench. **Proven achievable** — WebWeaver on Qwen3-30B-A3B (local MoE) scores RACE 46.77 > Claude 40.67; architecture hits 93% citation accuracy. Full evidence + architecture: `docs/plan/finish_line_research.md`. Granular 6-phase build plan: `docs/plan/finish_line_plan.md`.
+
+**Trustworthy baseline (kimi judge):** RACE 21.48 / FACT 20.4% vs Claude 40.67 / 93.68%. Gap is ARCHITECTURAL (quality slider gave no lift). Measure everything with `kimi-k2.7-code:cloud` (the ONLY trustworthy judge; local mistral is a mirage). Bench cmd: `research-engine bench --tasks N --judge ollama --judge-model kimi-k2.7-code:cloud`.
+
+**Where we stopped:** Phase 1.0 spike CONCLUSIVE (below). Attribute-first citation mechanism validated (67% where spans aligned); root cause of low FACT pinned = **evidence spans not bound to their cited URL**. Committed, tested primitives (default-off flag `RESEARCH_ENGINE_WRITER=attribute_first`): `memory/evidence_bank.py`, `synthesis/attribute_writer.py`, `synthesis/verify_citations.py` — reuse these.
+
+**THE NEXT BUILD (do this first):** **page-bound evidence extraction** (plan Phase 3.2). Fetch a specific page → extract verbatim spans FROM that fetch → bank each span WITH that exact URL. Then verify-before-cite passes by construction. After that: Planner ReAct loop (search/write_outline/terminate) + Writer (retrieve/write, section-by-section) + grammar-constrained decoding (plan Phase 2). Then 10-task kimi sweep for DoD (RACE > 40.67 AND FACT > ~90%).
+
+**Session ops:** `podman machine start` → `cd beta/search-infra && podman-compose up -d searxng whoogle` (sibling of repo; use `podman-compose` pip pkg) → `export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`. Archive `bench/out/*.jsonl` + purge `data/cache.db` serp rows before each measure. Ollama Cloud signed in (kimi/deepseek `:cloud` models work via localhost:11434).
+
+---
+
 ## Phase 1.0 spike — CONCLUSIVE: mechanism sound, needs page-bound evidence (2026-07-13, v4 commit 2134bef)
 
 **v4 (quote-tight writer + verify-before-cite) settled it.** verify-before-cite re-fetches each span's URL the FACT way and strips any citation whose verbatim span is not on the page. Result: it stripped nearly EVERY citation (t51 0/0, t52 1/4, t53 0/0; FACT 8%). This is the working primitive doing its job and exposing the ROOT CAUSE: **the engine's evidence spans are not bound to the URL they are cited to.** Spans are mined from `paper.abstract`, but that is NOT the live content of `paper.url` (what gets cited and what FACT re-fetches) — they are disconnected, so spans don't re-verify on their cited page.
