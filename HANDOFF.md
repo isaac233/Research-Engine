@@ -1,6 +1,27 @@
 # HANDOFF — 2026-07-14
 
-## ⛔ BLOCKER (2026-07-14) — Ollama local runner missing; measurement impossible until reinstall
+## 2026-07-14 (PM) — Phase 3.2 shipped + 2 latent bugs fixed; live FACT number blocked UPSTREAM
+
+**Code state (all committed, TDD + mypy + ruff clean):**
+- `9fb15ce` — `EvidenceBank.from_pages()`: page-bound evidence (fetch page → verbatim spans bound to that URL).
+- `70043e6` — **CATASTROPHIC BUG FIXED:** the default browser (`UnblockProbe`) raised on EVERY normal fetch. `_fetch_page_text`, snippet enrichment, AND full-text extraction all silently failed to fetch across the whole engine. Added `_resolve_byte_fetcher(browser)` (uses `UnblockProbe.http`, the inner RawHTTPBrowser). This bug alone was gutting the engine — fixing it should lift results regardless of Phase 3.2.
+- `adc32b0` — fetch-once: extraction stores fetched page markdown in `meta["page_text"]`; `from_pages` reuses it (no re-fetch), runs over ALL screened sources (not the claim-filtered subset), verify-by-construction (dropped the redundant verify re-fetch).
+- `3f02931` — end-to-end test: page-bound bank → writer → multi-source attributed brief. **Phase 3.2 delivery chain is unit-CERTIFIED.**
+
+**Live measurement NOT achieved — blocked upstream, not in Phase 3.2.** Every N=3 attribute-first run collapsed to a ~535-char, 1-source brief. Root causes found (all upstream of the writer):
+1. **Resolver hands extraction `doi.org` URLs (`is_oa=False`)** → the DOI fetch yields a paywalled page → extraction falls to `abstract_only` → stores NO `page_text` → `from_pages` must re-fetch the HTML landing page every time. Fetch-once can't help until extraction fetches the readable HTML landing (`paper.url`), not the DOI.
+2. **Screening variance:** included-source count swung 2↔6 across runs (fresh serp results + LLM scorer noise, caches purged each run). N=3 is far below the noise floor.
+3. **Rate-limiting (partly self-inflicted):** heavy diagnostic fetching this session got igi-global (and others) returning HTTP 429; WHO/IMF still fetch fine. A clean run needs un-throttled sources.
+
+**THE isolated proof it works:** with reliable page text, `from_pages` builds a 26-span bank across 6 sources and the writer delivers a multi-source cited brief (unit test `3f02931`; live repro earlier this session). The mechanism is sound; the linear pipeline's resolver/extraction/screening fight it.
+
+**NEXT LEVER (highest value, next session):** make **EXTRACTION fetch + store the HTML landing page** (`paper.url`) text when the resolved content_url is a DOI/non-OA — then `from_pages` reuses it (true fetch-once, no 429), AND extraction gets real full text (better claims → RACE too). This is the bridge to the plan's Phase 3.3 Planner (two-stage URL→page→span→bank done ONCE). Do NOT chase a live N=3 number until (a) that fix lands and (b) a fresh/un-rate-limited session; measure at N≥10 with the kimi judge.
+
+**Ops fixed this session:** Ollama was reinstalled (`OllamaSetup.exe /VERYSILENT`) — the runner `lib/ollama/llama-server.exe` had been wiped by an interrupted self-update during a GamerZone 3-day suspend; gemma4:12b runs clean now. **GamerZone:** falsely detects `LockApp` (lock screen) as a fullscreen game and suspends ollama; fix = add `lockapp`,`logonui` to `fullscreenIgnore` in `beta/GamerZone/GamerZone.config.json` (ACL-protected — needs elevated write) then `Start-ScheduledTask GamerZone`. The watcher is currently STOPPED (I stopped it; auto-restarts at logon). Podman+SearXNG were up.
+
+---
+
+## ⛔ BLOCKER (2026-07-14 earlier) — Ollama local runner missing; RESOLVED via reinstall (see above)
 
 **Phase 3.2 (page-bound evidence extraction) is BUILT + committed + unit-green (`9fb15ce`)** — the pinned next build. But it **cannot be measured**: the local Ollama install is broken.
 
