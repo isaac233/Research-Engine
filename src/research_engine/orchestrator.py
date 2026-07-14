@@ -759,7 +759,7 @@ class Orchestrator(OrchestratorInstrumentation):
                 # Phase 1.0 spike: attribute-first writing — each sentence is
                 # generated FROM a verbatim evidence span and cites it, so the
                 # citation is grounded by construction (vs post-hoc guarding).
-                bank = EvidenceBank.from_sources(source_dicts)
+                bank = EvidenceBank.from_sources(source_dicts, query)
                 synthesized = AttributeFirstWriter(
                     self.synthesizer.provider, self.synthesizer.model
                 ).write(bank, query)

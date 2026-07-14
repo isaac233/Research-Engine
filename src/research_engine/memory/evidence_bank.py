@@ -14,15 +14,37 @@ import dataclasses
 import re
 from typing import Any
 
-# Split a summary field into sentence spans (keep the terminator; ignore
-# decimals like "3.5%" by requiring whitespace/end after the .!? ).
-_SENTENCE = re.compile(r"[^.!?]*(?:[.!?](?=\s|$)|$)")
+# Split page text into sentence spans (keep the terminator; ignore decimals like
+# "3.5%" by requiring whitespace/end after the .!? ).
+_SENTENCE = re.compile(r"[^.!?\n]*(?:[.!?](?=\s|$)|\n|$)")
+_TOKEN = re.compile(r"[a-z0-9]+")
+_STOP = frozenset(
+    "the a an of to in for and or but with on at by is are was were be as that this "
+    "these those it its from into than then so such not no can will may would could "
+    "which who what when where how".split()
+)
+# Verbatim page sentences to bank per source (query-ranked). Enough for coverage
+# without flooding the writer.
+_MAX_PAGE_SPANS = 6
 
 
 def _sentences(text: str) -> list[str]:
     if not text.strip():
         return []
-    return [s.strip() for s in _SENTENCE.findall(text) if len(s.strip()) >= 25]
+    return [s.strip() for s in _SENTENCE.findall(text) if 25 <= len(s.strip()) <= 400]
+
+
+def _terms(text: str) -> set[str]:
+    return {t for t in _TOKEN.findall(text.lower()) if t not in _STOP and len(t) > 2}
+
+
+def _query_ranked(sentences: list[str], query_terms: set[str], limit: int) -> list[str]:
+    """Top verbatim sentences by query-term overlap (relevance), original order kept."""
+    if not query_terms:
+        return sentences[:limit]
+    scored = [(len(_terms(s) & query_terms), i, s) for i, s in enumerate(sentences)]
+    top = sorted((t for t in scored if t[0] > 0), key=lambda t: (-t[0], t[1]))[:limit]
+    return [s for _, _, s in sorted(top, key=lambda t: t[1])]
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -61,18 +83,21 @@ class EvidenceBank:
         self._by_id = {s.id: s for s in spans}
 
     @classmethod
-    def from_sources(cls, sources: list[dict[str, Any]]) -> EvidenceBank:
-        """Build a bank of evidence spans from serialized ExtractedSource dicts.
+    def from_sources(cls, sources: list[dict[str, Any]], query: str = "") -> EvidenceBank:
+        """Build a bank of VERBATIM evidence spans from serialized ExtractedSource dicts.
 
-        Primary spans are the verbatim, substring-guarded ``claims[].evidence``.
-        Many web pages yield summaries but no structured claims, so we also mine
-        each source's ``results_summary``/``conclusions``/``data_summary`` as
-        sentence spans — these are LLM extracts OF the page, so a sentence built
-        from one is still page-grounded for the FACT re-fetch. Verbatim claim
-        spans are added first (higher trust) and duplicates are dropped.
+        Two verbatim sources, both re-verifiable by the FACT metric:
+        1. ``claims[].evidence`` — substring-guarded quotes from the source text.
+        2. Query-ranked sentences from the page text the enricher stored in
+           ``paper.abstract`` (the same markdownify the FACT fetcher re-reads), so
+           every readable web source contributes spans even without structured
+           claims. Summary/paraphrase fields are NOT mined — a spike measured them
+           at ~8% citation accuracy (paraphrases don't re-verify) vs ~67% for
+           verbatim spans. Claim spans are added first; duplicates dropped.
         """
         spans: list[EvidenceSpan] = []
         seen: set[str] = set()
+        query_terms = _terms(query)
 
         def add(text: str, url: str, title: str, verifiable: bool) -> None:
             key = " ".join(text.lower().split())
@@ -88,9 +113,9 @@ class EvidenceBank:
             title = str(source.get("title") or (source.get("paper") or {}).get("title") or "")
             for claim in source.get("claims", []) or []:
                 add(str(claim.get("evidence", "")).strip(), url, title, verifiable)
-            for field in ("results_summary", "conclusions", "data_summary", "summary"):
-                for sentence in _sentences(str(source.get(field, ""))):
-                    add(sentence, url, title, verifiable)
+            page_text = str((source.get("paper") or {}).get("abstract", ""))
+            for sentence in _query_ranked(_sentences(page_text), query_terms, _MAX_PAGE_SPANS):
+                add(sentence, url, title, verifiable)
         return cls(spans)
 
     def spans(self) -> list[EvidenceSpan]:

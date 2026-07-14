@@ -68,6 +68,27 @@ def test_references_render() -> None:
     assert "[e1]" in refs and "Alpha" in refs and "https://a.org" in refs
 
 
+def test_page_text_spans_query_ranked() -> None:
+    # Verbatim sentences from the enriched page text (paper.abstract) are banked,
+    # ranked by query relevance; a source with no structured claims still yields spans.
+    page = (
+        "Japan's elderly population is growing rapidly toward 2040. "
+        "An unrelated aside about local cuisine and festivals. "
+        "Consumer spending by seniors reshapes the retail market."
+    )
+    src = {
+        "title": "Aging",
+        "paper": {"url": "https://a.org", "title": "Aging", "abstract": page},
+        "claims": [],
+    }
+    bank = EvidenceBank.from_sources([src], query="elderly consumer spending market")
+    texts = [s.text for s in bank.spans()]
+    assert any("Consumer spending by seniors" in t for t in texts)
+    assert all(s.url == "https://a.org" for s in bank.spans())
+    # Off-topic cuisine sentence ranked out (only query-relevant kept).
+    assert not any("cuisine" in t for t in texts)
+
+
 def test_empty_bank() -> None:
     bank = EvidenceBank.from_sources([])
     assert bank.spans() == []
