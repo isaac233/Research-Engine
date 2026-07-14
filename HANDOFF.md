@@ -1,6 +1,12 @@
 # HANDOFF — 2026-07-13
 
-## Phase 1.0 falsification spike — FAILED gate, sharp diagnosis (2026-07-13, commits 594258d/6e79eeb/397bcfd)
+## Phase 1.0 spike — CONCLUSIVE: mechanism sound, needs page-bound evidence (2026-07-13, v4 commit 2134bef)
+
+**v4 (quote-tight writer + verify-before-cite) settled it.** verify-before-cite re-fetches each span's URL the FACT way and strips any citation whose verbatim span is not on the page. Result: it stripped nearly EVERY citation (t51 0/0, t52 1/4, t53 0/0; FACT 8%). This is the working primitive doing its job and exposing the ROOT CAUSE: **the engine's evidence spans are not bound to the URL they are cited to.** Spans are mined from `paper.abstract`, but that is NOT the live content of `paper.url` (what gets cited and what FACT re-fetches) — they are disconnected, so spans don't re-verify on their cited page.
+
+**Conclusion (4 spike runs):** attribute-first is sound (t51 v1 verbatim claim-spans = 67%); verify-before-cite is a correct honesty primitive to KEEP; the mandatory fix is **page-bound evidence extraction** — fetch a specific page, extract verbatim spans FROM that fetch, bank each span WITH that exact URL (the plan's Phase 3.2 two-stage URL→page→span→bank). No reuse-existing-spans shortcut works because the current extraction doesn't bind span↔URL. This is NOT a spike tweak; it is the real Planner build. Spike primitives (EvidenceBank, AttributeFirstWriter, verify_citations) are committed behind `RESEARCH_ENGINE_WRITER=attribute_first` (default off; legacy synth path unchanged) and are the reusable foundation for that build. **Next: build page-bound evidence extraction per `docs/plan/finish_line_plan.md` Phase 3.2, then the Planner/Writer.**
+
+## Phase 1.0 falsification spike — earlier attempts + diagnosis (2026-07-13, commits 594258d/6e79eeb/397bcfd)
 
 Built the attribute-first writer + Evidence Bank spike (`RESEARCH_ENGINE_WRITER=attribute_first`). Gate = FACT c_acc ≥ 40% on 3-task kimi. **Did not pass; 3 honest attempts, declining:**
 - v1 claims-only (verbatim `claims[].evidence` spans): overall 22%, but **t51 = 2/3 = 67%** (up from 50% baseline) — verbatim spans verify. t52/t53 = empty bank (finance pages yield no structured claims) → 0 cites.
