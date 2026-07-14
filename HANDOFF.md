@@ -1,4 +1,23 @@
-# HANDOFF — 2026-07-13
+# HANDOFF — 2026-07-14
+
+## ⛔ BLOCKER (2026-07-14) — Ollama local runner missing; measurement impossible until reinstall
+
+**Phase 3.2 (page-bound evidence extraction) is BUILT + committed + unit-green (`9fb15ce`)** — the pinned next build. But it **cannot be measured**: the local Ollama install is broken.
+
+**Diagnosis (airtight):** every local-model call returns `500` from `/api/chat` with `error starting llama-server: llama-server binary not found`. The runner tree `…/Programs/Ollama/lib/ollama/` (holding `llama-server.exe` + GPU backend DLLs, modified Jul 13) is **gone** — `lib/` now contains only `Ollama.lnk`. The `.exe` launchers (Jul 8) survive and `ollama serve` runs, so `/api/tags` lists models and **`:cloud` models still work** (they route to Ollama Cloud, no local binary) — which is why the kimi *judge* ran but every *engine* stage (screening scorer, extraction, synth, writer) 500s. Result: screening scorer raises on all candidates → all rejected → `screening_yielded_zero` → empty briefs → bench scored 0/3. Two N=3 runs void (archived `bench/out/void_20260714_noenv/`, `bench/out/prev_20260714_phase32/`).
+
+**FIX (user action — reinstall restores the runner):** download latest `OllamaSetup.exe` from ollama.com/download and run it (in-place repair, keeps pulled models in `~/.ollama`). Then verify: `curl -s http://localhost:11434/api/chat -d '{"model":"gemma4:12b","messages":[{"role":"user","content":"say 4"}],"stream":false}'` returns content, not a 500. THEN re-run the Phase 3.2 measurement below.
+
+**Re-run cmd (env INLINE — `export … && nohup &` did NOT propagate the SERP endpoint; that void'd the first run):**
+```
+podman machine start && (cd ../search-infra && podman-compose up -d searxng whoogle)
+# purge serp cache rows + archive bench/out/*.jsonl first
+PYTHONUNBUFFERED=1 RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json' RESEARCH_ENGINE_WRITER=attribute_first \
+  python -m research_engine.main bench --tasks 3 --language en --judge ollama --judge-model kimi-k2.7-code:cloud
+```
+**Gate (plan Task 1.0/3.2):** FACT c_acc ≥ 40% (baseline 20%). Then wire Planner (Phase 3.3).
+
+---
 
 ## ⏭️ NEXT SESSION — START HERE
 
