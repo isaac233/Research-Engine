@@ -155,18 +155,23 @@ class EvidenceBank:
             )
 
         for source in sources:
-            if fetched >= max_fetches:
-                break
             url, verifiable = _citable_url(source)
             if not url or not verifiable:  # PDF/DOI-only can't be re-fetched → skip
                 continue
-            try:
-                page_text = fetch_fn(url)
-            except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
-                continue
+            # Extraction already fetched this page and stored the text; reuse it so
+            # we don't re-fetch every URL (which rate-limits real sites). Only fall
+            # back to a live fetch when no stored text is available.
+            page_text = str((source.get("meta") or {}).get("page_text") or "")
             if not page_text.strip():
-                continue
-            fetched += 1
+                if fetched >= max_fetches:
+                    continue
+                try:
+                    page_text = fetch_fn(url)
+                except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
+                    continue
+                if not page_text.strip():
+                    continue
+                fetched += 1
             title = str(source.get("title") or (source.get("paper") or {}).get("title") or "")
             for sentence in _query_ranked(_sentences(page_text), query_terms, _MAX_PAGE_SPANS):
                 add(sentence, url, title)

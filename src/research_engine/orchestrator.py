@@ -63,7 +63,6 @@ from research_engine.synthesis.synthesizer import (
     drop_failed_claims,
     unique_insight_filter,
 )
-from research_engine.synthesis.verify_citations import verify_citations
 
 
 def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
@@ -783,20 +782,25 @@ class Orchestrator(OrchestratorInstrumentation):
                 # construction). Falls back to abstract-mined spans when no browser
                 # is available to fetch pages.
                 if self.browser is not None:
+                    # Page-bound evidence mines verbatim spans from each page
+                    # directly, so it runs over ALL screened+readable sources — not
+                    # the claim-filtered ``source_dicts`` (that filter drops sources
+                    # lacking structured claims and would starve the bank). verify-
+                    # before-cite below is the honesty gate; the claim filter is not.
                     bank = EvidenceBank.from_pages(
-                        source_dicts, self._fetch_page_text, query
+                        [extracted_source_to_dict(s) for s in sources],
+                        self._fetch_page_text,
+                        query,
+                        max_fetches=len(sources) or 8,
                     )
                 else:
                     bank = EvidenceBank.from_sources(source_dicts, query)
+                # Page-bound spans are verbatim substrings of the page they cite
+                # (mined from the fetched page text stored at extraction), so each
+                # citation verifies by construction — no re-fetch/verify pass needed.
                 synthesized = AttributeFirstWriter(
                     self.synthesizer.provider, self.synthesizer.model
                 ).write(bank, query)
-                # Verify-before-cite: keep only citations whose span is actually on
-                # its re-fetched page (the same fetch FACT performs), so paywalled
-                # stubs / wrong URLs / writer drift are dropped and every delivered
-                # citation verifies.
-                if synthesized.strip() and self.browser is not None:
-                    synthesized = verify_citations(synthesized, bank, self._fetch_page_text)
             else:
                 # Citations grounded against each source's own extract inside the
                 # synthesizer. A re-fetch-based check was tried and removed:

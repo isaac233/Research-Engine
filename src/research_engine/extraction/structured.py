@@ -14,6 +14,10 @@ from research_engine.extraction.llm_extractor import LLMSectionExtractor
 from research_engine.extraction.markdownify import markdownify
 from research_engine.extraction.pdf_converter import PDFConverter
 
+# Cap on the fetched page text kept for page-bound evidence mining (enough spans
+# for coverage without bloating campaign meta).
+_PAGE_TEXT_CAP = 8000
+
 
 @dataclass(frozen=True, slots=True)
 class ExtractedClaim:
@@ -93,6 +97,10 @@ class StructuredExtractor:
         abstract_only = tool == "abstract"
         if abstract_only:
             meta["degraded"] = "abstract_only"
+        else:
+            # Keep the fetched page text (bound to this source's URL) so downstream
+            # page-bound evidence can mine verbatim spans without re-fetching.
+            meta["page_text"] = text[:_PAGE_TEXT_CAP]
 
         conclusions = ""
         replication_notes = ""

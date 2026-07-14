@@ -153,6 +153,29 @@ def test_from_pages_skips_unfetchable_and_pdf_only() -> None:
     assert bank.spans() == []
 
 
+def test_from_pages_prefers_stored_page_text_without_fetching() -> None:
+    # Extraction already fetched the page; from_pages must mine the stored text
+    # (meta.page_text) and NOT re-fetch — re-fetching every URL triggers 429s.
+    page = (
+        "Japan's elderly population is growing rapidly toward 2040. "
+        "Consumer spending by seniors reshapes the retail market."
+    )
+    src = {
+        "title": "Aging",
+        "paper": {"url": "https://a.org", "title": "Aging"},
+        "meta": {"page_text": page},
+        "claims": [],
+    }
+
+    def boom(url: str) -> str:
+        raise AssertionError("from_pages must not fetch when page_text is stored")
+
+    bank = EvidenceBank.from_pages([src], boom, query="elderly consumer spending")
+    spans = bank.spans()
+    assert spans
+    assert all(s.url == "https://a.org" and s.verifiable and s.text in page for s in spans)
+
+
 def test_from_pages_caps_fetches() -> None:
     pages = {f"https://s{i}.org": f"Relevant sentence about topic number {i} here." for i in range(20)}
     srcs = [_source([], url=u) for u in pages]
