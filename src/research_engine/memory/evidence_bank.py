@@ -24,9 +24,10 @@ _STOP = frozenset(
     "these those it its from into than then so such not no can will may would could "
     "which who what when where how".split()
 )
-# Verbatim page sentences to bank per source (query-ranked). Enough for coverage
-# without flooding the writer.
-_MAX_PAGE_SPANS = 6
+# Verbatim page sentences to bank per source (query-ranked). Page-bound spans are
+# all verified-by-construction, so more of them = more comprehensive brief at no
+# FACT cost; the writer is the only thing that caps length.
+_MAX_PAGE_SPANS = 20
 
 
 def _sentences(text: str) -> list[str]:

@@ -40,7 +40,7 @@ _USER = (
 class AttributeFirstWriter:
     """Generate an attributed brief from an Evidence Bank."""
 
-    def __init__(self, provider: LLMProvider, model: str | None = None, max_tokens: int = 1200) -> None:
+    def __init__(self, provider: LLMProvider, model: str | None = None, max_tokens: int = 3000) -> None:
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
