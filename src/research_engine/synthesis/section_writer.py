@@ -66,6 +66,27 @@ _USER_PARAGRAPH = (
 )
 
 
+# Synthesis-driven drafting (#11, Step-DeepResearch arXiv:2512.20491): untrained
+# local models default to "short, loosely connected sentences and superficial bullet
+# points" — exactly our one-span-per-sentence default. The fix is cohesive analytical
+# PARAGRAPHS with logical deduction (relationships, contrasts, implications), lists
+# banned as the body — while KEEPING an inline [eN] on every claim (unlike the
+# grouped-end-cite paragraph variant that halved FACT). Coherence lifts RACE; inline
+# cites keep attribution verifiable, and the P-Cite pass (cite_fix) corrects any drift.
+_USER_SYNTHESIS = (
+    "Research question: {query}\n\n"
+    "Section: {title}\nThis section should cover: {intent}\n\n"
+    "Evidence spans (id: text) — use ONLY these:\n{evidence}\n\n"
+    "Write this section as cohesive, analytical PARAGRAPHS that reason over the "
+    "evidence — connect the spans, draw out relationships, contrasts, and "
+    "implications, rather than listing one isolated fact per sentence. Do NOT use "
+    "bullet points or numbered lists as the body. PRESERVE every exact fact, figure, "
+    "name, and date from the spans and invent nothing not in them. Cite inline: end "
+    "each claim with the [eN] of the span it draws from, e.g. [e3]. Aim for {n} to "
+    "{n2} sentences of connected prose. Output only the prose."
+)
+
+
 class SectionWriter:
     """Write a report from an :class:`Outline` over an :class:`EvidenceBank`."""
 
@@ -78,6 +99,7 @@ class SectionWriter:
         quote_tight: bool = False,
         carry_context: bool = False,
         paragraph_cite: bool = False,
+        synthesis: bool = False,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -85,6 +107,7 @@ class SectionWriter:
         self.quote_tight = quote_tight
         self.carry_context = carry_context
         self.paragraph_cite = paragraph_cite
+        self.synthesis = synthesis
 
     def write(self, outline: Outline, bank: EvidenceBank, query: str) -> str:
         parts: list[str] = []
@@ -116,7 +139,9 @@ class SectionWriter:
         allowed = {s.id for s in spans}
         # Target a sentence count that scales with the evidence available.
         n = max(2, min(len(spans), 8))
-        if self.paragraph_cite:
+        if self.synthesis:
+            template = _USER_SYNTHESIS
+        elif self.paragraph_cite:
             template = _USER_PARAGRAPH
         elif self.quote_tight:
             template = _USER_TIGHT

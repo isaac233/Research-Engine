@@ -105,6 +105,21 @@ def _section_deepen_pcite(
     return fix_citations(article, bank) if article.strip() else article
 
 
+def _section_synth(bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None) -> str:
+    # #11 synthesis-driven drafting: cohesive analytical paragraphs, inline cites, then WARP deepen.
+    outline = OutlineBuilder(provider, model).build(bank, query)
+    draft = SectionWriter(provider, model, carry_context=True, synthesis=True).write(outline, bank, query)
+    return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
+
+
+def _section_synth_pcite(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # The combined bet: #11 synthesis prose (RACE) + #10 post-hoc citation correction (FACT).
+    article = _section_synth(bank, query, provider, model)
+    return fix_citations(article, bank) if article.strip() else article
+
+
 WRITERS: dict[str, WriterFn] = {
     "flat": _flat,
     "section": _section,
@@ -113,6 +128,8 @@ WRITERS: dict[str, WriterFn] = {
     "section_deepen": _section_deepen,
     "section_deepen_paragraph": _section_deepen_paragraph,
     "section_deepen_pcite": _section_deepen_pcite,
+    "section_synth": _section_synth,
+    "section_synth_pcite": _section_synth_pcite,
 }
 
 

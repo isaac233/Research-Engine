@@ -40,6 +40,24 @@ class _EchoProvider:
         return " ".join(ln.split("] ", 1)[-1] + f" [{ln.split(']')[0].strip('[')}]" for ln in lines)
 
 
+class _CaptureProvider:
+    def __init__(self) -> None:
+        self.seen = ""
+
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None):  # noqa: ANN001
+        self.seen += messages[-1].content
+        return "Elderly population rises [e1]."
+
+
+def test_synthesis_mode_asks_for_analytical_paragraphs_and_bans_lists() -> None:
+    bank, outline, _ = _bank_and_outline()
+    prov = _CaptureProvider()
+    SectionWriter(prov, synthesis=True).write(outline, bank, "elderly")
+    seen = prov.seen.lower()
+    assert "analytical" in seen or "cohesive" in seen
+    assert "bullet" in seen  # lists banned as the body
+
+
 def test_writes_section_headers_and_references() -> None:
     bank, outline, _ = _bank_and_outline()
     out = SectionWriter(_EchoProvider()).write(outline, bank, "elderly market")
