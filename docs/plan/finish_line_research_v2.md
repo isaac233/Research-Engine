@@ -65,6 +65,30 @@ larger N (≥10) headline sweep for the breadth work.
 WebResearcher (open WebWeaver), langchain-open-deep-research (RACE 43.44, Ollama-ok),
 DeerFlow (ByteDance), Deep Literature Survey iterative workflow.
 
+## Finding 5 — THE DRASTIC LEVER: evidence volume (WebWeaver Table 4, hard numbers)
+WebWeaver's own training-data stats per task vs ours:
+| Metric | WebWeaver | Us | Gap |
+|---|---|---|---|
+| Pages fetched+banked | ~106 | ~3.5 | **~30×** |
+| Search queries | ~18.8 | ~2-4 | ~5-9× |
+| Evidence tokens (memory bank) | ~62,600 | ~few k | ~15× |
+| Report output tokens | ~22,600 | ~5,000 | ~4.5× |
+| Writing steps | ~22.8 | ~4 | ~5× |
+| Outline optimizations | ~2.2 | 1 | — |
+
+**RACE Comprehensiveness/Depth + FACT E.Cit all scale with evidence volume; our writer is starved ~30×.** Their hierarchical-writing ablation: insight 42.7→50.0, readability 43.8→49.8, **citation accuracy 86.7→93.4%**, supportiveness 91.0→98.7 — and output tokens surpass brute-force at step 6 (more writing steps = longer, richer report). We already do hierarchical section-by-section writing (why our FACT is ~52% not lower); it's the INPUT (evidence) that's tiny.
+
+**Path (no training required for most of it):**
+1. **Query decomposition → ~15 sub-queries** covering all facets of the task (we emit ~2-4). Biggest cheap win: more candidates.
+2. **Two-stage URL filter** — LLM selects relevant + FETCHABLE URLs from the larger candidate pool (drop 403/paywall up front); fetch+bank many.
+3. **Summary-feedback loop** — each fetched page → query-relevant summary fed back → informs next sub-query (fills gaps). Memory bank holds summaries (planner context) + verbatim evidence (writer).
+4. **Iterative outline optimization** (~2 rounds) + evidence-based termination.
+5. More writing steps (deepen already helps; scale to more sections/subsections).
+
+SFT caveat: WebWeaver fine-tuned Qwen3-30B (WebWeaver-3k: 15 search steps, 62k evidence tokens/traj) → citation acc 25%→86%. The framework works untrained on capable teacher models; AgentCPM confirms WARP works untrained. So pursue the evidence-volume gathering FIRST (untrained), consider SFT only if the local ReAct loop proves unreliable.
+
+**Verdict: the single highest-impact build is evidence-volume gathering (query decomposition + two-stage fetchable-URL filter + more banked pages). It is the 30× lever that carries RACE 21 → 40+.** Grammar-constrained decoding (Phase 2) is the reliability enabler for the ReAct loop on local models.
+
 ## Sources (read in full this pass)
 - arXiv:2604.01432 Are Finer Citations Always Better? (granularity)
 - arXiv:2604.24978 Don't Stop Early (objective outline + termination; DR-Bench ablation)
