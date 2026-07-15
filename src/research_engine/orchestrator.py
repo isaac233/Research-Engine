@@ -43,6 +43,7 @@ from research_engine.planning.handoff import HandoffDoc
 from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.screening.enricher import enrich_snippets
 from research_engine.screening.ranker import SourceRanker
+from research_engine.screening.url_filter import prefer_fetchable
 from research_engine.state import (
     Campaign,
     CampaignStage,
@@ -66,6 +67,7 @@ from research_engine.synthesis.synthesizer import (
     drop_failed_claims,
     unique_insight_filter,
 )
+from research_engine.util.parallel import max_workers_from_env, parallel_map
 
 
 def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
@@ -521,7 +523,14 @@ class Orchestrator(OrchestratorInstrumentation):
         if self.browser is not None:
             papers = enrich_snippets(papers, fetch_fn=_resolve_byte_fetcher(self.browser))
         scorecards = self.ranker.rank(papers, query=campaign.request.query)
-        included = [s for s in scorecards if s.included][: campaign.request.max_sources]
+        # Fetchability filter: within the relevance-passed set, float likely-fetchable
+        # HTML above PDFs/DOIs/paywalls BEFORE the source-count cut, so the extraction
+        # budget banks evidence instead of 403s (the binding constraint on volume).
+        passed = prefer_fetchable(
+            [s for s in scorecards if s.included],
+            url_of=lambda s: s.paper.url or s.paper.pdf_url,
+        )
+        included = passed[: campaign.request.max_sources]
         # Zero inclusions from a non-empty candidate set means downstream stages
         # will silently no-op, so flag it rather than complete with an empty brief.
         yielded_zero = bool(scorecards) and not included
@@ -592,7 +601,10 @@ class Orchestrator(OrchestratorInstrumentation):
             return self._run_skipped(campaign, "no included papers to extract")
         resolved_map = campaign.meta.get("resolved_map", {})
         fetch_fn = _resolve_byte_fetcher(self.browser) if self.browser is not None else None
-        extracted: list[dict[str, Any]] = []
+        # URL validation + event emission (SQLite writes) stay on this thread; only
+        # the pure fetch+LLM extract calls are parallelised (no shared store state),
+        # so higher evidence volume doesn't serialise into a ~30-min/task wall.
+        work: list[tuple[Paper, str | None, bool]] = []
         for paper_dict in included_data:
             paper = Paper.from_dict(paper_dict)
             resolved = resolved_map.get(paper.key, {})
@@ -610,15 +622,17 @@ class Orchestrator(OrchestratorInstrumentation):
                     },
                 )
                 continue
-            is_oa = bool(resolved.get("is_oa", False))
-            source = self.extractor.extract(
-                paper,
-                content=None,
-                content_url=content_url,
-                is_oa=is_oa,
-                fetch_fn=fetch_fn,
+            work.append((paper, content_url, bool(resolved.get("is_oa", False))))
+
+        def _extract_one(item: tuple[Paper, str | None, bool]) -> dict[str, Any]:
+            paper, content_url, is_oa = item
+            source = self.extractor.extract(  # type: ignore[union-attr]
+                paper, content=None, content_url=content_url, is_oa=is_oa, fetch_fn=fetch_fn
             )
-            extracted.append(extracted_source_to_dict(source))
+            return extracted_source_to_dict(source)
+
+        results = parallel_map(_extract_one, work, max_workers=max_workers_from_env())
+        extracted: list[dict[str, Any]] = [r for r in results if r is not None]
         self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
 
         # Make the model that did the work visible (telemetry + audit log).
