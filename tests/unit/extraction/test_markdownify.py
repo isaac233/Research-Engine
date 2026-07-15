@@ -50,3 +50,18 @@ def test_drops_noisy_tags() -> None:
     assert "Visible" in result.markdown
     assert "hidden" not in result.markdown
     assert "color:red" not in result.markdown
+
+
+def test_caps_oversized_html_input() -> None:
+    """A huge page must not freeze the run: input is capped before the regex passes.
+
+    Regression for the collect stall where one multi-MB page hung the DOTALL
+    regex passes (pure-CPU, no fetch/Ollama timeout fires). The size cap bounds
+    the work so it completes and truncates rather than hanging the batch.
+    """
+    lead = "<html><body><h1>Big</h1>"
+    body = "<p>lorem ipsum dolor sit amet consectetur. </p>" * 200_000  # ~9 MB
+    result = markdownify(lead + body + "</body></html>")
+    # Completed (didn't hang) and the output reflects capped, not full, input.
+    assert result.title == "Big"
+    assert result.meta["char_count"] < 3_000_000

@@ -6,6 +6,15 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+# Cap HTML fed to the regex passes. A multi-MB page ran the DOTALL passes into
+# catastrophic backtracking (pure-CPU, no fetch/Ollama timeout fires) and froze a
+# whole collect batch. Truncating bounds the work — real content lives near the
+# top, so a 2 MB slice keeps the readable body.
+# ponytail: size cap, not a backtracking fix. Adversarial unclosed-tag input can
+# still be O(n²) within the cap; upgrade path is a per-item wall-clock timeout in
+# util/parallel.py if a pathological page slips through.
+_MAX_HTML_CHARS = 2_000_000
+
 
 @dataclass(frozen=True, slots=True)
 class MarkdownifyResult:
@@ -149,6 +158,8 @@ def _collapse(markdown: str) -> str:
 
 def markdownify(html: str) -> MarkdownifyResult:
     """Convert raw HTML into Markdown and metadata."""
+    if len(html) > _MAX_HTML_CHARS:
+        html = html[:_MAX_HTML_CHARS]
     title = _extract_title(html)
     html = _strip_inline_styles(html)
     html = _drop_noisy_tags(html)
