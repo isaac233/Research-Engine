@@ -109,21 +109,22 @@ class ReactPlanner:
         bank = EvidenceBank([])
         iterations = 0
 
+        outline = Outline(sections=())
         for objective in objectives:
             if iterations >= self.max_iters or len(pages) >= self.max_pages:
                 break
             iterations += 1
             refined = self.refine_fn(query, objective, summaries.digest())
             added = self._collect(query, objective, refined, pages, seen_urls, summaries)
-            # Co-evolve: rebuild the outline from the evidence gathered so far so the
-            # structure tracks the growing bank (not just the opening decomposition).
-            bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)
             if added == 0:
                 # A round that surfaces nothing new means this query space is
                 # exhausted — stop rather than burn budget on empty repeats.
                 break
+            # Co-evolve: rebuild the bank + outline from the evidence gathered so far
+            # so the structure tracks the growing evidence, not the opening decomposition.
+            bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)
+            outline = self.outline_fn(query, bank)
 
-        outline = self.outline_fn(query, bank)
         return PlanResult(bank, outline, summaries, list(pages), len(pages), iterations)
 
     def _collect(
