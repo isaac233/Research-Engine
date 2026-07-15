@@ -1,5 +1,78 @@
 # HANDOFF — 2026-07-15
 
+## 2026-07-15 (PM) — Methodology catalogue → 5 changes shipped; live test INCONCLUSIVE (volume stayed cap-bound)
+
+Full methodology audit (their SOTA systems vs ours) → catalogue of 12 differences →
+priority list → **5 changes built, all TDD, 247 unit tests green, mypy(101) + ruff
+clean, committed** on `feat/deepresearch-bench` (NOT pushed). Catalogue + priority +
+plan: `~/.claude/plans/peaceful-popping-pancake.md`.
+
+**The 5 (commits):**
+1. `464c46a` **Fetchable-URL filter** (`screening/url_filter.py`) — deterministic
+   re-rank floating public HTML above PDF/DOI/paywall within the relevance-passed
+   set before the source cap. `_run_screen`.
+2. `464c46a` **Bounded-parallel extraction** (`util/parallel.py`) — ThreadPoolExecutor
+   (ordered, per-item errors→None) over the pure fetch+LLM extract work; URL
+   validation/events/SQLite stay on the main thread. `_run_extract`. Env
+   `RESEARCH_ENGINE_MAX_WORKERS` (default 4).
+3. `e2456f6` **Paragraph-granularity writer variant** (`section_writer.py`
+   `paragraph_cite`) — cite the span SET per paragraph (arXiv:2604.01432).
+4. `edd8167` **Grammar-constrained JSON decoding** — optional `format` JSON-schema
+   through `LLMProvider.complete`/Ollama (`format` field); wired on decompose /
+   outline / deepen. gemini+anthropic accept+ignore.
+5. `c53f09e` **Objective-driven decomposition** (`query_decomposer.py`) — enumerate
+   the report's information objectives BEFORE retrieval, one query per objective
+   (arXiv:2604.24978); `plan_objectives()`; tolerates legacy `{queries}` shape.
+
+**MEASURED — #3 paragraph writer (clean same-run kimi A/B, cached rich 4-task evidence):**
+| Writer | RACE | FACT | E.Cit | Read |
+|---|---|---|---|---|
+| section_deepen (default) | 25.55 | **50.6%** | **16.25** | 30.7 |
+| section_deepen_paragraph | **27.20** | 32.5% | 8.50 | 32.6 |
+→ Paragraph grouping lifts RACE +1.65 (best-ever) but **halves FACT/E.Cit** — our
+paragraph prompt licenses cross-span paraphrase and grouped end-cites cut verifiable
+pairs. **NEGATIVE result; NOT promoted; section_deepen stays default.** The 2604.01432
+finding did NOT transfer to our stack. Confirms the writer is not the FACT lever.
+
+**MEASURED — collection changes (#1/#2/#4/#5), live collect tasks 51-52, N=2, same kimi run:**
+| Pipeline (both 20 src/task) | RACE | FACT | E.Cit | Read |
+|---|---|---|---|---|
+| V2 baseline (old) | 21.22 | 49.1% | 15.50 | 25.1 |
+| NEW (#1/#2/#4/#5) | 18.80 | 54.4% | 16.50 | 28.8 |
+→ FACT +5.3, E.Cit +1.0, Read +3.8, **RACE −2.4 — ALL within known noise (RACE ±~2,
+FACT ±10pt) at N=2. NO CLEAN SIGNAL.**
+
+**WHY inconclusive (the real finding — 3 causes):**
+1. **`#1` fetchability filter is INERT at pool ≈ cap.** It reorders `included` before
+   `[:max_sources]`, but with ~20 relevance-passed candidates and `DEFAULT_VOLUME=20`,
+   nothing gets cut → reorder is a no-op. Fetchable fraction barely moved (V2 11/15 →
+   NEW 10/17 of 20). **Evidence volume did not grow** → the amplifier the whole set of
+   changes targets never engaged. NB: the prior HANDOFF's "t51 2→11" were *fetchable*
+   counts; BOTH caches cap at 20 total.
+2. **Collect STALLED on task 53 (~99 min, no log/IO)** — a huge/pathological HTML page
+   hung `extraction/markdownify` (regex `.*?` + `re.DOTALL`, catastrophic backtracking,
+   pure-CPU so no fetch/Ollama timeout fires). Killed + salvaged 2 tasks. **This caps
+   the volume lever: 1 bad page freezes the whole collect.**
+3. **N=2 is below the noise floor** (HANDOFF has warned N=3 is noise for months).
+
+**THE TWO UNLOCKS (next session, ranked — these make the shipped changes actually bite):**
+1. **Make volume actually grow: raise the candidate pool ABOVE the cap.** More
+   sub-queries (objective decomposer already emits more) + raise `DEFAULT_VOLUME`
+   (e.g. 20→40) so screening passes >cap and **#1 selects the fetchable top-N from a
+   bigger pool** (its whole point). Only then does the proven volume lever move.
+2. **Fix the markdownify/parse stall** (prerequisite for #1 above — can't scale volume
+   if 1 page hangs the run). Cheapest: cap HTML input size before `markdownify`
+   (skip/truncate pages > ~2 MB) and/or wrap extract in a per-item wall-clock timeout
+   in `parallel_map` (use `as_completed(timeout=…)`, let hung daemon threads leak).
+Then re-run the live test at N≥4 with pool>cap and confirm RACE/FACT move together.
+
+**Artifacts:** new-pipeline 2-task evidence `bench/out/fixed_evidence_v3_new2task.jsonl`;
+canonical 4-task baseline restored to `bench/out/fixed_evidence.jsonl` (= v2_highvol,
+24.7/53.0). A/B log `bench/out/ab_paragraph.log`; collect log
+`bench/out/collect_v3_newpipeline.log` (shows the stall). Web stack (SearXNG) left UP.
+
+---
+
 ## 2026-07-15 — DRASTIC LEVER CONFIRMED: evidence volume lifts ALL metrics (RACE 24.7, project best)
 
 The mined finding (WebWeaver banks ~106 pages/task, we banked ~3.5 = 30× gap) is now BUILT + PROVEN. Shipped the first evidence-volume increment: **LLM query decomposition** (`discovery/query_decomposer.py`) — one task → ~8 facet sub-queries (each a web search) via QueryPlanner `subquery_fn`; source cap 10→20 (`DEFAULT_VOLUME`). Wired in `main._make_orchestrator` (online_a lane, web+LLM present).
