@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,6 +16,8 @@ from research_engine.browser.unblock_probe import UnblockProbe
 from research_engine.config import EngineConfig
 from research_engine.dashboard import CampaignDashboard
 from research_engine.discovery.pipeline import DiscoveryPipeline
+from research_engine.discovery.query_decomposer import decompose_query
+from research_engine.discovery.query_planner import QueryPlanner
 from research_engine.discovery.schema import Paper
 from research_engine.discovery.source_registry import SourceRegistry
 from research_engine.evaluation.harness import EvaluationHarness
@@ -102,11 +105,19 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
         serp_endpoint=serp_endpoint,
         serp_blocklist=config.serp_blocklist,
     )
-    discovery = DiscoveryPipeline(registry=registry, cache=cache)
 
     # One provider drives every lane (per-call model override). Absent Ollama =>
     # heuristic screening + regex extraction + deterministic brief (CI/offline).
     provider = _try_provider(config)
+
+    # Evidence-volume lever: when a web lane + LLM are available, decompose the
+    # query into many facet sub-queries so discovery surfaces far more candidates.
+    subquery_fn = None
+    if provider is not None and serp_endpoint:
+        decomposer_model = _lane_model(config, "online_a", "gemma4:12b")
+        subquery_fn = partial(decompose_query, provider=provider, model=decomposer_model)
+    planner = QueryPlanner(enabled_sources=set(registry.enabled), subquery_fn=subquery_fn)
+    discovery = DiscoveryPipeline(registry=registry, cache=cache, planner=planner)
     if provider is not None:
         extractor = StructuredExtractor(
             llm_extractor=LLMSectionExtractor(

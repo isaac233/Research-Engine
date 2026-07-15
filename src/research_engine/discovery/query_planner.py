@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -38,8 +39,15 @@ class QueryPlanner:
         "training", "transformer", "transformers",
     })
 
-    def __init__(self, enabled_sources: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        enabled_sources: set[str] | None = None,
+        subquery_fn: Callable[[str], list[str]] | None = None,
+    ) -> None:
         self.enabled_sources = enabled_sources or set(self.ACADEMIC_SOURCES)
+        # Optional facet decomposition: expands one query into many web sub-queries
+        # so the web lane surfaces far more evidence (the volume lever).
+        self.subquery_fn = subquery_fn
 
     def plan(self, query: str, context: str = "", max_sources: int = 50) -> QueryPlan:
         """Build a ranked query plan from a research request."""
@@ -97,6 +105,24 @@ class QueryPlanner:
                         priority=1,
                     )
                 )
+
+        # Facet decomposition: fan the query out into many distinct web sub-queries
+        # (the evidence-volume lever). Each becomes a serp search so discovery
+        # surfaces far more relevant candidates than a single query would.
+        if self.subquery_fn is not None and active_sources & self.WEB_SOURCES:
+            web_source = "serp" if "serp" in active_sources else "web_crawl"
+            seen_q = {q.query.lower() for q in queries}
+            for sub in self.subquery_fn(query):
+                if sub.strip() and sub.lower() not in seen_q:
+                    seen_q.add(sub.lower())
+                    queries.append(
+                        SourceQuery(
+                            source=web_source,
+                            query=sub,
+                            rationale="Facet sub-query for comprehensive web coverage",
+                            priority=2,
+                        )
+                    )
 
         # Unblocking / problem-solving phrasing.
         if any(kw in query.lower() for kw in ("how to", "find a", "missing", "need a", "cannot find")):

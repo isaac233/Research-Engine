@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-DEFAULT_VOLUME = 10
+DEFAULT_VOLUME = 20
 # Seconds per source at the extremes (rough; overridable via cost_per_source).
 SPEED_COST_S = 8.0
 QUALITY_COST_S = 90.0
