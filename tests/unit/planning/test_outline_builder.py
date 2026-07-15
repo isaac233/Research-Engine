@@ -29,7 +29,7 @@ class _FakeProvider:
         self.reply = reply
         self.last_prompt = ""
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None):  # noqa: ANN001
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None):  # noqa: ANN001
         self.last_prompt = messages[-1].content
         return self.reply
 

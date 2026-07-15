@@ -39,6 +39,7 @@ class AnthropicClient(LLMProvider):
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        format: dict[str, Any] | None = None,  # noqa: ARG002 — Anthropic uses tools, not schema
     ) -> str:
         target_model = model or self._default_model
         system_message = ""

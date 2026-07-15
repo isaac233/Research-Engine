@@ -28,7 +28,7 @@ class _Provider:
     """Diagnose (contains 'superficial') returns one shallow section; the write call
     echoes its evidence lines."""
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None):  # noqa: ANN001
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None):  # noqa: ANN001
         body = messages[-1].content
         if "superficial" in body:
             return json.dumps({"expand": [{"section": "Transport", "subquestion": "transportation demand"}]})

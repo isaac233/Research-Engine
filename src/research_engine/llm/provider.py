@@ -27,8 +27,13 @@ class LLMProvider(ABC):
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        format: dict[str, Any] | None = None,
     ) -> str:
-        """Return the model's text response for the given messages."""
+        """Return the model's text response for the given messages.
+
+        ``format`` is an optional JSON schema for grammar-constrained decoding;
+        providers that support it (Ollama) emit schema-valid JSON, others ignore it.
+        """
 
     @abstractmethod
     def ping(self) -> dict[str, Any]:

@@ -22,6 +22,24 @@ from research_engine.synthesis.attribute_writer import _strip_foreign_cites
 _MAX_EXPAND = 2  # deepen at most this many sections per pass (bounded cost)
 _SPANS_PER = 5
 
+_DIAGNOSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "expand": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section": {"type": "string"},
+                    "subquestion": {"type": "string"},
+                },
+                "required": ["section", "subquestion"],
+            },
+        }
+    },
+    "required": ["expand"],
+}
+
 _DIAGNOSE_SYSTEM = "You critique research report drafts to find shallow spots. Output ONLY JSON."
 _DIAGNOSE_USER = (
     "Research question: {query}\n\nDraft report:\n{draft}\n\n"
@@ -79,7 +97,9 @@ def _diagnose(
         Message(role="user", content=_DIAGNOSE_USER.format(query=query, draft=draft[:6000], k=k)),
     ]
     try:
-        reply = provider.complete(messages, model=model, temperature=0.0, max_tokens=400)
+        reply = provider.complete(
+            messages, model=model, temperature=0.0, max_tokens=400, format=_DIAGNOSE_SCHEMA
+        )
         parsed = _parse_json(reply)
     except Exception:  # noqa: BLE001 — no diagnosis → no deepening, not fatal
         return []

@@ -39,6 +39,7 @@ class OllamaClient(LLMProvider):
         model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int | None = None,
+        format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
         keep_alive: str | int | None = None,
     ) -> str:
@@ -55,6 +56,9 @@ class OllamaClient(LLMProvider):
             "think": self.think,
             "options": opts,
         }
+        # Grammar-constrained decoding: a JSON schema forces schema-valid output.
+        if format is not None:
+            payload["format"] = format
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
