@@ -81,10 +81,12 @@ _REACT_PER_QUERY = 10
 # ~100. ponytail: fixed budget; a GPU-parallel summariser is the real speed upgrade.
 _REACT_MAX_PAGES = 16
 _REACT_PER_OBJECTIVE = 3
+# Hard wall-clock cap per task so a live run can never hang (the smoke-test waste).
+_REACT_MAX_SECONDS = 600
 
 
-def _react_budget() -> tuple[int, int]:
-    """(max_pages, per_objective_pages) from env, falling back to the defaults."""
+def _react_budget() -> tuple[int, int, float]:
+    """(max_pages, per_objective_pages, max_seconds) from env, else the defaults."""
     def _int(name: str, default: int) -> int:
         try:
             return max(1, int(os.environ.get(name, "")))
@@ -94,6 +96,7 @@ def _react_budget() -> tuple[int, int]:
     return (
         _int("RESEARCH_ENGINE_REACT_MAX_PAGES", _REACT_MAX_PAGES),
         _int("RESEARCH_ENGINE_REACT_PER_OBJECTIVE", _REACT_PER_OBJECTIVE),
+        float(_int("RESEARCH_ENGINE_REACT_MAX_SECONDS", _REACT_MAX_SECONDS)),
     )
 
 
@@ -912,34 +915,43 @@ class Orchestrator(OrchestratorInstrumentation):
     def _react_plan(self, query: str) -> PlanResult | None:
         """Build + run the ReAct loop from the live components; None when unavailable.
 
-        Requires the flag on and the full agentic stack (browser to fetch, discovery
-        + ranker to search, synthesizer's LLM to plan/summarise/outline). Returns
-        None when the loop banks no evidence so the caller falls back cleanly.
+        Requires the flag on and the agentic stack (browser to fetch, discovery to
+        search, synthesizer's LLM to plan/summarise/outline). Returns None when the
+        loop banks no evidence so the caller falls back cleanly.
         """
         if (
             self.planner_mode != "react"
             or self.browser is None
             or self.synthesizer is None
             or self.discovery is None
-            or self.ranker is None
         ):
             return None
         provider, model = self.synthesizer.provider, self.synthesizer.model
-        discovery, ranker = self.discovery, self.ranker
+        discovery = self.discovery
+        registry = getattr(discovery, "registry", None)
+        serp_ok = registry is not None and "serp" in getattr(registry, "enabled", set())
+
+        def _fetchable_ref(url: str | None, title: str) -> SourceRef | None:
+            if not url:
+                return None
+            lu = url.lower()
+            if lu.endswith(".pdf") or "doi.org" in lu:
+                return None  # the fetcher/FACT cannot read these
+            return SourceRef(url=url, title=title or "")
 
         def search_fn(sub_query: str) -> list[SourceRef]:
-            result = discovery.run(sub_query, context="", max_sources=_REACT_PER_QUERY)
-            papers = [Paper.from_dict(g.canonical.to_dict()) for g in result.deduped_groups]
-            resolved = {r.paper_key: r for r in result.resolved}
-
-            def _url_of(card: Any) -> str | None:
-                r = resolved.get(card.paper.key)
-                return (r.url if r else None) or card.paper.url or card.paper.pdf_url
-
-            # Float likely-fetchable HTML above PDFs/DOIs so the per-objective read
-            # budget banks evidence instead of 403s/paywalls (same lever as _run_screen).
-            included = prefer_fetchable([c for c in ranker.rank(papers, query=sub_query) if c.included], url_of=_url_of)
-            return [SourceRef(url=u, title=c.paper.title or "") for c in included if (u := _url_of(c))]
+            # Lightweight serp-only search: SearXNG is already relevance-ranked, so we
+            # skip the full discovery pipeline (academic APIs, snowball, resolve) AND
+            # the per-candidate LLM ranker — running those per objective made react ~8x
+            # too slow to finish (606 gemma calls/task, HANDOFF). Academic-only/test
+            # envs fall back to the pipeline (still no LLM ranker).
+            if serp_ok and registry is not None:
+                found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
+                papers = list(found.papers) if found.ok else []
+            else:
+                result = discovery.run(sub_query, context="", max_sources=_REACT_PER_QUERY)
+                papers = [Paper.from_dict(g.canonical.to_dict()) for g in result.deduped_groups]
+            return [r for p in papers if (r := _fetchable_ref(p.url or p.pdf_url, p.title))]
 
         def read_fn(ref: SourceRef) -> str:
             lu = ref.url.lower()
@@ -954,7 +966,7 @@ class Orchestrator(OrchestratorInstrumentation):
             except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
                 return ""
 
-        max_pages, per_objective = _react_budget()
+        max_pages, per_objective, max_seconds = _react_budget()
         planner = ReactPlanner(
             objectives_fn=lambda q: plan_objectives(q, provider, model),
             search_fn=search_fn,
@@ -964,6 +976,7 @@ class Orchestrator(OrchestratorInstrumentation):
             outline_fn=lambda q, bank: OutlineBuilder(provider, model).build(bank, q),
             max_pages=max_pages,
             per_objective_pages=per_objective,
+            max_seconds=max_seconds,
         )
         result = planner.run(query)
         return result if result.evidence_bank.spans() else None

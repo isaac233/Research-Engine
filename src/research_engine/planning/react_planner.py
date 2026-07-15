@@ -24,6 +24,7 @@ a default-off flag.
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Callable
 from typing import Any
 
@@ -89,6 +90,8 @@ class ReactPlanner:
         max_iters: int = 8,
         max_pages: int = 40,
         per_objective_pages: int = 4,
+        max_seconds: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.objectives_fn = objectives_fn
         self.search_fn = search_fn
@@ -99,6 +102,10 @@ class ReactPlanner:
         self.max_iters = max_iters
         self.max_pages = max_pages
         self.per_objective_pages = per_objective_pages
+        # Hard wall-clock budget: a live run must never hang. When exceeded the loop
+        # stops with whatever it has banked (the writer still gets an outline+bank).
+        self.max_seconds = max_seconds
+        self.clock = clock
 
     def run(self, query: str) -> PlanResult:
         """Execute the loop for ``query`` and return the filled banks + outline."""
@@ -108,10 +115,12 @@ class ReactPlanner:
         seen_urls: set[str] = set()
         bank = EvidenceBank([])
         iterations = 0
+        start = self.clock()
 
         outline = Outline(sections=())
         for objective in objectives:
-            if iterations >= self.max_iters or len(pages) >= self.max_pages:
+            over_budget = self.max_seconds is not None and self.clock() - start > self.max_seconds
+            if iterations >= self.max_iters or len(pages) >= self.max_pages or over_budget:
                 break
             iterations += 1
             refined = self.refine_fn(query, objective, summaries.digest())

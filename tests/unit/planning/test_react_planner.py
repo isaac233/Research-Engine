@@ -127,6 +127,18 @@ def test_returns_outline_from_outline_fn() -> None:
     assert result.outline.sections[0].title == "Custom"
 
 
+def test_stops_at_wall_clock_deadline() -> None:
+    refs = {f"q:obj{i}": [SourceRef(f"https://s{i}.com", "")] for i in range(5)}
+    planner, _ = _fakes([f"obj{i}" for i in range(5)], refs)
+    # clock: 0 at start, 0 for the first objective's check, then past the 10s budget.
+    ticks = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0])
+    planner.clock = lambda: next(ticks)
+    planner.max_seconds = 10.0
+    result = planner.run("the topic")
+    assert result.pages_read == 1  # only the first objective ran before the deadline
+    assert result.iterations == 1
+
+
 def test_skips_pages_with_empty_text() -> None:
     planner, log = _fakes(["obj1"], {"q:obj1": [SourceRef("https://a.com", "A")]})
     planner.read_fn = lambda _ref: "   "  # type: ignore[assignment]
