@@ -40,11 +40,29 @@ article, JapanCaseStudies, nippon) → summarised each → banked verbatim spans
 outline → section writer → deepen → scored brief. **No stall, no crash.** The
 markdownify fix held. Confirms the wiring is correct against real models/web.
 
-**SPEED REALITY (the known ceiling, now measured):** sequential Ollama summarisation
-dominates — an untuned `max_pages=40` react task took **>75 min** (killed; deepen
-over a 40-page bank). Tuned defaults (16, or 10/2 for the smoke) keep it to minutes
-while still banking well above the linear ~11. A GPU-parallel summariser is the real
-speed upgrade (out of scope). **This caps practical N for live bench runs.**
+**SPEED REALITY — TWO cost drivers measured (both real, ranked):**
+1. **BIGGEST, and the clear fix: `search_fn` runs the FULL discovery pipeline
+   per objective.** Each of ~8 objectives calls `discovery.run` = academic APIs +
+   serp + snowball + resolve + **LLM relevance-ranking of every candidate**
+   (`ranker.rank`, ~10 gemma4 calls/objective). Measured: **606 gemma4 calls in
+   ~60 min for ONE task** at `max_pages=10`, still collecting. The linear pipeline
+   does this discovery+rank ONCE; react does it ~8×. **FIX (next session, the
+   thing that makes react practical): give the react loop a LIGHTWEIGHT serp-only
+   search — hit the serp adapter directly, order by `prefer_fetchable` heuristic,
+   DROP the per-candidate LLM ranker** (the read→summarise step + query-ranked
+   verbatim banking already filter relevance; serp is pre-ranked). This is a
+   retrieval-QUALITY change, so it needs a live A/B (does dropping LLM ranking hurt
+   RACE/FACT?) — that's why it was NOT shipped blind this session. The current
+   search_fn is correct, just heavy; behind the default-off flag it harms nothing.
+2. Sequential Ollama summarisation + the deepen write pass over a bigger bank
+   (untuned `max_pages=40` = **>75 min**, killed). GPU-parallel summariser is the
+   real upgrade (out of scope). **Both cap practical N until #1 lands.**
+
+**HONEST STATE of the live measurement:** the react mechanism is end-to-end
+VALIDATED (collection ran, banked real fetchable pages, no stall/crash) but a
+SCORED number was NOT obtained — two 1-task smokes (40-page and 10-page) each ran
+>60 min without finishing, dominated by cost driver #1. Did NOT fabricate a number.
+The scored react-vs-linear comparison is gated on the serp-only search fix above.
 
 **Judge + infra confirmed UP this session:** Ollama local (gemma4:12b,
 mistral-small3.2), SearXNG :8080, `kimi-k2.7-code:cloud` judge reachable (returns
@@ -69,8 +87,11 @@ path except DEFAULT_VOLUME 20→40).
    RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=16 RESEARCH_ENGINE_SERP_ENDPOINT=... python -m research_engine.main bench --tasks 4 ... 
    ```
    GATE: react RACE **and** FACT rise vs linear (and vs the writer_eval V2 24.7/53.0/17.25
-   frame, treating full-bench vs cache numbers as different scales). Budget hours —
-   react is ~5-15 min/task at 16 pages, linear ~30 min/task.
+   frame, treating full-bench vs cache numbers as different scales).
+   **PREREQUISITE — do this FIRST or react is impractically slow (>60 min/task):**
+   replace the react `search_fn`'s full `discovery.run` with a lightweight serp-only
+   search (see "SPEED REALITY" #1 above) + a small unit test, then a 1-task live
+   smoke to confirm it finishes in minutes AND doesn't tank quality vs the heavy path.
 3. **If react wins:** push `RESEARCH_ENGINE_REACT_MAX_PAGES` up (toward WebWeaver's
    ~100) overnight; the summary-feedback + co-evolving outline should keep lifting
    coverage. **If not:** the lever is elsewhere (writer/judge), not retrieval breadth.
