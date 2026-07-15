@@ -36,6 +36,7 @@ from research_engine.planning.constraint_triangle import ConstraintInputs, solve
 from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.state import ResearchRequest
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
+from research_engine.synthesis.deepen import deepen_report
 from research_engine.synthesis.section_writer import SectionWriter
 
 logger = logging.getLogger(__name__)
@@ -63,10 +64,29 @@ def _section_faithful(
     return str(SectionWriter(provider, model, quote_tight=True).write(outline, bank, query))
 
 
+def _section_coherent(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # Sequential writer that carries narrative context between sections (WebWeaver).
+    outline = OutlineBuilder(provider, model).build(bank, query)
+    return str(SectionWriter(provider, model, carry_context=True).write(outline, bank, query))
+
+
+def _section_deepen(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # WARP: coherent draft, then diagnose shallow sections and expand from the bank.
+    outline = OutlineBuilder(provider, model).build(bank, query)
+    draft = SectionWriter(provider, model, carry_context=True).write(outline, bank, query)
+    return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
+
+
 WRITERS: dict[str, WriterFn] = {
     "flat": _flat,
     "section": _section,
     "section_faithful": _section_faithful,
+    "section_coherent": _section_coherent,
+    "section_deepen": _section_deepen,
 }
 
 
