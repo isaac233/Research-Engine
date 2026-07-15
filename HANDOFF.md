@@ -1,5 +1,86 @@
 # HANDOFF — 2026-07-15
 
+## 2026-07-15 (EVE) — SOTA mechanisms #7-9 BUILT (ReAct planner subsystem) + markdownify stall fixed
+
+Implemented the three deferred ceiling mechanisms from the catalogue
+(`~/.claude/plans/peaceful-popping-pancake.md`) as ONE subsystem — a ReAct
+research planner. All TDD, mypy(107) + ruff clean, full unit suite green, committed
+on `feat/deepresearch-bench` (NOT pushed). 7 commits this session:
+
+1. `87e9067` **markdownify HTML-size cap** (`extraction/markdownify.py`, `_MAX_HTML_CHARS=2M`)
+   — the HANDOFF-prereq: a multi-MB page ran the DOTALL passes into catastrophic
+   backtracking and froze collect. Now bounded. (ponytail: size cap, not a
+   backtracking fix; adversarial unclosed-tag input still O(n²) within the cap —
+   upgrade = per-item wall-clock timeout in `util/parallel.py`.)
+2. `c5f021b` **#9 Memory Bank split** — `memory/summary_bank.py::SummaryBank`
+   (per-page summaries = planner context) alongside verbatim `EvidenceBank`
+   (writer). `digest()` for planner prompt, dedup-by-url, `covered_objectives()`.
+3. `a3f7785` **#7 Summary-feedback** — `planning/summary_feedback.py`:
+   `summarize_page` (page→short summary, grammar-constrained, excerpt fallback) +
+   `refine_query` (objective + summary digest → sharper gap query).
+4. `e99eeca` **#8 ReAct planner** — `planning/react_planner.py::ReactPlanner`:
+   objective-driven iterative loop, gap queries from summary feedback, banks
+   verbatim spans + summaries, **rebuilds the outline each productive round**
+   (co-evolution), evidence-based termination (objectives covered / page budget /
+   stall). Pure DI over injected search/read/summarise/refine/outline fns → fully
+   unit-tested with fakes (9 tests). `d545412` refactor made the co-evolution
+   genuine (was building outline once at end).
+5. `f9b8f9a` **Wiring** — behind `RESEARCH_ENGINE_PLANNER=react` (default off), in
+   `orchestrator._build_report_and_brief` (Option B: planner's bank+outline feed the
+   tuned SectionWriter+deepen directly, zero `extracted_sources` schema coupling).
+   `DEFAULT_VOLUME` 20→40 (constraint_triangle) — the HANDOFF's linear-path unlock.
+   + `tests/unit/test_orchestrator_react.py` (wiring glue).
+6. `e3fc67e` **ReAct tuning** — env-tunable budget (`RESEARCH_ENGINE_REACT_MAX_PAGES` def 16,
+   `_PER_OBJECTIVE` def 3), `prefer_fetchable` reorder + skip PDF/DOI in the react
+   `read_fn` (don't spend the read budget on 403s/paywalls — the same lever `_run_screen` uses).
+
+**LIVE-VALIDATED end-to-end:** react loop ran a full task 51 live (Ollama gemma4:12b +
+SearXNG) — objectives → gap-refined serp searches → fetched real public pages (akiya
+article, JapanCaseStudies, nippon) → summarised each → banked verbatim spans →
+outline → section writer → deepen → scored brief. **No stall, no crash.** The
+markdownify fix held. Confirms the wiring is correct against real models/web.
+
+**SPEED REALITY (the known ceiling, now measured):** sequential Ollama summarisation
+dominates — an untuned `max_pages=40` react task took **>75 min** (killed; deepen
+over a 40-page bank). Tuned defaults (16, or 10/2 for the smoke) keep it to minutes
+while still banking well above the linear ~11. A GPU-parallel summariser is the real
+speed upgrade (out of scope). **This caps practical N for live bench runs.**
+
+**Judge + infra confirmed UP this session:** Ollama local (gemma4:12b,
+mistral-small3.2), SearXNG :8080, `kimi-k2.7-code:cloud` judge reachable (returns
+clean output; NB it does NOT list in `/api/tags` but works).
+
+### ⏭️ NEXT SESSION — measure react vs linear (the grind), then push volume
+The subsystem is IN, correct, and live-proven. What remains is the multi-hour
+apples-to-apples measurement (react is default-off; nothing changed for the default
+path except DEFAULT_VOLUME 20→40).
+
+1. **Session ops:** `podman machine start` → `cd ../search-infra && podman-compose up -d searxng whoogle`
+   → `export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`.
+   Archive `bench/out/engine.jsonl` + `scores.jsonl` first; purge serp rows
+   (`sqlite3 data/cache.db "DELETE FROM source_cache WHERE source='serp'"`).
+2. **Full-bench comparison (NOT writer_eval — react produces its brief at
+   evaluate-time, so writer_eval's single-pass cache can't see it).** Run the full
+   bench both ways, N≥4 en, same kimi judge:
+   ```
+   # control (linear, current default)
+   RESEARCH_ENGINE_SERP_ENDPOINT=... python -m research_engine.main bench --tasks 4 --language en --judge ollama --judge-model kimi-k2.7-code:cloud
+   # treatment (react) — archive engine.jsonl between runs
+   RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=16 RESEARCH_ENGINE_SERP_ENDPOINT=... python -m research_engine.main bench --tasks 4 ... 
+   ```
+   GATE: react RACE **and** FACT rise vs linear (and vs the writer_eval V2 24.7/53.0/17.25
+   frame, treating full-bench vs cache numbers as different scales). Budget hours —
+   react is ~5-15 min/task at 16 pages, linear ~30 min/task.
+3. **If react wins:** push `RESEARCH_ENGINE_REACT_MAX_PAGES` up (toward WebWeaver's
+   ~100) overnight; the summary-feedback + co-evolving outline should keep lifting
+   coverage. **If not:** the lever is elsewhere (writer/judge), not retrieval breadth.
+
+**Branch:** `feat/deepresearch-bench`, 7 unpushed commits. Default writer
+`section_deepen`, default planner `linear`. Judge `kimi-k2.7-code:cloud`
+([[kimi-judge-tag]]). SearXNG left UP.
+
+---
+
 ## 2026-07-15 (PM) — Methodology catalogue → 5 changes shipped; live test INCONCLUSIVE (volume stayed cap-bound)
 
 Full methodology audit (their SOTA systems vs ours) → catalogue of 12 differences →
