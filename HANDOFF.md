@@ -1,5 +1,24 @@
 # HANDOFF — 2026-07-14
 
+## 2026-07-14 (NIGHT) — CLEAN SIGNAL: fixed-evidence writer harness overturns the N=3 conclusion
+
+**Built `bench/writer_eval.py`** — runs discovery+extraction ONCE per task, caches sources (with `page_text`), rebuilds the bank deterministically (no re-fetch), and scores any writer variant over IDENTICAL evidence. Removes the discovery/fetch variance that made N=3 useless. `collect` (once) → `score --all`. Cached N=10 (9 usable, 32 fetchable sources).
+
+**CLEAN 3-way writer comparison (N=9 fixed evidence, kimi judge):**
+| Variant | RACE | Read | FACT | E.Cit |
+|---|---|---|---|---|
+| flat (verbatim, no outline) | 14.60 | 20.9 | 46.2% | 11.44 |
+| **section (outline+coherent) — DEFAULT** | **19.98** | **28.8** | 52.7% | 11.78 |
+| section_faithful (outline+verbatim) | 16.38 | 24.4 | **56.6%** | 11.33 |
+
+**Corrects the record:** the earlier N=3 "section writer regressed FACT to 16.7%" was NOISE (empty-bank contamination — 2/3 tasks had no evidence, fell back). On identical good evidence: (1) the outline structure beats the flat writer on BOTH RACE and FACT; (2) `section` (coherent) is the best writer overall (best RACE + Readability, strong FACT) and is the wired default — KEEP IT; (3) `section_faithful` (verbatim) trades ~3.6 RACE for +3.9 FACT — verbatim helps attribution (matches arXiv:2604.01432 directionally) but coherent prose wins here. On decent evidence the engine now does **RACE ~20 / FACT ~53% / E.Cit ~12** — the real trustworthy baseline (vs bar 40.7 / 93.7 / 32).
+
+**The harness is the key infra win** — writer variants now A/B in ~40 min (no campaigns). Use it for all writer tuning; use a larger-N headline sweep for the breadth work.
+
+**NEXT (ceiling lever, research-backed):** the Planner-breadth half — **objective-driven outline built from the query BEFORE retrieval, then iterative gap-driven search with evidence-based termination** (arXiv:2604.24978, ablated on DeepResearch Bench: outline+reflection+termination each add coverage). More fetchable sources → higher Comp/Depth/E.Cit → RACE toward 40. Research detail: `docs/plan/finish_line_research_v2.md`.
+
+---
+
 ## 2026-07-14 (LATE) — Planner/Writer rebuild: Writer half BUILT + proven; binding constraint = FETCHABILITY
 
 **User greenlit the WebWeaver-style Planner/Writer rebuild.** Built the Writer half this session (all TDD, mypy+ruff clean, committed on `feat/deepresearch-bench`):
