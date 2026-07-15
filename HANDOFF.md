@@ -1,4 +1,24 @@
-# HANDOFF — 2026-07-14
+# HANDOFF — 2026-07-15
+
+## 2026-07-15 — DRASTIC LEVER CONFIRMED: evidence volume lifts ALL metrics (RACE 24.7, project best)
+
+The mined finding (WebWeaver banks ~106 pages/task, we banked ~3.5 = 30× gap) is now BUILT + PROVEN. Shipped the first evidence-volume increment: **LLM query decomposition** (`discovery/query_decomposer.py`) — one task → ~8 facet sub-queries (each a web search) via QueryPlanner `subquery_fn`; source cap 10→20 (`DEFAULT_VOLUME`). Wired in `main._make_orchestrator` (online_a lane, web+LLM present).
+
+**Collection effect (per-task, controlled): fetchable sources ~3× up** — t51 2→11, t52 5→15, t53 4→11, t54 6→8.
+
+**Controlled A/B — section_deepen, SAME tasks 51-54, evidence volume the ONLY variable (kimi judge):**
+| | RACE | FACT | E.Cit |
+|---|---|---|---|
+| V1 sparse (~4 src/task) | 22.5 | 43.4% | 12.5 |
+| **V2 rich (~11 src/task)** | **24.7** | **53.0%** | **17.25** |
+
+**~3× evidence → RACE +2.2, FACT +9.6pt, E.Cit +4.75 — ALL THREE rise.** Definitive: evidence volume is the drastic lever; the writer was starved. **RACE 24.7 = project best** (trajectory: legacy 21.5 → page-bound 12.7 → outline+section 20 → deepen 21.1 → deepen+3×evidence **24.7**; bar 40.7). Going from 3× toward the full 30× should keep lifting.
+
+**PRACTICAL NOTE:** high-volume collect is SLOW — ~30 min/task (20-candidate sequential ollama screening + 20 extractions). The benchmark doesn't score speed so it's pure win for the goal, but the pipeline is minutes/query. **Screening/extraction parallelism is needed** before pushing evidence much higher.
+
+**NEXT (keep closing the 30× gap):** (1) two-stage URL filter — LLM selects relevant+FETCHABLE URLs from the bigger candidate pool, drop 403/paywall up front, fetch+bank many more; (2) summary-feedback loop — each page → summary → informs next sub-query (WebWeaver); (3) parallelize screening/extraction (the speed ceiling); (4) grammar-constrained decoding for ReAct reliability. Evidence: `docs/plan/finish_line_research_v2.md`. Caches: `bench/out/fixed_evidence_v2_highvol.jsonl` (rich), `_v1_lowvol.jsonl` (sparse).
+
+---
 
 ## 2026-07-14 (NIGHT+) — Methodology mining → section_deepen is the best writer (RACE 21.1)
 
