@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -74,6 +75,26 @@ from research_engine.util.parallel import max_workers_from_env, parallel_map
 
 # Candidates the ReAct loop pulls per refined sub-query before ranking+reading.
 _REACT_PER_QUERY = 10
+# ReAct budget. Sequential Ollama summarisation caps practical volume (~1 page/2-3s
+# + fetch), so the defaults keep one task to minutes while still banking well above
+# the linear ~11. Raise via env for an overnight high-volume run toward WebWeaver's
+# ~100. ponytail: fixed budget; a GPU-parallel summariser is the real speed upgrade.
+_REACT_MAX_PAGES = 16
+_REACT_PER_OBJECTIVE = 3
+
+
+def _react_budget() -> tuple[int, int]:
+    """(max_pages, per_objective_pages) from env, falling back to the defaults."""
+    def _int(name: str, default: int) -> int:
+        try:
+            return max(1, int(os.environ.get(name, "")))
+        except ValueError:
+            return default
+
+    return (
+        _int("RESEARCH_ENGINE_REACT_MAX_PAGES", _REACT_MAX_PAGES),
+        _int("RESEARCH_ENGINE_REACT_PER_OBJECTIVE", _REACT_PER_OBJECTIVE),
+    )
 
 
 def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
@@ -910,17 +931,20 @@ class Orchestrator(OrchestratorInstrumentation):
             result = discovery.run(sub_query, context="", max_sources=_REACT_PER_QUERY)
             papers = [Paper.from_dict(g.canonical.to_dict()) for g in result.deduped_groups]
             resolved = {r.paper_key: r for r in result.resolved}
-            refs: list[SourceRef] = []
-            for card in ranker.rank(papers, query=sub_query):
-                if not card.included:
-                    continue
+
+            def _url_of(card: Any) -> str | None:
                 r = resolved.get(card.paper.key)
-                url = (r.url if r else None) or card.paper.url or card.paper.pdf_url
-                if url:
-                    refs.append(SourceRef(url=url, title=card.paper.title or ""))
-            return refs
+                return (r.url if r else None) or card.paper.url or card.paper.pdf_url
+
+            # Float likely-fetchable HTML above PDFs/DOIs so the per-objective read
+            # budget banks evidence instead of 403s/paywalls (same lever as _run_screen).
+            included = prefer_fetchable([c for c in ranker.rank(papers, query=sub_query) if c.included], url_of=_url_of)
+            return [SourceRef(url=u, title=c.paper.title or "") for c in included if (u := _url_of(c))]
 
         def read_fn(ref: SourceRef) -> str:
+            lu = ref.url.lower()
+            if lu.endswith(".pdf") or "doi.org" in lu:
+                return ""  # the fetcher/FACT cannot read these — don't spend budget on them
             try:
                 self._validate_url(ref.url)
             except ValueError:
@@ -930,6 +954,7 @@ class Orchestrator(OrchestratorInstrumentation):
             except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
                 return ""
 
+        max_pages, per_objective = _react_budget()
         planner = ReactPlanner(
             objectives_fn=lambda q: plan_objectives(q, provider, model),
             search_fn=search_fn,
@@ -937,6 +962,8 @@ class Orchestrator(OrchestratorInstrumentation):
             summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, model),
             refine_fn=lambda q, obj, digest: refine_query(q, obj, digest, provider, model),
             outline_fn=lambda q, bank: OutlineBuilder(provider, model).build(bank, q),
+            max_pages=max_pages,
+            per_objective_pages=per_objective,
         )
         result = planner.run(query)
         return result if result.evidence_bank.spans() else None
