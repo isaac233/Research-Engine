@@ -67,3 +67,31 @@ def test_section_with_no_resolvable_evidence_skipped() -> None:
 def test_empty_outline_returns_empty() -> None:
     bank, _, _ = _bank_and_outline()
     assert SectionWriter(_EchoProvider()).write(Outline(sections=()), bank, "q") == ""
+
+
+def test_paragraph_cite_mode_keeps_headers_and_own_evidence() -> None:
+    # Paragraph-granularity (arXiv:2604.01432): coherent prose citing the span
+    # SET, not one span per sentence. Same structural invariants must hold.
+    bank, outline, ids = _bank_and_outline()
+    out = SectionWriter(_EchoProvider(), paragraph_cite=True).write(outline, bank, "q")
+    assert "## Population" in out and "## Spending" in out and "## References" in out
+    pop = out.split("## Population")[1].split("## Spending")[0]
+    assert f"[{ids[0]}]" in pop
+    for other in ids[1:]:
+        assert f"[{other}]" not in pop
+
+
+def test_paragraph_cite_uses_grouped_template() -> None:
+    # The paragraph template must ask for grouped end-of-paragraph citations,
+    # not a per-sentence citation, and must not force a sentence count.
+    captured: dict[str, str] = {}
+
+    class _Capture:
+        def complete(self, messages, model=None, temperature=0.0, max_tokens=None):  # noqa: ANN001
+            captured["user"] = messages[-1].content
+            return "Synthesised prose. [e0]"
+
+    bank, outline, _ = _bank_and_outline()
+    SectionWriter(_Capture(), paragraph_cite=True).write(outline, bank, "q")
+    assert "paragraph" in captured["user"].lower()
+    assert "sentence must restate one" not in captured["user"]

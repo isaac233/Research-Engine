@@ -81,12 +81,25 @@ def _section_deepen(
     return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
 
 
+def _section_deepen_paragraph(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # Paragraph-granularity citation (arXiv:2604.01432): coherent draft citing the
+    # span SET per paragraph (not one-span-per-sentence), then WARP deepening.
+    outline = OutlineBuilder(provider, model).build(bank, query)
+    draft = SectionWriter(
+        provider, model, carry_context=True, paragraph_cite=True
+    ).write(outline, bank, query)
+    return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
+
+
 WRITERS: dict[str, WriterFn] = {
     "flat": _flat,
     "section": _section,
     "section_faithful": _section_faithful,
     "section_coherent": _section_coherent,
     "section_deepen": _section_deepen,
+    "section_deepen_paragraph": _section_deepen_paragraph,
 }
 
 

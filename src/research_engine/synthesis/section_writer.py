@@ -48,6 +48,22 @@ _USER_TIGHT = (
     "lightly clean grammar only; do NOT paraphrase, generalize, or combine spans. "
     "End each sentence with its citation, e.g. [e3]. Output only the sentences."
 )
+# Paragraph-granularity variant (arXiv:2604.01432 "Are Finer Citations Always
+# Better?"): forcing one atomic span per sentence fractures the coreference /
+# multi-sentence dependency chain and DEGRADES attribution 16-276% vs paragraph
+# granularity. So write cohesive prose that draws on the whole span set and cite
+# the SET at the paragraph end, preserving every specific so the cites still verify.
+_USER_PARAGRAPH = (
+    "Research question: {query}\n\n"
+    "Section: {title}\nThis section should cover: {intent}\n\n"
+    "Evidence spans (id: text) — use ONLY these:\n{evidence}\n\n"
+    "Write this section as one or two cohesive paragraphs of flowing analytical "
+    "prose that synthesizes the spans. PRESERVE every exact fact, figure, name, and "
+    "date from the spans and invent nothing not in them. Do NOT place a citation "
+    "after every sentence; instead, at the END of each paragraph list the citations "
+    "for ALL spans that paragraph drew on, grouped together, e.g. [e1][e3][e5]. "
+    "Output only the prose followed by its grouped citations."
+)
 
 
 class SectionWriter:
@@ -61,12 +77,14 @@ class SectionWriter:
         *,
         quote_tight: bool = False,
         carry_context: bool = False,
+        paragraph_cite: bool = False,
     ) -> None:
         self.provider = provider
         self.model = model
         self.max_tokens = max_tokens
         self.quote_tight = quote_tight
         self.carry_context = carry_context
+        self.paragraph_cite = paragraph_cite
 
     def write(self, outline: Outline, bank: EvidenceBank, query: str) -> str:
         parts: list[str] = []
@@ -98,7 +116,12 @@ class SectionWriter:
         allowed = {s.id for s in spans}
         # Target a sentence count that scales with the evidence available.
         n = max(2, min(len(spans), 8))
-        template = _USER_TIGHT if self.quote_tight else _USER
+        if self.paragraph_cite:
+            template = _USER_PARAGRAPH
+        elif self.quote_tight:
+            template = _USER_TIGHT
+        else:
+            template = _USER
         user = template.format(
             query=query, title=title, intent=intent, evidence=evidence, n=n, n2=n + 4
         )
