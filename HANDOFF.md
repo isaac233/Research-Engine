@@ -71,6 +71,51 @@ canonical 4-task baseline restored to `bench/out/fixed_evidence.jsonl` (= v2_hig
 24.7/53.0). A/B log `bench/out/ab_paragraph.log`; collect log
 `bench/out/collect_v3_newpipeline.log` (shows the stall). Web stack (SearXNG) left UP.
 
+### ⏭️ NEXT SESSION — START HERE (exact steps to make the shipped changes bite)
+The 5 changes are IN and correct; they don't move metrics until evidence volume
+actually grows. Do these in order:
+
+1. **Fix the stall FIRST (prereq — else high-volume collects hang).**
+   `extraction/markdownify.py` — cap input before the regex passes (top of the
+   public `markdownify(...)` fn: `if len(html) > 2_000_000: html = html[:2_000_000]`).
+   Optionally also make `util/parallel.py` use `concurrent.futures.as_completed`
+   with a per-item `timeout=` so a wedged item can't block the batch (let the hung
+   daemon thread leak; the batch process exits anyway). TDD: a 5 MB pathological
+   HTML returns fast, doesn't hang. (Root cause: regex `.*?`+`re.DOTALL` catastrophic
+   backtracking, pure-CPU, no fetch/Ollama timeout fires.)
+
+2. **Grow the pool ABOVE the cap so `#1` fetchable-filter selects (not no-ops).**
+   Raise `DEFAULT_VOLUME` at `planning/constraint_triangle.py:17` (20 → 40). The
+   objective decomposer already emits ~8 sub-queries → many candidates; with cap 40,
+   screening passes >prior-cap and `_run_screen`'s `prefer_fetchable` picks the
+   fetchable top-N from a bigger pool → banked fetchable evidence actually rises.
+   (At cap=20 with ~20 candidates the filter reorders then keeps all → inert.)
+
+3. **Session ops** (SearXNG is UP now; per fresh session):
+   `podman machine start` → `cd ../search-infra && podman-compose up -d searxng whoogle`
+   → `export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`.
+
+4. **Fresh live collect** — archive `bench/out/fixed_evidence.jsonl` first (it's the
+   canonical 24.7/53.0 baseline, DON'T overwrite); purge serp rows
+   (`sqlite3 data/cache.db "DELETE FROM source_cache WHERE source='serp'"`), then:
+   ```
+   RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json' \
+   RESEARCH_ENGINE_SERP_BLOCKLIST='deepresearch-bench,zhipuai-infra.cn,huggingface.co/datasets' \
+   RESEARCH_ENGINE_MAX_WORKERS=4 python -m bench.writer_eval collect --tasks 4
+   ```
+   Watch for the stall (log goes silent) — step 1 must be done first.
+
+5. **Score + compare** (judge = `kimi-k2.7-code:cloud`, the ONLY trustworthy judge):
+   `python -m bench.writer_eval score --variant section_deepen --judge ollama --judge-model kimi-k2.7-code:cloud`.
+   GATE: RACE **and** FACT rise together vs the 24.7/53.0/17.25 baseline. Measure
+   N≥4 (N=2/3 is below the noise floor — RACE ±~2, FACT ±10pt).
+
+**Branch state:** `feat/deepresearch-bench`, pushed (this session's 7 feature/doc
+commits are on origin). Default writer = `section_deepen`. `section_deepen_paragraph`
+kept in `bench/writer_eval.py` as a measured negative. Judge = kimi via Ollama Cloud
+([[kimi-judge-tag]]). Do NOT re-chase the writer for FACT — #3 proved it's not the
+lever; the lever is evidence volume (steps 1-2 unlock it).
+
 ---
 
 ## 2026-07-15 — DRASTIC LEVER CONFIRMED: evidence volume lifts ALL metrics (RACE 24.7, project best)
