@@ -1,5 +1,25 @@
 # HANDOFF — 2026-07-14
 
+## 2026-07-14 (NIGHT+) — Methodology mining → section_deepen is the best writer (RACE 21.1)
+
+Deep-read WebWeaver (2509.13312) + AgentCPM-Report (2602.06540, 8B LOCAL beats Gemini-2.5-Pro). Turned two methods into variants, measured on the SAME fixed N=9 evidence:
+
+| Writer | RACE | FACT | E.Cit | Read |
+|---|---|---|---|---|
+| flat | 14.8 | 36.9% | 9.8 | 21.8 |
+| section (prev default) | 19.8 | 53.4% | 12.2 | 28.9 |
+| section_faithful (verbatim) | 16.2 | **58.5%** | 11.1 | 25.4 |
+| section_coherent (narrative carry) | 18.9 | 55.3% | 12.2 | 29.1 |
+| **section_deepen (WARP) — NEW DEFAULT** | **21.1** | 51.6% | **14.6** | 28.6 |
+
+**`section_deepen` wins RACE (21.1, best) + E.Cit (14.6, best)** — the WARP draft→diagnose-shallow-sections→expand-from-bank loop (`synthesis/deepen.py`) lifted RACE +1.3 and E.Cit +2.3 vs `section` on identical evidence; FACT within noise. **Promoted to the orchestrator default** (outline → SectionWriter(carry_context) → deepen_report). Coherence carry-over alone was ~neutral (reports too short to benefit). Verbatim (`section_faithful`) still owns FACT (58.5%) at a RACE cost.
+
+**Signal note:** on fixed evidence, RACE is stable (~±0.2 across batches); **FACT has ~±10pt variance** from the live cited-URL re-fetch in the FACT scorer — weight RACE for writer A/Bs, treat FACT directionally.
+
+**Writer levers still open:** (a) `deepen` + `faithful` combo (deepen with quote-tight) for RACE 21 + FACT ~58; (b) more deepen iterations (WARP plateaus ~9 — we do 1 pass, ≤2 sections); (c) paragraph-granularity citation. **Next big lever = live Planner breadth** (summary-feedback adaptive search + retrieval-driven deepening → more fetchable sources → the RACE ceiling). Research: `docs/plan/finish_line_research_v2.md`.
+
+---
+
 ## 2026-07-14 (NIGHT) — CLEAN SIGNAL: fixed-evidence writer harness overturns the N=3 conclusion
 
 **Built `bench/writer_eval.py`** — runs discovery+extraction ONCE per task, caches sources (with `page_text`), rebuilds the bank deterministically (no re-fetch), and scores any writer variant over IDENTICAL evidence. Removes the discovery/fetch variance that made N=3 useless. `collect` (once) → `score --all`. Cached N=10 (9 usable, 32 fetchable sources).

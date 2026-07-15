@@ -59,6 +59,7 @@ from research_engine.storage.agent_history import (
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
+from research_engine.synthesis.deepen import deepen_report
 from research_engine.synthesis.section_writer import SectionWriter
 from research_engine.synthesis.synthesizer import (
     Synthesizer,
@@ -797,19 +798,22 @@ class Orchestrator(OrchestratorInstrumentation):
                     )
                 else:
                     bank = EvidenceBank.from_sources(source_dicts, query)
-                # Outline-driven, section-by-section writing (WebWeaver): the
-                # Planner organizes the bank's verified spans into a structured
-                # outline, then the Writer writes each section from ONLY that
-                # section's evidence. This is what lifts comprehensiveness, depth,
-                # and readability together vs a flat pile of restated spans. Spans
-                # are verbatim substrings of the page they cite, so citations verify
-                # by construction. Falls back to the flat writer if no outline forms.
-                outline = OutlineBuilder(
-                    self.synthesizer.provider, self.synthesizer.model
-                ).build(bank, query)
+                # Outline-driven, section-by-section writing (WebWeaver) + WARP
+                # deepening: the Planner organizes the bank's verified spans into a
+                # structured outline; the Writer writes each section from ONLY its
+                # evidence (carrying narrative context); then a deepening pass
+                # diagnoses shallow sections and expands them from the bank. This
+                # lifts comprehensiveness/depth/readability together (clean N=9
+                # writer-eval: RACE 21.1 / E.Cit 14.6, best of 5 variants). Spans are
+                # verbatim substrings of the cited page, so citations verify by
+                # construction. Falls back to the flat writer if no outline forms.
+                provider, wmodel = self.synthesizer.provider, self.synthesizer.model
+                outline = OutlineBuilder(provider, wmodel).build(bank, query)
                 synthesized = SectionWriter(
-                    self.synthesizer.provider, self.synthesizer.model
+                    provider, wmodel, carry_context=True
                 ).write(outline, bank, query)
+                if synthesized.strip():
+                    synthesized = deepen_report(synthesized, bank, query, provider, wmodel)
                 if not synthesized.strip():
                     synthesized = AttributeFirstWriter(
                         self.synthesizer.provider, self.synthesizer.model
