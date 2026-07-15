@@ -36,6 +36,7 @@ from research_engine.planning.constraint_triangle import ConstraintInputs, solve
 from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.state import ResearchRequest
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
+from research_engine.synthesis.cite_fix import fix_citations
 from research_engine.synthesis.deepen import deepen_report
 from research_engine.synthesis.section_writer import SectionWriter
 
@@ -93,6 +94,17 @@ def _section_deepen_paragraph(
     return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
 
 
+def _section_deepen_pcite(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # P-Cite post-hoc citation correction (#10, arXiv:2504.15629): draft as
+    # section_deepen (temp 0 → identical base), then re-point each sentence's cites
+    # to its best-supporting bank span and drop the unsupportable. Isolates the FACT
+    # effect of the correction pass. Research: docs/plan/finish_line_research_v3.md.
+    article = _section_deepen(bank, query, provider, model)
+    return fix_citations(article, bank) if article.strip() else article
+
+
 WRITERS: dict[str, WriterFn] = {
     "flat": _flat,
     "section": _section,
@@ -100,6 +112,7 @@ WRITERS: dict[str, WriterFn] = {
     "section_coherent": _section_coherent,
     "section_deepen": _section_deepen,
     "section_deepen_paragraph": _section_deepen_paragraph,
+    "section_deepen_pcite": _section_deepen_pcite,
 }
 
 
@@ -205,7 +218,10 @@ def main() -> None:
     if args.cmd == "collect":
         collect(args.tasks, args.language)
     else:
-        variants = list(WRITERS) if args.all else [args.variant]
+        variants = list(WRITERS) if args.all else [v for v in args.variant.split(",") if v]
+        unknown = [v for v in variants if v not in WRITERS]
+        if unknown:
+            raise SystemExit(f"unknown variant(s): {unknown}; choose from {list(WRITERS)}")
         summary = score(variants, args.judge, args.judge_model)
         print(json.dumps({v: _headline(s) for v, s in summary.items()}, indent=2))
 
