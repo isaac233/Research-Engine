@@ -158,6 +158,9 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
     # Phase 1.0 spike toggle: RESEARCH_ENGINE_WRITER=attribute_first switches the
     # deliverable writer to attribute-first (span-grounded) generation.
     orchestrator.writer_mode = os.environ.get("RESEARCH_ENGINE_WRITER", "synth")
+    # RESEARCH_ENGINE_PLANNER=react enables the iterative ReAct retrieval loop
+    # (co-evolving outline + gap-driven search) in place of the single pass.
+    orchestrator.planner_mode = os.environ.get("RESEARCH_ENGINE_PLANNER", "linear")
     return orchestrator
 
 

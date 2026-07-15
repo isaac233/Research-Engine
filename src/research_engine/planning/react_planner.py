@@ -50,11 +50,17 @@ class SourceRef:
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class PlanResult:
-    """What the loop produced: the two memory halves, the outline, and run stats."""
+    """What the loop produced: the two memory halves, the outline, and run stats.
+
+    ``pages`` are the read pages as ``ExtractedSource``-like dicts (each carrying
+    ``meta.page_text``), so the orchestrator can feed them straight into the
+    existing evaluate path without re-fetching.
+    """
 
     evidence_bank: EvidenceBank
     outline: Outline
     summaries: SummaryBank
+    pages: list[dict[str, Any]]
     pages_read: int
     iterations: int
 
@@ -118,7 +124,7 @@ class ReactPlanner:
                 break
 
         outline = self.outline_fn(query, bank)
-        return PlanResult(bank, outline, summaries, len(pages), iterations)
+        return PlanResult(bank, outline, summaries, list(pages), len(pages), iterations)
 
     def _collect(
         self,

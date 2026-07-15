@@ -18,6 +18,7 @@ from research_engine.browser.ai_browser import AIBrowser
 from research_engine.cleanup.janitor import CleanupJanitor
 from research_engine.config import EngineConfig
 from research_engine.discovery.pipeline import DiscoveryPipeline
+from research_engine.discovery.query_decomposer import plan_objectives
 from research_engine.discovery.query_planner import QueryPlanner
 from research_engine.discovery.schema import Paper
 from research_engine.evaluation.deep_audit import DeepAuditor
@@ -41,6 +42,8 @@ from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmi
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
 from research_engine.planning.handoff import HandoffDoc
 from research_engine.planning.outline_builder import OutlineBuilder
+from research_engine.planning.react_planner import PlanResult, ReactPlanner, SourceRef
+from research_engine.planning.summary_feedback import refine_query, summarize_page
 from research_engine.screening.enricher import enrich_snippets
 from research_engine.screening.ranker import SourceRanker
 from research_engine.screening.url_filter import prefer_fetchable
@@ -68,6 +71,9 @@ from research_engine.synthesis.synthesizer import (
     unique_insight_filter,
 )
 from research_engine.util.parallel import max_workers_from_env, parallel_map
+
+# Candidates the ReAct loop pulls per refined sub-query before ranking+reading.
+_REACT_PER_QUERY = 10
 
 
 def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
@@ -151,6 +157,9 @@ class Orchestrator(OrchestratorInstrumentation):
         self.lane_roster = lane_roster
         # Deliverable writer: "synth" (default) or "attribute_first" (Phase 1.0).
         self.writer_mode = "synth"
+        # Retrieval planner: "linear" (default single-pass) or "react" (iterative
+        # gap-driven ReAct loop that co-evolves the outline with search, #8).
+        self.planner_mode = "linear"
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -783,6 +792,16 @@ class Orchestrator(OrchestratorInstrumentation):
         # from the deep reads (unique-insight sources only). Fall back to the
         # deterministic reporter brief if synthesis is empty.
         if self.synthesizer is not None:
+            # ReAct planner (#8): iterative gap-driven search co-evolving the
+            # outline, banking far more evidence than the single discovery pass.
+            # Uses its own bank+outline straight into the tuned section writer, so
+            # nothing downstream changes. Falls through to the linear paths below
+            # when the flag is off or the loop banks nothing.
+            synthesized = self._react_brief(query)
+            if synthesized.strip():
+                brief = synthesized
+                proposer = ImprovementProposer()
+                return report, brief, proposer.propose(report)
             # Unverified claims must not reach the deliverable (grounding gate).
             source_dicts = unique_insight_filter(
                 drop_failed_claims(
@@ -855,6 +874,72 @@ class Orchestrator(OrchestratorInstrumentation):
             return ""
         raw = _resolve_byte_fetcher(self.browser)(url)
         return markdownify(raw[:200_000].decode("utf-8", errors="replace")).markdown[:6000]
+
+    def _react_brief(self, query: str) -> str:
+        """Run the ReAct planner and write its bank+outline; "" when off/empty."""
+        result = self._react_plan(query)
+        if result is None or self.synthesizer is None:
+            return ""
+        provider, model = self.synthesizer.provider, self.synthesizer.model
+        draft = SectionWriter(provider, model, carry_context=True).write(
+            result.outline, result.evidence_bank, query
+        )
+        if not draft.strip():
+            return ""
+        return str(deepen_report(draft, result.evidence_bank, query, provider, model))
+
+    def _react_plan(self, query: str) -> PlanResult | None:
+        """Build + run the ReAct loop from the live components; None when unavailable.
+
+        Requires the flag on and the full agentic stack (browser to fetch, discovery
+        + ranker to search, synthesizer's LLM to plan/summarise/outline). Returns
+        None when the loop banks no evidence so the caller falls back cleanly.
+        """
+        if (
+            self.planner_mode != "react"
+            or self.browser is None
+            or self.synthesizer is None
+            or self.discovery is None
+            or self.ranker is None
+        ):
+            return None
+        provider, model = self.synthesizer.provider, self.synthesizer.model
+        discovery, ranker = self.discovery, self.ranker
+
+        def search_fn(sub_query: str) -> list[SourceRef]:
+            result = discovery.run(sub_query, context="", max_sources=_REACT_PER_QUERY)
+            papers = [Paper.from_dict(g.canonical.to_dict()) for g in result.deduped_groups]
+            resolved = {r.paper_key: r for r in result.resolved}
+            refs: list[SourceRef] = []
+            for card in ranker.rank(papers, query=sub_query):
+                if not card.included:
+                    continue
+                r = resolved.get(card.paper.key)
+                url = (r.url if r else None) or card.paper.url or card.paper.pdf_url
+                if url:
+                    refs.append(SourceRef(url=url, title=card.paper.title or ""))
+            return refs
+
+        def read_fn(ref: SourceRef) -> str:
+            try:
+                self._validate_url(ref.url)
+            except ValueError:
+                return ""
+            try:
+                return self._fetch_page_text(ref.url)
+            except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
+                return ""
+
+        planner = ReactPlanner(
+            objectives_fn=lambda q: plan_objectives(q, provider, model),
+            search_fn=search_fn,
+            read_fn=read_fn,
+            summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, model),
+            refine_fn=lambda q, obj, digest: refine_query(q, obj, digest, provider, model),
+            outline_fn=lambda q, bank: OutlineBuilder(provider, model).build(bank, q),
+        )
+        result = planner.run(query)
+        return result if result.evidence_bank.spans() else None
 
     def _build_deep_audit_payload(self, campaign: Campaign) -> dict[str, Any] | None:
         """Run the optional deep auditor and return a serializable payload."""

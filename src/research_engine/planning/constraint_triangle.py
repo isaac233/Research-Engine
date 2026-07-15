@@ -14,7 +14,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-DEFAULT_VOLUME = 20
+# Candidate source cap. Kept ABOVE the ~20 sources a single-pass decomposition
+# yields so the fetchable-URL filter (screening/url_filter) selects the fetchable
+# top-N from a bigger pool instead of no-op'ing when pool ≈ cap (HANDOFF unlock).
+DEFAULT_VOLUME = 40
 # Seconds per source at the extremes (rough; overridable via cost_per_source).
 SPEED_COST_S = 8.0
 QUALITY_COST_S = 90.0
