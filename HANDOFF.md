@@ -61,7 +61,10 @@ choppy one-span-per-sentence default, exactly as Step-DeepResearch predicted. **
 to the engine default writer** (`SectionWriter(..., synthesis=True)` in both the
 attribute_first and react paths). Note this run's baseline (27.13/45.0) differs from the
 #10 run's (25.36/40.9) — run-to-run variance is why same-run A/Bs are mandatory.
-(section_synth_pcite = synth + #10 also measured; #10 stays flat so it's ~synth.)
+section_synth_pcite (synth + #10) = 28.00/44.7%/12.0 — **#10 HURTS synth** (FACT
+49.3→44.7, E.Cit 16.75→12.0): cite_fix's lexical threshold drops genuinely-supported
+paraphrased cites. Definitive: **#11 ON, #10 OFF** — exactly the promoted config
+(synthesis=True, no cite_fix). synth also owns Readability (33.3, project best).
 
 ### ⏭️ NEXT SESSION — the real FACT lever + push RACE
 1. **FACT is paraphrase drift, not misattribution (measured above).** Try: (a)
