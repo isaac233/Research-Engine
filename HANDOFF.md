@@ -1,5 +1,66 @@
 # HANDOFF — 2026-07-15
 
+## ⏭️⏭️ NEXT SESSION — START HERE (standing order: research-first, ~2× FACT while lifting RACE)
+
+**When the user says "get to know the project, then get to work" — this is the plan.
+Do NOT skip the research run.**
+
+**Goal:** nearly DOUBLE FACT — from **49%** (current default `section_synth`) toward the
+Claude bar **93.7%** — WITHOUT regressing RACE (currently **28.31**, project best) or the
+other metrics (E.Cit 16.75, Read 33.3). The measured ceiling is **PARAPHRASE DRIFT**: our
+writer rewords the evidence span, so the cited page's support is judged weak. Post-hoc
+citation *correction* (#10) was measured FLAT→HARMFUL — the FACT gap is NOT misattribution.
+
+### STEP 1 — RESEARCH RUN FIRST (online: firecrawl_search / exa / firecrawl_research_search_papers)
+Before writing any code, research methods that hit **90%+ citation accuracy** while keeping
+comprehensiveness. Write findings to `docs/plan/finish_line_research_v4.md`. Read 3-4 papers
+in full. Target questions:
+- How do SOTA deep-research systems reach 90%+ FACT / citation accuracy on DeepResearch Bench?
+- **Verbatim/extractive citation vs generative** — quote-constrained / grammar-constrained
+  decoding that forces the delivered sentence to CONTAIN the span's exact text.
+- **Sentence-conditioned-on-one-span generation** (true attribute-first per sentence).
+- **Verify-and-regenerate / self-correction loops** (draft → check each cite verifies on its
+  page → rewrite only the failing sentences) — vs our verify-and-DROP.
+- **Claim decomposition + per-claim grounding** (ReClaim / FRONT / LongCite lineage).
+- Crucially: methods that keep RACE (depth/coverage) WHILE enforcing verbatim support —
+  the fundamental tension we keep hitting (verbatim = choppy/low-RACE; synth = high-RACE/low-FACT).
+Prior research: `docs/plan/finish_line_research_v3.md` (why #10 failed, why #11 won).
+
+### STEP 2 — BUILD + MEASURE ON THE CACHE (the fast loop — NO hanging live smokes)
+Writer/citation changes measure in ~35 min over the cached `bench/out/fixed_evidence.jsonl`
+(4 tasks, 20 src each) — bounded, always finishes. **Same-run A/B is MANDATORY** (run-to-run
+baseline swings ±2 RACE / ±10pt FACT — this session saw section_deepen at both 25.4/40.9 and
+27.1/45.0). Command:
+```
+python -m bench.writer_eval score --variant section_synth,section_faithful_deepen,<new> \
+  --judge ollama --judge-model kimi-k2.7-code:cloud
+```
+- Already staged to try: `section_faithful_deepen` (verbatim-tight + deepen — the #10-negative's
+  implied FACT lever). Build new variants for whatever the research surfaces.
+- **GATE:** FACT rises a lot AND RACE stays ≥ ~28 (do NOT regress the #11 synth win).
+- **Promote the winner:** `SectionWriter(..., synthesis=/quote_tight=/…)` at the two orchestrator
+  call sites (`_build_report_and_brief` ~L869, `_react_brief` ~L908).
+
+### STEP 3 — retrieval volume (live path, now SAFE/bounded — only after the writer/FACT work)
+`RESEARCH_ENGINE_PLANNER=react` live bench now finishes (wall-clock deadline + serp-only search).
+Budgets: `RESEARCH_ENGINE_REACT_MAX_PAGES` (16), `_PER_OBJECTIVE` (3), `_MAX_SECONDS` (600).
+
+### Session ops
+`podman machine start` → `cd ../search-infra && podman-compose up -d searxng whoogle` →
+`export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`.
+Ollama local: `gemma4:12b`, `mistral-small3.2:latest`. Judge = `kimi-k2.7-code:cloud` (works
+via Ollama Cloud; does NOT appear in `/api/tags` but responds — [[kimi-judge-tag]]).
+
+### Current state (what is TRUE right now)
+- **Default writer = `section_synth`** (`SectionWriter(synthesis=True)`) — promoted this session.
+  Cache A/B (kimi N=4): **RACE 28.31 / FACT 49.3% / E.Cit 16.75 / Read 33.3** (all project bests).
+- **`#10` cite_fix = OFF** (measured flat→harmful on synth; code kept, harmless, unused by default).
+- **`#7-9` ReAct planner** = built, behind `RESEARCH_ENGINE_PLANNER=react` (default off), live-safe.
+- Branch `feat/deepresearch-bench`, ~12 commits ahead of origin, **UNPUSHED**. Suite + mypy(108)
+  + ruff green. Fast measure loop = `bench/writer_eval` cache A/B. Full record below.
+
+---
+
 ## 2026-07-15 (NIGHT) — Online research → diagnosis + #10-12 built + speed fix + FAST cache A/B (no more hanging smokes)
 
 User asked: research online WHY we're not getting results + what methods; build #10-12;
