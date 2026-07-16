@@ -50,7 +50,18 @@ verify-and-DROP pass, NOT citation re-pointing. cite_fix kept (harmless, helps i
 future writer drifts) but is not the lever. NB FACT 40.9% this run vs historical 53% =
 the known ±10pt judge/run variance — weight RACE, treat FACT directionally.
 
-**#11 synth measured in a 3-way cache A/B (running / result pending — fill next).**
+**MEASURED — #11 synthesis drafting, clean same-run cache A/B (kimi, N=4) — WIN:**
+| Variant | RACE | FACT | E.Cit |
+|---|---|---|---|
+| section_deepen (baseline) | 27.13 | 45.0% | 14.00 |
+| **section_synth (#11)** | **28.31** | **49.3%** | **16.75** |
+→ **synthesis-driven drafting lifts ALL THREE: RACE +1.18 (28.31 = project best), FACT
++4.3pt, E.Cit +2.75.** Cohesive analytical paragraphs + inline per-claim cites beat the
+choppy one-span-per-sentence default, exactly as Step-DeepResearch predicted. **PROMOTED
+to the engine default writer** (`SectionWriter(..., synthesis=True)` in both the
+attribute_first and react paths). Note this run's baseline (27.13/45.0) differs from the
+#10 run's (25.36/40.9) — run-to-run variance is why same-run A/Bs are mandatory.
+(section_synth_pcite = synth + #10 also measured; #10 stays flat so it's ~synth.)
 
 ### ⏭️ NEXT SESSION — the real FACT lever + push RACE
 1. **FACT is paraphrase drift, not misattribution (measured above).** Try: (a)
@@ -58,8 +69,9 @@ the known ±10pt judge/run variance — weight RACE, treat FACT directionally.
    page verifiable; (b) a verify-and-DROP pass that removes a cite whose delivered
    sentence no longer contains enough of the span's verbatim text (compare to the BANK
    span, no re-fetch); (c) generate sentence-conditioned-on-one-span. Measure on cache.
-2. **RACE:** whichever of section_deepen / section_synth won the 3-way is the writer
-   floor; push evidence volume via the (now fast) react planner live path.
+2. **RACE:** `section_synth` won (28.31) and is the new writer floor + engine default.
+   Combine with the FACT lever above (verbatim-tight synth?) and push evidence volume
+   via the (now fast) react planner live path.
 3. **Retrieval:** the serp-only react search + deadline now finish — run the live
    react-vs-linear bench (`RESEARCH_ENGINE_PLANNER=react`, budgets env-tunable).
 
