@@ -1,5 +1,74 @@
 # HANDOFF — 2026-07-15
 
+## 2026-07-15 (NIGHT) — Online research → diagnosis + #10-12 built + speed fix + FAST cache A/B (no more hanging smokes)
+
+User asked: research online WHY we're not getting results + what methods; build #10-12;
+and STOP wasting time on unfinished smoke tests. All three done. Research doc:
+`docs/plan/finish_line_research_v3.md`. Commits on `feat/deepresearch-bench` (unpushed),
+all TDD, mypy(108) + ruff clean.
+
+**THE MEASUREMENT UNLOCK (fixes the "smoke never finishes" waste):** writer/citation
+changes are measured with `bench/writer_eval.py score` over the CACHED
+`fixed_evidence.jsonl` (4 tasks, 20 src each) — a BOUNDED cache run (no network fetch,
+no hang), finishes in ~35 min with the kimi judge. Only *retrieval* changes need the
+live pipeline, which now has a hard wall-clock deadline + serp-only search so it
+finishes too. **Use the cache A/B for all writer work; never the slow live path.**
+
+**RESEARCH DIAGNOSIS (online, evidence-backed — full detail in the v3 doc):**
+- **FACT (~53%→bar 93%) — we cite the wrong WAY.** G-Cite vs P-Cite (arXiv:2509.21557):
+  post-hoc citation (draft → attach/verify separately) beats generation-time on
+  coverage+correctness. Catalogue #10 "attribute-first" is the *inferior* paradigm.
+- **Cheap fix: CiteFix (arXiv:2504.15629)** — post-hoc re-point each sentence's cite
+  to its best-supporting span, no training, +8-15% on open models.
+- **RACE depth shallow — untrained local model failure mode.** Step-DeepResearch
+  (arXiv:2512.20491) names it exactly ("short, loosely connected sentences, superficial
+  bullets") and fixes it with **synthesis-driven drafting** (analytical paragraphs, ban
+  list-as-body) + a coverage-preserving depth gate. Their real moat is RL/SFT (no budget).
+
+**BUILT (#10-12, research-informed):**
+1. **#10 P-Cite citation correction** `synthesis/cite_fix.py` — lexical re-point of each
+   sentence's `[eN]` to its best-supporting BANK span (not a re-fetch — that failed
+   before), drop unsupportable. + `section_deepen_pcite` writer variant.
+2. **#11 synthesis-driven drafting** `section_writer.py` `synthesis=True` — cohesive
+   analytical paragraphs with inline per-claim cites (NOT the grouped-end-cite paragraph
+   variant that halved FACT). + `section_synth` / `section_synth_pcite` variants.
+3. **#12 prefer HTML over PDF/DOI** — already covered (react `read_fn` skips PDF/DOI,
+   `_citable_url` prefers HTML). No new work.
+
+**MEASURED — #10 cite_fix, clean same-run cache A/B (kimi, N=4):**
+| Variant | RACE | FACT | E.Cit | Read |
+|---|---|---|---|---|
+| section_deepen (baseline) | 25.36 | 40.9% | 12.75 | 29.2 |
+| section_deepen_pcite (#10) | 25.86 | **41.0%** | 11.50 | 30.5 |
+→ **#10 is FLAT on FACT — NEGATIVE result.** Diagnosis (important): our writer ALREADY
+emits `[eN]` for the span it restates, so citations are already span-aligned — there's
+little *misattribution* for CiteFix to correct (its setting is a loosely-citing general
+LLM; ours is attribute-grounded). **Our FACT ceiling is PARAPHRASE DRIFT** (the writer
+reWORDS the span → the cited page's support is judged weak), not wrong-span citations.
+So the FACT lever is verbatim-tightness (`section_faithful` direction) or a
+verify-and-DROP pass, NOT citation re-pointing. cite_fix kept (harmless, helps if a
+future writer drifts) but is not the lever. NB FACT 40.9% this run vs historical 53% =
+the known ±10pt judge/run variance — weight RACE, treat FACT directionally.
+
+**#11 synth measured in a 3-way cache A/B (running / result pending — fill next).**
+
+### ⏭️ NEXT SESSION — the real FACT lever + push RACE
+1. **FACT is paraphrase drift, not misattribution (measured above).** Try: (a)
+   `section_faithful` (quote-tight) + deepen — near-verbatim per span keeps the cited
+   page verifiable; (b) a verify-and-DROP pass that removes a cite whose delivered
+   sentence no longer contains enough of the span's verbatim text (compare to the BANK
+   span, no re-fetch); (c) generate sentence-conditioned-on-one-span. Measure on cache.
+2. **RACE:** whichever of section_deepen / section_synth won the 3-way is the writer
+   floor; push evidence volume via the (now fast) react planner live path.
+3. **Retrieval:** the serp-only react search + deadline now finish — run the live
+   react-vs-linear bench (`RESEARCH_ENGINE_PLANNER=react`, budgets env-tunable).
+
+**Branch:** `feat/deepresearch-bench`, unpushed. writer_eval variants: baseline
+`section_deepen`; new `section_deepen_pcite`, `section_synth`, `section_synth_pcite`.
+Judge `kimi-k2.7-code:cloud` ([[kimi-judge-tag]]). Cache A/B is the fast measurement loop.
+
+---
+
 ## 2026-07-15 (EVE) — SOTA mechanisms #7-9 BUILT (ReAct planner subsystem) + markdownify stall fixed
 
 Implemented the three deferred ceiling mechanisms from the catalogue
