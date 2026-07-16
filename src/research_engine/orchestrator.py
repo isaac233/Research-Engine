@@ -866,8 +866,11 @@ class Orchestrator(OrchestratorInstrumentation):
                 # construction. Falls back to the flat writer if no outline forms.
                 provider, wmodel = self.synthesizer.provider, self.synthesizer.model
                 outline = OutlineBuilder(provider, wmodel).build(bank, query)
+                # synthesis=True (#11): cohesive analytical paragraphs beat the choppy
+                # one-span-per-sentence default on RACE, FACT, AND E.Cit (same-run cache
+                # A/B: 28.31/49.3%/16.75 vs 27.13/45.0%/14.0). Promoted default writer.
                 synthesized = SectionWriter(
-                    provider, wmodel, carry_context=True
+                    provider, wmodel, carry_context=True, synthesis=True
                 ).write(outline, bank, query)
                 if synthesized.strip():
                     synthesized = deepen_report(synthesized, bank, query, provider, wmodel)
@@ -905,7 +908,7 @@ class Orchestrator(OrchestratorInstrumentation):
         if result is None or self.synthesizer is None:
             return ""
         provider, model = self.synthesizer.provider, self.synthesizer.model
-        draft = SectionWriter(provider, model, carry_context=True).write(
+        draft = SectionWriter(provider, model, carry_context=True, synthesis=True).write(
             result.outline, result.evidence_bank, query
         )
         if not draft.strip():
