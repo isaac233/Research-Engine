@@ -105,6 +105,17 @@ def _section_deepen_pcite(
     return fix_citations(article, bank) if article.strip() else article
 
 
+def _section_faithful_deepen(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # The FACT bet the #10 negative result points to: verbatim-tight per-span
+    # sentences (citations verify — paraphrase drift is the FACT ceiling, not
+    # misattribution) + WARP deepen for RACE. Research: finish_line_research_v3.md.
+    outline = OutlineBuilder(provider, model).build(bank, query)
+    draft = SectionWriter(provider, model, quote_tight=True).write(outline, bank, query)
+    return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
+
+
 def _section_synth(bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None) -> str:
     # #11 synthesis-driven drafting: cohesive analytical paragraphs, inline cites, then WARP deepen.
     outline = OutlineBuilder(provider, model).build(bank, query)
@@ -130,6 +141,7 @@ WRITERS: dict[str, WriterFn] = {
     "section_deepen_pcite": _section_deepen_pcite,
     "section_synth": _section_synth,
     "section_synth_pcite": _section_synth_pcite,
+    "section_faithful_deepen": _section_faithful_deepen,
 }
 
 
