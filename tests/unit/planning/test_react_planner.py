@@ -11,7 +11,7 @@ def _text(url: str) -> str:
     return f"This verbatim sentence from {url} about the topic has enough length to bank as evidence."
 
 
-def _fakes(objectives, refs_by_query, *, outline=None):
+def _fakes(objectives, refs_by_query, *, outline=None, ledger=None):
     """Build a planner over in-memory fakes; return (planner, log)."""
     log: dict = {"refine_digests": [], "reads": [], "summaries": []}
 
@@ -49,8 +49,49 @@ def _fakes(objectives, refs_by_query, *, outline=None):
         max_iters=8,
         max_pages=40,
         per_objective_pages=4,
+        coverage_ledger=ledger,
     )
     return planner, log
+
+
+class _FakeLedger:
+    """Duck-typed coverage ledger: emits its gap queries once, then goes quiet."""
+
+    def __init__(self, gap_queries: list[str]) -> None:
+        self._gaps = gap_queries
+        self.ingest_calls = 0
+
+    def ingest(self, _bank) -> None:
+        self.ingest_calls += 1
+
+    def gap_queries(self, n: int) -> list[str]:
+        return self._gaps[:n] if self.ingest_calls == 1 else []
+
+    def is_complete(self) -> bool:
+        return False
+
+
+def test_ledger_none_leaves_run_unchanged() -> None:
+    refs = {
+        "q:obj1": [SourceRef("https://a.com", "A")],
+        "q:obj2": [SourceRef("https://b.com", "B")],
+    }
+    planner, _ = _fakes(["obj1", "obj2"], refs)  # ledger defaults None
+    result = planner.run("the topic")
+    assert result.pages_read == 2  # identical to the no-ledger baseline
+
+
+def test_ledger_gap_query_becomes_a_searched_objective() -> None:
+    refs = {
+        "q:obj1": [SourceRef("https://a.com", "A")],
+        "q:Norway returns": [SourceRef("https://gap.com", "G")],
+    }
+    ledger = _FakeLedger(["Norway returns"])
+    planner, log = _fakes(["obj1"], refs, ledger=ledger)
+    result = planner.run("the topic")
+    assert ledger.ingest_calls >= 1  # bank ingested each productive round
+    assert "https://gap.com" in log["reads"]  # the gap query drove a real read
+    assert result.pages_read == 2
 
 
 def test_iterates_objectives_and_banks_evidence() -> None:

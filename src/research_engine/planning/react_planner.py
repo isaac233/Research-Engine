@@ -26,11 +26,14 @@ from __future__ import annotations
 import dataclasses
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from research_engine.memory.evidence_bank import EvidenceBank
 from research_engine.memory.summary_bank import SummaryBank, SummaryNote
 from research_engine.planning.outline import Outline, OutlineSection
+
+if TYPE_CHECKING:
+    from research_engine.planning.coverage_ledger import CoverageLedger
 
 # Injected-callable signatures.
 ObjectivesFn = Callable[[str], list[str]]
@@ -96,6 +99,7 @@ class ReactPlanner:
         per_objective_pages: int = 4,
         per_objective_searches: int = 1,
         seeded_outline: bool = False,
+        coverage_ledger: CoverageLedger | None = None,
         max_seconds: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -116,6 +120,11 @@ class ReactPlanner:
         # objective (filled with that objective's spans) instead of the LLM rebuild that
         # drifts to the banked evidence's dominant topic.
         self.seeded_outline = seeded_outline
+        # Coverage ledger (W2, DualGraph-lite): when set, each round ingests the bank
+        # into an entity×sub-question grid and appends gap queries for empty/weak cells
+        # as new objectives, so under-covered dimensions get targeted retrieval instead
+        # of the loop drifting to the dominant topic. None = the loop is unchanged.
+        self.coverage_ledger = coverage_ledger
         # Hard wall-clock budget: a live run must never hang. When exceeded the loop
         # stops with whatever it has banked (the writer still gets an outline+bank).
         self.max_seconds = max_seconds
@@ -123,7 +132,8 @@ class ReactPlanner:
 
     def run(self, query: str) -> PlanResult:
         """Execute the loop for ``query`` and return the filled banks + outline."""
-        objectives = self.objectives_fn(query) or [query]
+        objectives = list(self.objectives_fn(query) or [query])
+        seen_objectives = set(objectives)
         summaries = SummaryBank()
         pages: list[dict[str, Any]] = []
         seen_urls: set[str] = set()
@@ -152,6 +162,19 @@ class ReactPlanner:
             # so the structure tracks the growing evidence, not the opening decomposition.
             bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)
             outline = self.outline_fn(query, bank)
+            # W2: expose coverage gaps as new objectives so under-covered (entity,
+            # sub-question) cells get targeted retrieval. Bounded per round and deduped,
+            # so it converges rather than looping (max_iters/max_pages still bind).
+            if self.coverage_ledger is not None:
+                try:
+                    self.coverage_ledger.ingest(bank)
+                    gaps = self.coverage_ledger.gap_queries(max(1, self.max_iters // 4))
+                except Exception:  # noqa: BLE001 — a ledger fault must not abort the plan
+                    gaps = []
+                for gap in gaps:
+                    if gap not in seen_objectives:
+                        seen_objectives.add(gap)
+                        objectives.append(gap)
 
         if self.seeded_outline and pages:
             bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)

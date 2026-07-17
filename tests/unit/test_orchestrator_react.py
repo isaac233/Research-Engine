@@ -177,3 +177,110 @@ def test_reasoning_model_defaults_to_synth_model_when_unset(monkeypatch) -> None
     orch.planner_mode = "react"
     orch._react_plan("aging topic in japan")
     assert provider.models.get("objectives") == "fake"  # byte-identical to single-model path
+
+
+# --- CDP 403-recovery fallback (retrieval fetchability lever) ---------------
+
+from research_engine.browser.ai_browser import BrowserResult  # noqa: E402
+
+
+class _Blocked:
+    """A byte-fetcher that always bot-blocks (the ~50% of live reads returning 403)."""
+
+    def fetch_bytes(self, url):  # noqa: ANN001
+        raise RuntimeError("HTTP error 403")
+
+
+class _FakeCDP:
+    """Stand-in CDP driver — records fetches, returns rendered HTML, tracks close."""
+
+    def __init__(self, html: str, ok: bool = True, error: str = "") -> None:
+        self.html = html
+        self.ok = ok
+        self.error = error
+        self.calls: list[str] = []
+        self.closed = False
+
+    def act(self, action):  # noqa: ANN001
+        self.calls.append(action.url)
+        return BrowserResult(
+            ok=self.ok, action=action.action, url=action.url,
+            status=200 if self.ok else 403, content=self.html, error=self.error,
+        )
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def test_fetch_page_text_recovers_403_via_cdp_when_enabled(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_CDP_FALLBACK", "1")
+    orch = _orch("react")
+    orch.browser = _Blocked()  # type: ignore[assignment]
+    fake = _FakeCDP("<html><body><p>Recovered 2050 census figure.</p></body></html>")
+    monkeypatch.setattr(orch, "_ensure_cdp", lambda: fake)
+    text = orch._fetch_page_text("https://blocked.example/x")
+    assert "Recovered 2050 census figure" in text
+    assert fake.calls == ["https://blocked.example/x"]
+
+
+def test_fetch_page_text_no_cdp_when_flag_off(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_CDP_FALLBACK", raising=False)
+    orch = _orch("react")
+    orch.browser = _Blocked()  # type: ignore[assignment]
+    consulted: list[int] = []
+    monkeypatch.setattr(orch, "_ensure_cdp", lambda: consulted.append(1))
+    # Flag off ⇒ behavior byte-identical to today: the 403 propagates to read_fn.
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        orch._fetch_page_text("https://blocked.example/x")
+    assert consulted == []
+
+
+def test_fetch_page_text_skips_cdp_when_raw_ok(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_CDP_FALLBACK", "1")
+    orch = _orch("react")  # _FakeBrowser returns a healthy page
+    consulted: list[int] = []
+    monkeypatch.setattr(orch, "_ensure_cdp", lambda: consulted.append(1))
+    text = orch._fetch_page_text("https://example.com/aging")
+    assert "aging topic population" in text
+    assert consulted == []  # healthy raw fetch never launches Chromium
+
+
+def test_react_plan_closes_cdp_driver(monkeypatch) -> None:  # noqa: ANN001
+    # The Chromium process must be closed after the react window so bench tasks
+    # don't leak a browser each (50 tasks ⇒ 50 zombie Chromiums otherwise).
+    monkeypatch.setenv("RESEARCH_ENGINE_CDP_FALLBACK", "1")
+    orch = _orch("react")
+    fake = _FakeCDP("<html></html>")
+    orch._cdp = fake  # type: ignore[assignment]
+    orch._react_plan("aging topic in japan")
+    assert fake.closed is True
+
+
+# --- W3 section-locked write (ADORE memory-locked synthesis) -----------------
+
+import research_engine.orchestrator as _orch_mod  # noqa: E402
+
+
+def test_section_locked_write_skips_deepen(monkeypatch) -> None:  # noqa: ANN001
+    # Under the lock, the whole-bank deepen pass is skipped (it would re-introduce
+    # cross-section spans and defeat the disjoint admissible sets).
+    monkeypatch.setenv("RESEARCH_ENGINE_SECTION_LOCKED_WRITE", "1")
+    called: list[int] = []
+    monkeypatch.setattr(_orch_mod, "deepen_report", lambda *a, **k: called.append(1) or "x")
+    orch = _orch("react")
+    orch._react_brief("aging topic in japan")
+    assert called == []  # deepen not called under the lock
+
+
+def test_default_write_calls_deepen(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_SECTION_LOCKED_WRITE", raising=False)
+    called: list[int] = []
+    original = _orch_mod.deepen_report
+    monkeypatch.setattr(
+        _orch_mod, "deepen_report", lambda *a, **k: (called.append(1), original(*a, **k))[1]
+    )
+    orch = _orch("react")
+    orch._react_brief("aging topic in japan")
+    assert called  # deepen runs on the default (unlocked) path

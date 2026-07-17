@@ -67,3 +67,6 @@ data/handoffs/
 
 # Distributed secrets — never commit
 API_KEYS.MD
+
+# MiniCheck (flan-t5-large) model cache — W1 abstain gate
+ckpts/

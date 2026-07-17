@@ -46,6 +46,23 @@ class Outline:
                 kept.append(dataclasses.replace(section, evidence_ids=ids))
         return Outline(sections=tuple(kept))
 
+    def partitioned(self) -> Outline:
+        """Assign each evidence id to exactly ONE section (first-seen wins), then drop
+        any section left empty.
+
+        Section-locked writing (ADORE, W3): with disjoint admissible sets, a section can
+        only cite the spans it was given, so a thin bank can't be over-cited across many
+        sections. The default outline is untouched; this is applied only behind the flag.
+        """
+        used: set[str] = set()
+        kept: list[OutlineSection] = []
+        for section in self.sections:
+            ids = tuple(e for e in section.evidence_ids if e not in used)
+            used.update(ids)
+            if ids:
+                kept.append(dataclasses.replace(section, evidence_ids=ids))
+        return Outline(sections=tuple(kept))
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "sections": [

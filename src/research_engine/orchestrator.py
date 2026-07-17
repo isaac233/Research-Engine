@@ -16,7 +16,7 @@ from research_engine.adversarial.challenge import (
 )
 from research_engine.adversarial.devil import DevilAgent
 from research_engine.adversarial.verifier import Verifier
-from research_engine.browser.ai_browser import AIBrowser
+from research_engine.browser.ai_browser import AIBrowser, BrowserAction, BrowserActionType
 from research_engine.cleanup.janitor import CleanupJanitor
 from research_engine.config import EngineConfig
 from research_engine.discovery.pipeline import DiscoveryPipeline
@@ -29,6 +29,7 @@ from research_engine.evaluation.improvement import ImprovementProposer
 from research_engine.evaluation.reporter import Reporter
 from research_engine.events import EventBus
 from research_engine.extraction.markdownify import markdownify
+from research_engine.extraction.pdf_converter import PDFConverter
 from research_engine.extraction.structured import (
     StructuredExtractor,
     extracted_source_from_dict,
@@ -42,6 +43,8 @@ from research_engine.monitoring.gpu_probe import GpuProbe
 from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
+from research_engine.planning.coverage_ledger import CoverageLedger
+from research_engine.planning.grounding_brief import build_grounding_brief
 from research_engine.planning.handoff import HandoffDoc
 from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.planning.react_planner import PlanResult, ReactPlanner, SourceRef
@@ -66,12 +69,14 @@ from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
 from research_engine.synthesis.deepen import deepen_report
+from research_engine.synthesis.minicheck import build_check_fn
 from research_engine.synthesis.section_writer import SectionWriter
 from research_engine.synthesis.synthesizer import (
     Synthesizer,
     drop_failed_claims,
     unique_insight_filter,
 )
+from research_engine.synthesis.verify_citations import abstain_citations
 from research_engine.util.parallel import (
     item_timeout_from_env,
     max_workers_from_env,
@@ -162,6 +167,112 @@ def _react_anchored_outline() -> bool:
     unchanged; on = experiment on the live surface that actually shows the failure.
     """
     return bool(os.environ.get("RESEARCH_ENGINE_REACT_ANCHORED_OUTLINE"))
+
+
+def _cdp_fallback_enabled() -> bool:
+    """Retry a bot-blocked page read through a headless CDP browser when set.
+
+    ~half of live react reads return 403 from bot-hostile hosts (sciencedirect, imf,
+    cgdev); a real headless browser with a rotating fingerprint recovers many, filling
+    the asked dimensions that would otherwise drop (measured: task 53 = 14 spans / FACT
+    4% vs 120-194 spans on fetchable tasks). Env-gated + lazy so neither the default
+    path nor test envs launch Chromium.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_CDP_FALLBACK"))
+
+
+def _pdf_ingest_enabled() -> bool:
+    """Read PDF sources (convert bytes→text) instead of dropping them, when set (W5).
+
+    ``read_fn``/``_fetchable_ref`` drop every ``.pdf`` because the HTML fetcher can't
+    read them — but for a sparse-evidence query (task 53: SWF annual-report PDFs) that
+    discards the richest source. When on, PDF bytes are routed through the existing
+    ``PDFConverter``. NB the converted text feeds the planner's SUMMARY/coverage context
+    (better gap queries), not the citable evidence bank — ``EvidenceBank.from_pages``
+    still skips ``.pdf`` URLs as non-verifiable, so the FACT grader (which re-fetches the
+    cited URL and can't read a PDF) is never handed an unverifiable PDF citation.
+    Env-gated; default off keeps the current drop-all-PDF behavior byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_PDF_INGEST"))
+
+
+def _pdf_max_bytes() -> int:
+    """Skip a PDF whose fetched size exceeds this cap (default 10 MB), before converting.
+
+    Truncating PDF bytes corrupts structure, so an over-cap PDF is skipped whole rather
+    than clipped — bounding pdfplumber/pypdf cost on a pathological file.
+    """
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_PDF_MAX_BYTES", "")))
+    except ValueError:
+        return 10_000_000
+
+
+def _pdf_bytes_to_text(raw: bytes, max_bytes: int) -> str:
+    """Convert fetched PDF bytes to markdown; "" if empty, over-cap, or unparseable.
+
+    The converted text is capped to the same 6000-char window the HTML path uses
+    (``_fetch_page_text``) so a 200-page report can't feed an unbounded prompt into the
+    summarizer or the abstain gate's checker.
+    """
+    if not raw or len(raw) > max_bytes:
+        return ""
+    result = PDFConverter().convert_bytes(raw)
+    return result.markdown[:6000] if result.ok else ""
+
+
+def _grounding_brief_enabled() -> bool:
+    """Scope a vague query into a concrete brief before search (W4) when set.
+
+    ADORE's autonomous Grounding Agent: one pre-search LLM call proposes scope assumptions,
+    the implied named entities, and the report's cross-cutting sub-questions — which then
+    seed the coverage ledger (W2) so its gap queries are concrete. Env-gated; default off
+    means no brief is built and the ledger stays empty (a no-op), so the path is unchanged.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_GROUNDING_BRIEF"))
+
+
+def _coverage_ledger_enabled() -> bool:
+    """Drive gap retrieval from an entity×sub-question coverage grid (W2) when set.
+
+    Needs the grounding brief (W4) for its entities/sub-questions; with no brief the grid
+    is empty and the ledger does nothing. Env-gated; default off leaves the react loop's
+    retrieval unchanged.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_COVERAGE_LEDGER"))
+
+
+def _section_locked_write_enabled() -> bool:
+    """Give each report section a disjoint admissible span set, and skip deepen (W3).
+
+    ADORE memory-locked synthesis: partition the outline so each span feeds exactly one
+    section — a section then physically cannot cite a span it wasn't assigned, so a thin
+    bank can't be over-cited across many sections (task 53: 76 markers, 13 verified). The
+    whole-bank deepen pass is skipped under the lock (it would re-introduce cross-section
+    spans). Env-gated; default off keeps the full outline + deepen path byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_SECTION_LOCKED_WRITE"))
+
+
+def _abstain_gate_spec() -> str:
+    """Backend for the post-hoc citation abstain gate (W1); '' = off (default).
+
+    Values: 'minicheck' (Ollama bespoke-minicheck) or 'flan' (pip MiniCheck-flan-t5-large,
+    770M, CPU, no VRAM contention). After the writer drafts, each cited sentence whose
+    MiniCheck support < tau has its [eN] marker dropped — the report stops making
+    unsupported *cited* claims on a thin bank (task 53: 76 markers, only 13 verified).
+    MiniCheck checks the claim against the FULL page, matching the FACT grader's
+    granularity, so it sidesteps the prior lone-span verify-regen that measured negative.
+    """
+    return os.environ.get("RESEARCH_ENGINE_ABSTAIN_GATE", "").strip().lower()
+
+
+def _abstain_tau() -> float:
+    """Support threshold below which a citation marker is dropped (default 0.5)."""
+    try:
+        return float(os.environ.get("RESEARCH_ENGINE_ABSTAIN_TAU", ""))
+    except ValueError:
+        return 0.5
 
 
 def _react_dbg(msg: str) -> None:
@@ -270,6 +381,10 @@ class Orchestrator(OrchestratorInstrumentation):
         # Retrieval planner: "linear" (default single-pass) or "react" (iterative
         # gap-driven ReAct loop that co-evolves the outline with search, #8).
         self.planner_mode = "linear"
+        # Lazily-launched headless CDP browser for 403-recovery (env-gated); scoped
+        # to a react plan and closed after it. _cdp_off latches when unavailable.
+        self._cdp: Any = None
+        self._cdp_off = False
 
     BLOCKER_KEYWORDS = {
         "cannot find",
@@ -1024,11 +1139,84 @@ class Orchestrator(OrchestratorInstrumentation):
         return report, brief, proposals
 
     def _fetch_page_text(self, url: str) -> str:
-        """Re-fetch a URL as markdownified text (same transform FACT uses)."""
+        """Re-fetch a URL as markdownified text (same transform FACT uses).
+
+        On a bot-block (403/blocked/timeout raises from the raw fetcher), retry through
+        a headless CDP browser when RESEARCH_ENGINE_CDP_FALLBACK is set. Flag off ⇒ the
+        exception propagates exactly as before (read_fn treats it as a dry read).
+        """
         if self.browser is None:
             return ""
-        raw = _resolve_byte_fetcher(self.browser)(url)
-        return markdownify(raw[:200_000].decode("utf-8", errors="replace")).markdown[:6000]
+        try:
+            raw = _resolve_byte_fetcher(self.browser)(url)
+            return markdownify(raw[:200_000].decode("utf-8", errors="replace")).markdown[:6000]
+        except Exception as exc:  # noqa: BLE001 — 403/blocked/timeout; CDP retry if enabled
+            if not _cdp_fallback_enabled():
+                raise
+            _react_dbg(f"_fetch_page_text: raw failed {url[:80]!r} {type(exc).__name__}; trying CDP")
+            return self._cdp_fetch_page_text(url)
+
+    def _fetch_pdf_text(self, url: str) -> str:
+        """Fetch a PDF's bytes and convert to markdown text (W5); "" on any failure."""
+        if self.browser is None:
+            return ""
+        try:
+            raw = _resolve_byte_fetcher(self.browser)(url)
+        except Exception as exc:  # noqa: BLE001 — a failed PDF fetch contributes nothing
+            _react_dbg(f"pdf_fetch: EXC {url[:80]!r} {type(exc).__name__}: {exc}")
+            return ""
+        return _pdf_bytes_to_text(raw, _pdf_max_bytes())
+
+    def _cdp_fetch_page_text(self, url: str) -> str:
+        """Fetch + markdownify a page through the lazy headless CDP browser; "" on miss."""
+        driver = self._ensure_cdp()
+        if driver is None:
+            return ""
+        try:
+            result = driver.act(BrowserAction(action=BrowserActionType.FETCH, url=url))
+        except Exception as exc:  # noqa: BLE001 — a failed recovery costs nothing extra
+            _react_dbg(f"cdp_fetch: EXC {url[:80]!r} {type(exc).__name__}: {exc}")
+            return ""
+        if not result.ok or not result.content:
+            err = result.error or ""
+            if "Executable" in err or "install" in err.lower():
+                # No Chromium — stop trying (every URL would relaunch-and-fail slowly).
+                _react_dbg(f"cdp: disabling, no browser: {err[:120]}")
+                self._cdp_off = True
+                self._close_cdp()
+            return ""
+        text = markdownify(str(result.content)[:200_000]).markdown[:6000]
+        _react_dbg(f"cdp_fetch: recovered {url[:80]!r} chars={len(text)}")
+        return text
+
+    def _ensure_cdp(self) -> Any:
+        """Lazily construct the CDP driver once, reusing the raw browser's policy /
+        fingerprints. Returns None if Playwright is unavailable (latched)."""
+        if self._cdp_off:
+            return None
+        if self._cdp is not None:
+            return self._cdp
+        try:
+            from research_engine.browser.cdp_driver import CDPDriver
+        except Exception as exc:  # noqa: BLE001 — playwright missing
+            _react_dbg(f"cdp: import failed {type(exc).__name__}: {exc}")
+            self._cdp_off = True
+            return None
+        inner = getattr(self.browser, "http", None)
+        self._cdp = CDPDriver(
+            policy=getattr(inner, "policy", None),
+            fingerprints=getattr(inner, "fingerprints", None),
+        )
+        return self._cdp
+
+    def _close_cdp(self) -> None:
+        """Close the CDP browser (kills the Chromium process); safe to call always."""
+        if self._cdp is not None:
+            try:
+                self._cdp.close()
+            except Exception:  # noqa: BLE001
+                pass
+            self._cdp = None
 
     def _react_brief(self, query: str) -> str:
         """Run the ReAct planner and write its bank+outline; "" when off/empty."""
@@ -1046,6 +1234,12 @@ class Orchestrator(OrchestratorInstrumentation):
         )
         provider, model = self.synthesizer.provider, self.synthesizer.model
         max_sentences, max_tokens = _writer_length()
+        # W3 section-locked write (ADORE memory-locked synthesis): give each section a
+        # DISJOINT admissible span set (partitioned outline) so a section can't cite a
+        # span it wasn't assigned — over-citation on a thin bank becomes impossible by
+        # construction. Default-off → the outline and deepen pass are unchanged.
+        locked = _section_locked_write_enabled()
+        outline = result.outline.partitioned() if locked else result.outline
         draft = SectionWriter(
             provider,
             model,
@@ -1053,10 +1247,32 @@ class Orchestrator(OrchestratorInstrumentation):
             carry_context=True,
             synthesis=True,
             max_sentences=max_sentences,
-        ).write(result.outline, result.evidence_bank, query)
+        ).write(outline, result.evidence_bank, query)
         if not draft.strip():
             return ""
-        return str(deepen_report(draft, result.evidence_bank, query, provider, model))
+        if not locked:
+            # deepen pulls the WHOLE bank (deepen.py: bank.spans()), which would re-introduce
+            # cross-section spans and defeat the lock — so section-locked runs skip it.
+            draft = str(deepen_report(draft, result.evidence_bank, query, provider, model))
+        # W1 attribute-or-abstain: drop [eN] markers whose cited sentence a grounded
+        # fact-checker (MiniCheck) can't support against the span's own page. Default-off
+        # (spec == "") → this block is skipped and the draft is returned byte-identical.
+        spec = _abstain_gate_spec()
+        if spec:
+            check_fn = build_check_fn(spec, provider=provider)
+            if check_fn is not None:
+                page_by_url = {
+                    str(p["paper"]["url"]): str(p.get("meta", {}).get("page_text", ""))
+                    for p in result.pages
+                }
+                draft = abstain_citations(
+                    draft,
+                    result.evidence_bank,
+                    lambda u: page_by_url.get(u, ""),
+                    check_fn,
+                    tau=_abstain_tau(),
+                )
+        return draft
 
     def _react_plan(self, query: str) -> PlanResult | None:
         """Build + run the ReAct loop from the live components; None when unavailable.
@@ -1097,8 +1313,10 @@ class Orchestrator(OrchestratorInstrumentation):
             if not url:
                 return None
             lu = url.lower()
-            if lu.endswith(".pdf") or "doi.org" in lu:
-                return None  # the fetcher/FACT cannot read these
+            if "doi.org" in lu:
+                return None  # a DOI landing page is not directly readable
+            if lu.endswith(".pdf") and not _pdf_ingest_enabled():
+                return None  # PDFs unreadable unless ingestion (W5) is on
             return SourceRef(url=url, title=title or "")
 
         def search_fn(sub_query: str) -> list[SourceRef]:
@@ -1124,18 +1342,21 @@ class Orchestrator(OrchestratorInstrumentation):
 
         def read_fn(ref: SourceRef) -> str:
             lu = ref.url.lower()
-            if lu.endswith(".pdf") or "doi.org" in lu:
-                return ""  # the fetcher/FACT cannot read these — don't spend budget on them
+            if "doi.org" in lu:
+                return ""  # a DOI landing page is not directly readable
+            is_pdf = lu.endswith(".pdf")
+            if is_pdf and not _pdf_ingest_enabled():
+                return ""  # don't spend budget on unreadable PDFs unless W5 is on
             try:
                 self._validate_url(ref.url)
             except ValueError:
                 _react_dbg(f"read_fn: url rejected {ref.url[:80]!r}")
                 return ""
             try:
-                text = self._fetch_page_text(ref.url)
+                text = self._fetch_pdf_text(ref.url) if is_pdf else self._fetch_page_text(ref.url)
                 _counts["read_calls"] += 1
                 _counts["read_chars"] += len(text)
-                _react_dbg(f"read_fn: fetched {ref.url[:80]!r} chars={len(text)}")
+                _react_dbg(f"read_fn: fetched {ref.url[:80]!r} pdf={is_pdf} chars={len(text)}")
                 return text
             except Exception as exc:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
                 _react_dbg(f"read_fn: fetch EXC {ref.url[:80]!r} {type(exc).__name__}: {exc}")
@@ -1151,6 +1372,26 @@ class Orchestrator(OrchestratorInstrumentation):
             f"_react_plan: budget max_pages={max_pages} per_obj={per_objective} "
             f"max_seconds={max_seconds}"
         )
+        # W4 grounding brief → W2 coverage ledger: scope the query into entities ×
+        # sub-questions so the ledger's gap queries are concrete. Both env-gated; with no
+        # brief (or no entities) the ledger is None and the loop is unchanged.
+        brief = (
+            build_grounding_brief(query, provider, reasoning_model)
+            if _grounding_brief_enabled()
+            else None
+        )
+        coverage_ledger = None
+        if (
+            _coverage_ledger_enabled()
+            and brief is not None
+            and brief.entities
+            and brief.section_criteria
+        ):
+            coverage_ledger = CoverageLedger(list(brief.entities), list(brief.section_criteria))
+            _react_dbg(
+                f"coverage_ledger: entities={len(brief.entities)} "
+                f"subqs={len(brief.section_criteria)}"
+            )
         planner = ReactPlanner(
             objectives_fn=_objectives,
             search_fn=search_fn,
@@ -1164,9 +1405,13 @@ class Orchestrator(OrchestratorInstrumentation):
             per_objective_pages=per_objective,
             per_objective_searches=_react_per_objective_searches(),
             seeded_outline=_react_seeded_outline(),
+            coverage_ledger=coverage_ledger,
             max_seconds=max_seconds,
         )
-        result = planner.run(query)
+        try:
+            result = planner.run(query)
+        finally:
+            self._close_cdp()  # kill the headless Chromium; don't leak one per bench task
         _react_dbg(
             f"_react_plan: DONE spans={len(result.evidence_bank.spans())} "
             f"pages={result.pages_read} iters={result.iterations} "
