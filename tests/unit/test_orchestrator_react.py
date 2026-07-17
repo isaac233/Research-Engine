@@ -100,6 +100,30 @@ def test_react_plan_skipped_when_flag_off() -> None:
     assert orch._react_plan("aging topic") is None
 
 
+def test_extract_short_circuits_for_react_when_skip_collect_set(monkeypatch) -> None:  # noqa: ANN001
+    # The react planner does its own retrieval at evaluate-time; the linear extract is
+    # an unused fallback that double-pays the slowest stage. With the flag set it must
+    # be skipped (no extraction work) so react runs are practical.
+    from research_engine.state import ResearchRequest
+
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_SKIP_COLLECT", "1")
+    orch = _orch("react")
+    campaign = orch.start_campaign(ResearchRequest(query="aging topic", max_sources=5))
+    result = orch._run_extract(campaign)
+    assert "react planner owns retrieval" in str(result).lower()
+
+
+def test_extract_not_skipped_for_linear_even_with_flag(monkeypatch) -> None:  # noqa: ANN001
+    # The skip is react-only; a linear campaign must still extract (no fallback loss).
+    from research_engine.state import ResearchRequest
+
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_SKIP_COLLECT", "1")
+    orch = _orch("linear")
+    campaign = orch.start_campaign(ResearchRequest(query="aging topic", max_sources=5))
+    result = orch._run_extract(campaign)
+    assert "react planner owns retrieval" not in str(result).lower()
+
+
 class _RecordingProvider(_DispatchProvider):
     """Record the model each reasoning step was called with."""
 

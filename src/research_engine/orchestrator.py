@@ -713,6 +713,13 @@ class Orchestrator(OrchestratorInstrumentation):
 
     def _run_extract(self, campaign: Campaign) -> dict[str, Any]:
         """Extract structured fields from included papers."""
+        # The ReAct planner does its OWN gap-driven retrieval at evaluate-time, so the
+        # linear per-page extract here is only an unused fallback that DOUBLE-PAYS the
+        # slowest stage (~20-30 min/task of fetch+LLM extract). Skip it when react owns
+        # retrieval (env-gated) to make react runs practical. The react brief supplies
+        # the deliverable; if react banks nothing the brief is honestly flagged empty.
+        if self.planner_mode == "react" and os.environ.get("RESEARCH_ENGINE_REACT_SKIP_COLLECT"):
+            return self._run_skipped(campaign, "react planner owns retrieval (collect skipped)")
         self._switch_lane(campaign, "extract")
         included_data = campaign.meta.get("included_papers", [])
         if not included_data or self.extractor is None:
