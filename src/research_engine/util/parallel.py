@@ -58,6 +58,7 @@ def parallel_map[T, R](
     *,
     max_workers: int = _DEFAULT_WORKERS,
     item_timeout: float | None = None,
+    on_settle: Callable[[int, bool], None] | None = None,
 ) -> list[R | None]:
     """Apply ``func`` to each item across a bounded pool; ordered, per-item errors → ``None``.
 
@@ -65,6 +66,10 @@ def parallel_map[T, R](
     ``None`` and the batch continues. This only preempts I/O-bound work (a stuck httpx
     call releases the GIL); a CPU-bound hang holds the GIL and cannot be interrupted here.
     The abandoned worker unwinds on its own (e.g. the httpx timeout) — we don't wait on it.
+
+    ``on_settle(index, ok)`` fires as each item settles (``ok=False`` for an error or a
+    timeout). Use it for progress: without it a run of timed-out items emits nothing and
+    a healthy-but-slow batch looks frozen to a log-watching stall monitor.
     """
     if not items:
         return []
@@ -78,21 +83,24 @@ def parallel_map[T, R](
 
     workers = min(max(1, max_workers), len(items))
     # A serial call cannot be timed out (nothing else runs to abandon it), so the
-    # fast path only applies when no timeout is asked for.
-    if workers == 1 and item_timeout is None:
+    # fast path only applies when neither a timeout nor a settle callback is asked for.
+    if workers == 1 and item_timeout is None and on_settle is None:
         return [_safe(it) for it in items]
 
     pool = ThreadPoolExecutor(max_workers=workers)
     try:
         futures = [pool.submit(_safe, it) for it in items]
         results: list[R | None] = []
-        for future in futures:
+        for index, future in enumerate(futures):
             try:
-                results.append(future.result(timeout=item_timeout))
+                value = future.result(timeout=item_timeout)
             except FuturesTimeoutError:
                 logger.warning("parallel_map item timed out after %ss", item_timeout)
                 future.cancel()
-                results.append(None)
+                value = None
+            results.append(value)
+            if on_settle is not None:
+                on_settle(index, value is not None)
         return results
     finally:
         # Never block batch return on a hung I/O worker; it unwinds at its own

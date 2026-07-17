@@ -28,6 +28,21 @@ def test_single_worker_runs_serially() -> None:
     assert parallel_map(lambda x: x + 1, [10, 20], max_workers=1) == [11, 21]
 
 
+def test_on_settle_fires_for_success_and_failure() -> None:
+    # Progress callback must report every settled item (ok flag), incl. failures —
+    # so a slow/failing batch stays visible to the stall monitor.
+    settled: list[tuple[int, bool]] = []
+
+    def f(x: int) -> int:
+        if x == 2:
+            raise ValueError("boom")
+        return x
+
+    out = parallel_map(f, [1, 2, 3], max_workers=2, on_settle=lambda i, ok: settled.append((i, ok)))
+    assert out == [1, None, 3]
+    assert settled == [(0, True), (1, False), (2, True)]
+
+
 def test_slow_item_times_out_to_none() -> None:
     # A hung item (here a sleep; in production a wedged Ollama/httpx call) must not
     # block the whole batch — it yields None after item_timeout while the rest return.

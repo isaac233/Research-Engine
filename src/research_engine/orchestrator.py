@@ -690,17 +690,22 @@ class Orchestrator(OrchestratorInstrumentation):
                 continue
             work.append((paper, content_url, bool(resolved.get("is_oa", False))))
 
-        done = 0
-
         def _extract_one(item: tuple[Paper, str | None, bool]) -> dict[str, Any]:
-            nonlocal done
             paper, content_url, is_oa = item
             source = self.extractor.extract(  # type: ignore[union-attr]
                 paper, content=None, content_url=content_url, is_oa=is_oa, fetch_fn=fetch_fn
             )
-            done += 1  # GIL-atomic increment; approximate order under threads is fine
-            _progress(f"extract {done}/{len(work)} {(paper.url or paper.title or '')[:60]}")
             return extracted_source_to_dict(source)
+
+        settled = 0
+
+        def _on_settle(index: int, ok: bool) -> None:
+            # Fires for every item incl. timeouts/failures — so a slow batch is visible
+            # and never looks frozen to the stall monitor. url is best-effort.
+            nonlocal settled
+            settled += 1
+            url = (work[index][0].url or work[index][0].title or "")[:60]
+            _progress(f"extract {settled}/{len(work)} {'ok ' if ok else 'FAIL'} {url}")
 
         _progress(f"extract START {len(work)} sources")
         results = parallel_map(
@@ -708,6 +713,7 @@ class Orchestrator(OrchestratorInstrumentation):
             work,
             max_workers=max_workers_from_env(),
             item_timeout=item_timeout_from_env(),
+            on_settle=_on_settle,
         )
         extracted: list[dict[str, Any]] = [r for r in results if r is not None]
         self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
