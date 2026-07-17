@@ -1,5 +1,48 @@
 # HANDOFF — 2026-07-17
 
+## 🧪 2026-07-17 (LATE-5) — v7 WEAPONS COMMITTED (`684ac3c`) after adversarial review; measured NEGATIVE/NOISE on task 53
+
+Built + committed 5 env-gated (default-OFF) levers from the v7 online SOTA scan
+(`docs/plan/finish_line_research_v7.md`): **W1** MiniCheck citation abstain gate
+(`RESEARCH_ENGINE_ABSTAIN_GATE=flan|minicheck`, `synthesis/minicheck.py` +
+`abstain_citations()`), **W2** coverage ledger (`RESEARCH_ENGINE_COVERAGE_LEDGER`,
+`planning/coverage_ledger.py`), **W3** section-locked write (`RESEARCH_ENGINE_SECTION_LOCKED_WRITE`,
+`Outline.partitioned()` + skip deepen), **W4** grounding brief (`RESEARCH_ENGINE_GROUNDING_BRIEF`,
+`planning/grounding_brief.py`), **W5** PDF ingest (`RESEARCH_ENGINE_PDF_INGEST`). Adversarial
+review (review-suite) caught a CRITICAL (abstain regex dropped SUPPORTED cites on glued
+punctuation `2024.[e1]` — fixed with a char-scan splitter that keeps the cite on any parse-miss)
++ 4 HIGH/MED (guarded MiniCheck load, Ollama fast-timeout, 6000-char PDF cap, non-fatal ledger).
+`minicheck` pip-installed (torch/transformers/accelerate/nltk-punkt); flan verified. `ckpts/` gitignored.
+
+**MEASURED task 53, N=1 isolation matrix (winning env + CDP, kimi judge) — spans / RACE / FACT:**
+| config | spans | RACE | FACT |
+|---|---|---|---|
+| baseline (CDP+plan-then-fill) | 54 | **32.68** | 32.5% (13/40) |
+| W1 abstain only | 62 | 31.31 | 36.4% (12/33) |
+| W5 PDF only (inert, 0 pdfs read) | 49 | 21.05 | 20.0% (8/40) |
+| W3 section-lock only | 39 | 22.49 | 17.5% (7/40) |
+| combined W1+W2+W4+W5 | 33 | 24.19 | 39.1% (9/23) |
+
+**KEY FINDING = N=1 VARIANCE ~±11 RACE.** W5 was inert (no PDF surfaced = baseline-equivalent
+config) yet scored 21.05 vs baseline 32.68 → single-task deltas are NOT trustworthy. Mechanistic
+reads that survive: **W1 = neutral/safe** (keep opt-in; drops ~7 unsupported cites, RACE flat,
+FACT precision +noise); **W2+W4 = net-negative** (grounding brief built an 80-cell grid → ledger
+diluted retrieval to 33 spans → RACE −8); **W3 = likely-negative** (skips deepen, the comp/insight
+driver → retune to section-SCOPED deepen, not skip); **W5 = inert** unless PDFs appear.
+
+### ⏭️ NEXT SESSION — START HERE
+1. **Fix the instrument before more runs.** N=1 live task 53 swings ±11 RACE. Either (a) N≥3-5 per
+   config (hours), (b) make serp deterministic (cache serp rows so a config re-banks the same pages
+   — the biggest variance source), or (c) use the bounded cache A/B (`bench/writer_eval`) for
+   writer/FACT levers. Do NOT trust another single live-task delta.
+2. **Retune, don't discard:** W2/W4 → gap-query ONLY after core objectives are banked + cap entities
+   (~5) & gap-budget (~2/round) so the ledger ADDS depth. W3 → section-scoped deepen instead of
+   skipping deepen. W1 → keep as-is (opt-in), maybe sweep τ on the cache A/B.
+3. Everything committed default-OFF → `main`/default path unharmed. Winning env unchanged (HANDOFF
+   below). All weapon env flags in `docs/plan/finish_line_research_v7.md` §1.
+
+---
+
 ## 🚀 2026-07-17 (LATE) — PLAN-THEN-FILL BREAKTHROUGH: live RACE 14.66 → 29.42 mean N=3 (DOUBLED), IF 8.65 → 33.0 (×3.8)
 
 **The biggest single RACE gain in the project, on the LIVE path, task 51 (N=1, kimi judge).**
