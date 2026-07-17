@@ -18,6 +18,17 @@ TDD, mypy+ruff, **582 unit tests green**, committed on `feat/deepresearch-bench`
 Bar = Claude-3.7 RACE 40.67 / FACT 93.7%. **Gap to bar now ~11 RACE (was ~26).** Sections became
 the ASKED dims (Population 2020-2050 / clothing / food / housing) instead of a healthcare essay.
 
+**✅ N=3 CONFIRMED (StepF, tasks 51/52/53, same winning env):**
+| task | RACE | FACT | note |
+|---|---|---|---|
+| 51 Japan elderly | 31.47 | 45% | |
+| 52 Buffett/Munger | **37.36** | 70% | **near the bar** |
+| 53 wealthiest govs | 19.44 | 4% | only 14 spans banked — THIN fetchable evidence |
+| **MEAN** | **29.42** | 39.8% | confirms N=1 29.18 — not noise |
+Task 52 nearly hit the bar; task 53 dragged the mean because its query had sparse *fetchable*
+evidence (14 spans, most reads 403/thin). **This pinpoints the #1 remaining gap: retrieval
+FETCHABILITY, not the writer/outline (now strong).**
+
 **The levers (all env-gated, default OFF — default linear path unchanged):**
 1. **Lever 3 — reference-scale writing** (`9320ebc`): `SectionWriter.max_sentences` +
    `RESEARCH_ENGINE_WRITER_MAX_SENTENCES` / `_WRITER_MAX_TOKENS`. Writer was hard-capped at
@@ -52,8 +63,8 @@ research-engine bench --tasks 1 --language en --judge ollama --judge-model kimi-
 ### ⏭️⏭️ NEXT SESSION — START HERE (push from 29.18 toward the 40.67 bar)
 **Session ops:** `podman machine start` → `cd ../search-infra && (podman-compose up -d searxng || podman compose up -d searxng)` → warm SearXNG (`curl "localhost:8080/search?q=x&format=json"` results>0). Ollama up (24 models; `mistral-small3.2:latest` synth lane). **ALWAYS archive `bench/out/engine.jsonl`+`scores.jsonl` and purge serp rows before a re-run** (else bench re-scores the stale task). Attach `bench/watchdog.py` via Monitor (stall 300s ok now that fast-fail caps calls at 90s).
 
-1. **CONFIRM N≥3** — the 29.18 is N=1. Run the winning env with `--tasks 3` (en). With SKIP_COLLECT each task is ~15-20 min, so ~1h total. Gate: does the mean RACE hold ≥ ~25 across tasks 51-53? This is the single most important next step — bank a non-N=1 number.
-2. **FULLER RETRIEVAL (the clearest remaining RACE lever)** — StepE banked only **4 of ~6 objectives** into sections; transport + willingness dimensions still dropped (their pages 403'd or search returned nothing fetchable). Levers: (a) **CDP/headless 403-recovery** (browser subsystem) to recover the ~50% bot-blocked reads — would fill the dropped dimensions; (b) raise `REACT_PER_OBJECTIVE_SEARCHES` to 4-5; (c) dedup the objectives_fn output (task 51 emits 8 objectives with ~4 dupes → only ~4 distinct sections). More sections covering more asked dims → comp + IF toward the bar.
+1. ~~CONFIRM N≥3~~ **✅ DONE (StepF): mean RACE 29.42 across 51/52/53, task 52 peak 37.36.** The doubling is confirmed, not N=1 noise. Next confirmation would be N≥5 with a wider task set once the fetchability lever (below) lands.
+2. **RETRIEVAL FETCHABILITY = the #1 remaining lever (pinpointed by task 53).** Task 53 scored 19.44 / FACT 4% because only **14 spans** banked — its query returned sparse *fetchable* evidence (most reads 403/thin) while tasks 51/52 banked 120-194 spans and scored 31-37. So the writer/outline are strong; the binding constraint is now getting on-page evidence for every asked dimension. Levers, highest-ROI first: (a) **CDP/headless 403-recovery** in the react `read_fn` (browser subsystem) to recover the ~50% bot-blocked reads — directly fills the dropped dimensions and lifts the weak tasks; (b) raise `REACT_PER_OBJECTIVE_SEARCHES` to 4-5 so a thin objective tries more queries; (c) dedup the `objectives_fn` output (task 51 emits 8 objectives with ~4 dupes → only ~4 distinct sections — dedup → more distinct sections → more coverage); (d) a fetchability-aware serp rerank (prefer HTML that returns content over PDFs/paywalls). This is where the next ~11 RACE to the bar lives.
 3. **Readability/length polish** — StepE read 32.4 (bar 41.5); brief 16k vs reference 63k. Push `WRITER_MAX_SENTENCES`/`_MAX_TOKENS` higher and re-measure (watch FACT doesn't drop).
 4. **Ollama wedge discipline** ([[ollama-recovery-discipline]]): the scheduler still wedges under sustained sequential load. fast-fail(90s) makes runs robust, but if a whole run hangs: py-spy the PID FIRST (names the blocked frame — it's `ranker`/`summarize_page` → `ollama_client.complete` → httpx.post), GPU 0% + /api/tags-still-UP = wedge → graceful tray restart (`Stop-Process 'ollama app','ollama'` → relaunch `ollama app.exe`; NEVER `taskkill //F` or manual `ollama serve`). Do NOT kill a bench mid-Ollama-call (wedges the server).
 
