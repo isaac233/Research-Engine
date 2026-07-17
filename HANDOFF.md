@@ -1,6 +1,53 @@
 # HANDOFF — 2026-07-16
 
-## ⏭️⏭️ NEXT SESSION — START HERE
+## 🔧 2026-07-16 (LATER) — the "#1 blocking bug" was INFRA, not code (react banks fine); loop-abort fix shipped
+
+**The prior "#1 BLOCKING BUG" (react banks ~174 standalone yet ~0 in-campaign) is DISPROVEN as a
+code bug.** Instrumented `_react_plan`/`_react_brief` (env `RESEARCH_ENGINE_REACT_DEBUG=1`,
+`[react-dbg]` to stderr) and ran a controlled isolation:
+- **Arm A** — `_react_plan` on a FRESH orchestrator, SearXNG up: **67 spans / 4 pages** (max_pages=4).
+- **Churn** — one `discovery.run` (mimics the campaign collection stage): 120 groups, no error.
+- **Arm B** — `_react_plan` on the SAME orchestrator AFTER churn: **67 spans** — IDENTICAL.
+
+→ Campaign-accumulated state does NOT break react. The 2-min / FACT-0.0% campaigns
+(`ab_hybrid_live*.log`) were **SearXNG down/unreachable** at that time → `registry.search("serp")`
+empty → react banks 0 → `_react_brief` returns "" → thin linear fallback with unsupported cites →
+FACT 0.0%, fast finish. With SearXNG up, react banks in-campaign exactly as standalone. See
+[[react-banking-not-a-bug]].
+
+**GOTCHA that faked a 3rd FACT-0.0% this session:** `research-engine bench` SKIPS a task already in
+`bench/out/engine.jsonl` (resume cache, `runner.py:83`) and just re-scores the stale article. Archive
+`engine.jsonl`+`scores.jsonl` (and purge serp rows in `data/cache.db`) BEFORE any real re-run, else
+you measure the old article. (Archived this session → `*_20260716_231204.bak.jsonl`.)
+
+**SHIPPED (TDD, mypy+ruff+571 unit green):** `ReactPlanner.run` aborted the WHOLE loop on the first
+dry objective (`if added==0: break`). With ~50% of live reads returning **403** (sciencedirect / imf /
+cgdev block bots), a dry FIRST objective zeroed the whole run. Now: `break` only if pages already
+banked, else `continue`. Test `test_dry_first_objective_does_not_abort_the_run`. + diagnostic
+instrumentation in `orchestrator._react_plan/_react_brief` (env-gated, kept for the volume measurement).
+
+### ⏭️ REAL NEXT STEP (the phantom bug is gone → do the actual goal)
+1. **Measure the volume lever** (the true #1): with SearXNG UP + `engine.jsonl` archived, run the real
+   react bench (`RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=16 … bench --tasks N`)
+   and compare RACE/FACT vs linear. **BLOCKED THIS SESSION by the collection stall (see #2):** a
+   1-task react bench froze at ~7 min in the LINEAR collection stage (`data/state.db` stopped writing
+   at 23:19, Ollama idle, log 0 bytes) — a pathological page hangs `extraction/markdownify`
+   (catastrophic backtracking) or a fetch never returns. The react-banking question is already
+   answered by the Arm A/B churn probe (67==67); this is a separate collection bug that must be
+   fixed before a full react campaign will complete.
+2. **THREE real ceilings found (fix #2a FIRST — it blocks the measurement):**
+   (a) **Collection stall** — one bad page freezes the whole collect; the 2M-char markdownify cap
+   from a prior session is NOT enough (still hung). Add a per-item WALL-CLOCK timeout in
+   `util/parallel.py` (`as_completed(timeout=)`, let the hung daemon thread leak) so one page can't
+   wedge the run. This is the prerequisite for ANY full campaign.
+   (b) ~50% of reads 403 (bot-hostile hosts) — a CDP/headless fetch could recover some.
+   (c) react campaigns DOUBLE-PAY retrieval (linear collection runs before react at evaluate) —
+   short-circuit collection when `planner=react` to cut ~30 min/task AND sidestep (a) for react runs.
+3. FACT ceiling (writer-side) still open — cache A/B (`bench/writer_eval`) is the fast loop.
+
+---
+
+## ⏭️⏭️ NEXT SESSION — START HERE (SUPERSEDED for the react-bug item above; volume/FACT levers still valid)
 
 ### Frame of reference (the overarching plan)
 **Goal:** beat Opus on DeepResearch Bench — **RACE > 40.67 AND FACT c.acc > ~90%**, driven by

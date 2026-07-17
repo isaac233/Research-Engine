@@ -114,6 +114,18 @@ def test_terminates_on_stall_when_all_refs_seen() -> None:
     assert result.iterations < 5
 
 
+def test_dry_first_objective_does_not_abort_the_run() -> None:
+    # The first objective's search yields nothing (all 403s / no serp hits in the
+    # wild); a later objective is productive. The loop must NOT abort empty on the
+    # first dry objective — that regressed react to 0 banked spans in-campaign.
+    refs = {"q:obj1": [], "q:obj2": [SourceRef("https://b.com", "B")]}
+    planner, log = _fakes(["obj1", "obj2"], refs)
+    result = planner.run("the topic")
+    assert result.pages_read == 1
+    assert log["reads"] == ["https://b.com"]
+    assert result.evidence_bank.spans()
+
+
 def test_empty_objectives_falls_back_to_query() -> None:
     planner, log = _fakes([], {"q:the topic": [SourceRef("https://a.com", "A")]})
     result = planner.run("the topic")

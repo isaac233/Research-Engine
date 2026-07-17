@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -98,6 +99,16 @@ def _react_budget() -> tuple[int, int, float]:
         _int("RESEARCH_ENGINE_REACT_PER_OBJECTIVE", _REACT_PER_OBJECTIVE),
         float(_int("RESEARCH_ENGINE_REACT_MAX_SECONDS", _REACT_MAX_SECONDS)),
     )
+
+
+def _react_dbg(msg: str) -> None:
+    """Diagnostic trace for the ReAct path, gated on RESEARCH_ENGINE_REACT_DEBUG.
+
+    Compares the in-campaign react run to the standalone _react_plan probe to find
+    why the loop banks ~0 spans inside a full campaign but ~174 alone (HANDOFF bug).
+    """
+    if os.environ.get("RESEARCH_ENGINE_REACT_DEBUG"):
+        print(f"[react-dbg] {msg}", file=sys.stderr, flush=True)
 
 
 def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
@@ -904,9 +915,18 @@ class Orchestrator(OrchestratorInstrumentation):
 
     def _react_brief(self, query: str) -> str:
         """Run the ReAct planner and write its bank+outline; "" when off/empty."""
+        _react_dbg(f"_react_brief: entry planner_mode={self.planner_mode!r}")
         result = self._react_plan(query)
         if result is None or self.synthesizer is None:
+            _react_dbg(
+                f"_react_brief: bailing result_is_none={result is None} "
+                f"synth_is_none={self.synthesizer is None}"
+            )
             return ""
+        _react_dbg(
+            f"_react_brief: plan OK spans={len(result.evidence_bank.spans())} "
+            f"pages={result.pages_read} sections={len(result.outline.sections)}"
+        )
         provider, model = self.synthesizer.provider, self.synthesizer.model
         draft = SectionWriter(provider, model, carry_context=True, synthesis=True).write(
             result.outline, result.evidence_bank, query
@@ -928,6 +948,11 @@ class Orchestrator(OrchestratorInstrumentation):
             or self.synthesizer is None
             or self.discovery is None
         ):
+            _react_dbg(
+                f"_react_plan: guard-None mode={self.planner_mode!r} "
+                f"browser={self.browser is not None} synth={self.synthesizer is not None} "
+                f"discovery={self.discovery is not None}"
+            )
             return None
         provider, model = self.synthesizer.provider, self.synthesizer.model
         # Hybrid (docs/plan/hybrid_tongyi_plan.md): route the planner's REASONING seams
@@ -939,6 +964,11 @@ class Orchestrator(OrchestratorInstrumentation):
         discovery = self.discovery
         registry = getattr(discovery, "registry", None)
         serp_ok = registry is not None and "serp" in getattr(registry, "enabled", set())
+        _react_dbg(
+            f"_react_plan: serp_ok={serp_ok} enabled={sorted(getattr(registry, 'enabled', set()))} "
+            f"reasoning_model={reasoning_model!r}"
+        )
+        _counts = {"search_calls": 0, "search_hits": 0, "read_calls": 0, "read_chars": 0}
 
         def _fetchable_ref(url: str | None, title: str) -> SourceRef | None:
             if not url:
@@ -957,10 +987,17 @@ class Orchestrator(OrchestratorInstrumentation):
             if serp_ok and registry is not None:
                 found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
                 papers = list(found.papers) if found.ok else []
+                _react_dbg(
+                    f"search_fn: serp q={sub_query[:60]!r} ok={found.ok} papers={len(papers)}"
+                )
             else:
                 result = discovery.run(sub_query, context="", max_sources=_REACT_PER_QUERY)
                 papers = [Paper.from_dict(g.canonical.to_dict()) for g in result.deduped_groups]
-            return [r for p in papers if (r := _fetchable_ref(p.url or p.pdf_url, p.title))]
+                _react_dbg(f"search_fn: discovery.run q={sub_query[:60]!r} papers={len(papers)}")
+            refs = [r for p in papers if (r := _fetchable_ref(p.url or p.pdf_url, p.title))]
+            _counts["search_calls"] += 1
+            _counts["search_hits"] += len(refs)
+            return refs
 
         def read_fn(ref: SourceRef) -> str:
             lu = ref.url.lower()
@@ -969,15 +1006,30 @@ class Orchestrator(OrchestratorInstrumentation):
             try:
                 self._validate_url(ref.url)
             except ValueError:
+                _react_dbg(f"read_fn: url rejected {ref.url[:80]!r}")
                 return ""
             try:
-                return self._fetch_page_text(ref.url)
-            except Exception:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
+                text = self._fetch_page_text(ref.url)
+                _counts["read_calls"] += 1
+                _counts["read_chars"] += len(text)
+                _react_dbg(f"read_fn: fetched {ref.url[:80]!r} chars={len(text)}")
+                return text
+            except Exception as exc:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
+                _react_dbg(f"read_fn: fetch EXC {ref.url[:80]!r} {type(exc).__name__}: {exc}")
                 return ""
 
+        def _objectives(q: str) -> list[Any]:
+            objs = plan_objectives(q, provider, reasoning_model)
+            _react_dbg(f"objectives_fn: n={len(objs)} {[str(o)[:40] for o in objs][:6]}")
+            return objs
+
         max_pages, per_objective, max_seconds = _react_budget()
+        _react_dbg(
+            f"_react_plan: budget max_pages={max_pages} per_obj={per_objective} "
+            f"max_seconds={max_seconds}"
+        )
         planner = ReactPlanner(
-            objectives_fn=lambda q: plan_objectives(q, provider, reasoning_model),
+            objectives_fn=_objectives,
             search_fn=search_fn,
             read_fn=read_fn,
             summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, reasoning_model),
@@ -988,6 +1040,12 @@ class Orchestrator(OrchestratorInstrumentation):
             max_seconds=max_seconds,
         )
         result = planner.run(query)
+        _react_dbg(
+            f"_react_plan: DONE spans={len(result.evidence_bank.spans())} "
+            f"pages={result.pages_read} iters={result.iterations} "
+            f"search_calls={_counts['search_calls']} search_hits={_counts['search_hits']} "
+            f"read_calls={_counts['read_calls']} read_chars={_counts['read_chars']}"
+        )
         return result if result.evidence_bank.spans() else None
 
     def _build_deep_audit_payload(self, campaign: Campaign) -> dict[str, Any] | None:

@@ -126,9 +126,15 @@ class ReactPlanner:
             refined = self.refine_fn(query, objective, summaries.digest())
             added = self._collect(query, objective, refined, pages, seen_urls, summaries)
             if added == 0:
-                # A round that surfaces nothing new means this query space is
-                # exhausted — stop rather than burn budget on empty repeats.
-                break
+                # A dry objective (no serp hits / every candidate 403s or is already
+                # seen) must not abort the whole run before anything is banked — that
+                # regressed react to 0 spans in-campaign whenever the FIRST objective
+                # happened to be unfetchable. Only stop early once we already have
+                # evidence (the query space is genuinely exhausting); otherwise move
+                # on to the next objective, which may well be fetchable.
+                if pages:
+                    break
+                continue
             # Co-evolve: rebuild the bank + outline from the evidence gathered so far
             # so the structure tracks the growing evidence, not the opening decomposition.
             bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)
