@@ -930,6 +930,12 @@ class Orchestrator(OrchestratorInstrumentation):
         ):
             return None
         provider, model = self.synthesizer.provider, self.synthesizer.model
+        # Hybrid (docs/plan/hybrid_tongyi_plan.md): route the planner's REASONING seams
+        # (objectives / refine / outline — and, for the spike, summarise to avoid
+        # in-loop model swaps) to a trained deep-research model (e.g. Tongyi-DR Q4),
+        # while search/read stay on our deterministic policy-guarded adapters. Unset ⇒
+        # reasoning_model is the synth model ⇒ byte-identical to the single-model path.
+        reasoning_model = os.environ.get("RESEARCH_ENGINE_REACT_REASONING_MODEL") or model
         discovery = self.discovery
         registry = getattr(discovery, "registry", None)
         serp_ok = registry is not None and "serp" in getattr(registry, "enabled", set())
@@ -971,12 +977,12 @@ class Orchestrator(OrchestratorInstrumentation):
 
         max_pages, per_objective, max_seconds = _react_budget()
         planner = ReactPlanner(
-            objectives_fn=lambda q: plan_objectives(q, provider, model),
+            objectives_fn=lambda q: plan_objectives(q, provider, reasoning_model),
             search_fn=search_fn,
             read_fn=read_fn,
-            summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, model),
-            refine_fn=lambda q, obj, digest: refine_query(q, obj, digest, provider, model),
-            outline_fn=lambda q, bank: OutlineBuilder(provider, model).build(bank, q),
+            summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, reasoning_model),
+            refine_fn=lambda q, obj, digest: refine_query(q, obj, digest, provider, reasoning_model),
+            outline_fn=lambda q, bank: OutlineBuilder(provider, reasoning_model).build(bank, q),
             max_pages=max_pages,
             per_objective_pages=per_objective,
             max_seconds=max_seconds,

@@ -39,6 +39,7 @@ from research_engine.synthesis.attribute_writer import AttributeFirstWriter
 from research_engine.synthesis.cite_fix import fix_citations
 from research_engine.synthesis.deepen import deepen_report
 from research_engine.synthesis.section_writer import SectionWriter
+from research_engine.synthesis.verify_regen import verify_regen
 
 logger = logging.getLogger(__name__)
 _CACHE = Path(__file__).resolve().parent / "out" / "fixed_evidence.jsonl"
@@ -131,6 +132,28 @@ def _section_synth_pcite(
     return fix_citations(article, bank) if article.strip() else article
 
 
+def _section_synth_verify(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # #13 verify-and-DROP (VeriCite): synth draft, then strip each [eN] whose bank
+    # span does not entail its sentence (local-model check mirroring the FACT judge).
+    article = _section_synth(bank, query, provider, model)
+    return verify_regen(article, bank, provider, model) if article.strip() else article
+
+
+def _section_synth_regen(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # #13 verify-and-REGENERATE (primary bet): synth draft, then rewrite each
+    # unentailed sentence toward its span before dropping — protects coverage/RACE.
+    article = _section_synth(bank, query, provider, model)
+    return (
+        verify_regen(article, bank, provider, model, regenerate=True)
+        if article.strip()
+        else article
+    )
+
+
 WRITERS: dict[str, WriterFn] = {
     "flat": _flat,
     "section": _section,
@@ -142,6 +165,8 @@ WRITERS: dict[str, WriterFn] = {
     "section_synth": _section_synth,
     "section_synth_pcite": _section_synth_pcite,
     "section_faithful_deepen": _section_faithful_deepen,
+    "section_synth_verify": _section_synth_verify,
+    "section_synth_regen": _section_synth_regen,
 }
 
 
@@ -176,8 +201,17 @@ def _run_campaign_capture_sources(prompt: str, project_root: Path | None) -> lis
     return list(final.meta.get("extracted_sources") or []) if final else []
 
 
-def score(variants: list[str], judge_kind: str, judge_model: str | None) -> dict[str, Any]:
-    """Score each writer variant over the cached evidence; return {variant: summary}."""
+def score(
+    variants: list[str],
+    judge_kind: str,
+    judge_model: str | None,
+    writer_model: str | None = None,
+) -> dict[str, Any]:
+    """Score each writer variant over the cached evidence; return {variant: summary}.
+
+    ``writer_model`` overrides the synth-lane writer tag (e.g. a Tongyi-DR GGUF) so a
+    model swap can be A/B'd on the same cached evidence without touching lane config.
+    """
     records = _load_cache()
     if not records:
         raise SystemExit("no cached evidence — run `collect` first")
@@ -185,7 +219,8 @@ def score(variants: list[str], judge_kind: str, judge_model: str | None) -> dict
     provider = _try_provider(config)
     if provider is None:
         raise SystemExit("no LLM provider (Ollama) reachable")
-    model = _lane_model(config, "synth_a", "mistral-small3.2:latest")
+    model = writer_model or _lane_model(config, "synth_a", "mistral-small3.2:latest")
+    logger.info("writer model = %s", model)
 
     criteria_map, reference_map = _load_maps()
     judge = build_judge(judge_kind, judge_model)
@@ -242,6 +277,7 @@ def main() -> None:
     s.add_argument("--all", action="store_true")
     s.add_argument("--judge", default="ollama")
     s.add_argument("--judge-model", default="kimi-k2.7-code:cloud")
+    s.add_argument("--writer-model", default=None, help="override synth-lane writer tag")
     args = parser.parse_args()
 
     if args.cmd == "collect":
@@ -251,7 +287,7 @@ def main() -> None:
         unknown = [v for v in variants if v not in WRITERS]
         if unknown:
             raise SystemExit(f"unknown variant(s): {unknown}; choose from {list(WRITERS)}")
-        summary = score(variants, args.judge, args.judge_model)
+        summary = score(variants, args.judge, args.judge_model, args.writer_model)
         print(json.dumps({v: _headline(s) for v, s in summary.items()}, indent=2))
 
 

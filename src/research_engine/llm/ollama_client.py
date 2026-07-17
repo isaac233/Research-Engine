@@ -8,6 +8,21 @@ import httpx
 
 from research_engine.llm.provider import LLMProvider, Message
 
+_THINK_CLOSE = "</think>"
+
+
+def _strip_reasoning(text: str) -> str:
+    """Drop a leaked ``<think>…</think>`` preamble, keeping only the answer.
+
+    Reasoning models (R1/Qwen3/Tongyi-DR) can leak their reasoning into ``content``
+    even with ``think=false`` when the GGUF chat template ignores the flag. The real
+    answer follows the final ``</think>``; everything before it is the preamble.
+    ponytail: assumes prose never legitimately contains ``</think>`` (safe for
+    reports); upgrade to a paired ``<think>…</think>`` regex if that ever bites.
+    """
+    idx = text.rfind(_THINK_CLOSE)
+    return text[idx + len(_THINK_CLOSE) :].lstrip() if idx != -1 else text
+
 
 class OllamaClient(LLMProvider):
     """Provider for local Ollama models."""
@@ -71,7 +86,7 @@ class OllamaClient(LLMProvider):
             data = response.json()
 
         message = data.get("message", {}) or {}
-        return str(message.get("content", ""))
+        return _strip_reasoning(str(message.get("content", "")))
 
     def ps(self) -> list[dict[str, Any]]:
         """Return models currently loaded in memory (GET /api/ps)."""

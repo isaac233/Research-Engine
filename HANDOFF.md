@@ -1,63 +1,123 @@
-# HANDOFF — 2026-07-15
+# HANDOFF — 2026-07-16
 
-## ⏭️⏭️ NEXT SESSION — START HERE (standing order: research-first, ~2× FACT while lifting RACE)
+## ⏭️⏭️ NEXT SESSION — START HERE
 
-**When the user says "get to know the project, then get to work" — this is the plan.
-Do NOT skip the research run.**
+### Frame of reference (the overarching plan)
+**Goal:** beat Opus on DeepResearch Bench — **RACE > 40.67 AND FACT c.acc > ~90%**, driven by
+LOCAL models. Master plan: `docs/plan/finish_line_plan.md` (WebWeaver restructure — Evidence
+Bank + section writer + ReAct planner, all BUILT). The bar is achievable on a local 30B-MoE
+(proof: WebWeaver on Qwen3-30B-A3B = RACE 46.77). Two gaps vs the bar: **RACE (report
+depth/breadth, driven by evidence VOLUME)** and **FACT (citation accuracy)**.
 
-**Goal:** nearly DOUBLE FACT — from **49%** (current default `section_synth`) toward the
-Claude bar **93.7%** — WITHOUT regressing RACE (currently **28.31**, project best) or the
-other metrics (E.Cit 16.75, Read 33.3). The measured ceiling is **PARAPHRASE DRIFT**: our
-writer rewords the evidence span, so the cited page's support is judged weak. Post-hoc
-citation *correction* (#10) was measured FLAT→HARMFUL — the FACT gap is NOT misattribution.
+### THE #1 NEXT STEP (data-driven pivot from this session): the react VOLUME lever
+This session proved the **ReAct planner banks ~174 verbatim spans from 16 pages LIVE**
+(direct `_react_plan` probe, task 51) — vs the fixed cache's ~20 spans. **That ~8× evidence
+is the biggest untapped RACE lever, and it's model-agnostic (mistral drives it, stable).**
+BUT there is a BLOCKING BUG: **react banks ~174 standalone yet ~0 inside the full campaign**
+(`research-engine bench` → FACT 0.0%, 2-min finish). Fix that first.
 
-### STEP 1 — RESEARCH RUN FIRST (online: firecrawl_search / exa / firecrawl_research_search_papers)
-Before writing any code, research methods that hit **90%+ citation accuracy** while keeping
-comprehensiveness. Write findings to `docs/plan/finish_line_research_v4.md`. Read 3-4 papers
-in full. Target questions:
-- How do SOTA deep-research systems reach 90%+ FACT / citation accuracy on DeepResearch Bench?
-- **Verbatim/extractive citation vs generative** — quote-constrained / grammar-constrained
-  decoding that forces the delivered sentence to CONTAIN the span's exact text.
-- **Sentence-conditioned-on-one-span generation** (true attribute-first per sentence).
-- **Verify-and-regenerate / self-correction loops** (draft → check each cite verifies on its
-  page → rewrite only the failing sentences) — vs our verify-and-DROP.
-- **Claim decomposition + per-claim grounding** (ReClaim / FRONT / LongCite lineage).
-- Crucially: methods that keep RACE (depth/coverage) WHILE enforcing verbatim support —
-  the fundamental tension we keep hitting (verbatim = choppy/low-RACE; synth = high-RACE/low-FACT).
-Prior research: `docs/plan/finish_line_research_v3.md` (why #10 failed, why #11 won).
+**Do this, in order:**
+1. **DEBUG the full-campaign react-banking bug.** `orchestrator._react_plan` banks 174 spans
+   when called directly (with `RESEARCH_ENGINE_PLANNER=react` + SERP env), but the same path
+   via `_react_brief` (called at `orchestrator.py:824` inside `_build_report_and_brief`) banks
+   ~0 during a `research-engine bench` campaign. Find why (likely: a prior campaign stage
+   consumes/changes state, an exception is swallowed, or discovery/browser differs in the
+   campaign context). Cheap repro: `research-engine bench --tasks 1 --judge ollama` with the
+   env set, add logging to `_react_plan`/`_react_brief`, compare to the standalone probe.
+2. **Measure the volume lever** (once banking works end-to-end): full RACE/FACT with react ON,
+   on **mistral** (stable), and try raising `RESEARCH_ENGINE_REACT_MAX_PAGES` (16 → 24/32).
+   Gate: does 174 live spans lift RACE-Comp/Depth/E.Cit toward the bar?
+3. **Fix the writer-side FACT ceiling in tandem** (still ~44-50%): the cache A/B loop
+   (`bench/writer_eval`) is the fast tool. #13 verify/regenerate was a MEASURED NEGATIVE this
+   session ([[verify-regen-negative]]) — span-level entailment ≠ the FACT judge's claim-vs-
+   full-PAGE check. If retrying FACT, check the claim against the FULL source page, not the span.
 
-### STEP 2 — BUILD + MEASURE ON THE CACHE (the fast loop — NO hanging live smokes)
-Writer/citation changes measure in ~35 min over the cached `bench/out/fixed_evidence.jsonl`
-(4 tasks, 20 src each) — bounded, always finishes. **Same-run A/B is MANDATORY** (run-to-run
-baseline swings ±2 RACE / ±10pt FACT — this session saw section_deepen at both 25.4/40.9 and
-27.1/45.0). Command:
-```
-python -m bench.writer_eval score --variant section_synth,section_faithful_deepen,<new> \
-  --judge ollama --judge-model kimi-k2.7-code:cloud
-```
-- Already staged to try: `section_faithful_deepen` (verbatim-tight + deepen — the #10-negative's
-  implied FACT lever). Build new variants for whatever the research surfaces.
-- **GATE:** FACT rises a lot AND RACE stays ≥ ~28 (do NOT regress the #11 synth win).
-- **Promote the winner:** `SectionWriter(..., synthesis=/quote_tight=/…)` at the two orchestrator
-  call sites (`_build_report_and_brief` ~L869, `_react_brief` ~L908).
+### Tongyi-DR hybrid — scoped but DEPRIORITIZED (spike weakened it)
+`docs/plan/hybrid_tongyi_plan.md`: route Tongyi-DR-30B-A3B into the ReactPlanner's reasoning
+seams. Phase 0.1 BUILT (env `RESEARCH_ENGINE_REACT_REASONING_MODEL` routes objectives/refine/
+outline/summarise to a second model; unset = no-op). **Phase 0.2 spike RAN and weakened the
+thesis:** at fixed page-budget, Tongyi Q4 (146 spans, 7-sec outline) ≈ mistral (174 spans, 6-sec)
+— **volume is budget-bound, not model-bound.** Tongyi's only edge = quality-at-equal-volume
+(unproven) + a modest writer-role FACT bump (44.3→49.8, [[trained-deepresearch-models]]).
+Revisit ONLY after the volume lever is proven, and only if a write+FACT/RACE-score of the two
+banks shows Tongyi's bank yields a materially better report. Tongyi tags pulled:
+`hf.co/mradermacher/Tongyi-DeepResearch-30B-A3B-GGUF:Q4_K_M` (18GB) / `:Q3_K_M` (14GB, degrades).
 
-### STEP 3 — retrieval volume (live path, now SAFE/bounded — only after the writer/FACT work)
-`RESEARCH_ENGINE_PLANNER=react` live bench now finishes (wall-clock deadline + serp-only search).
-Budgets: `RESEARCH_ENGINE_REACT_MAX_PAGES` (16), `_PER_OBJECTIVE` (3), `_MAX_SECONDS` (600).
-
-### Session ops
-`podman machine start` → `cd ../search-infra && podman-compose up -d searxng whoogle` →
-`export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`.
-Ollama local: `gemma4:12b`, `mistral-small3.2:latest`. Judge = `kimi-k2.7-code:cloud` (works
-via Ollama Cloud; does NOT appear in `/api/tags` but responds — [[kimi-judge-tag]]).
+### Session ops (READ [[ollama-recovery-discipline]] + [[diagnose-before-escalate]] FIRST)
+- SearXNG: `podman machine start` → `cd ../search-infra && (podman-compose up -d searxng || podman compose up -d searxng)` → warm it (first query is slow) → `export RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json'`.
+- **OLLAMA DISCIPLINE (hard rule, learned the hard way):** NEVER `taskkill //F` Ollama or run
+  manual `ollama serve` on Windows (the tray app owns :11434 → conflict → reinstall). If wedged,
+  restart the tray app gracefully. **Don't thrash the 18GB Tongyi:** run each big model in its
+  OWN process, load once, `keep_alive=0` unload before the next big load. Never alternate an
+  18GB offloaded model with another inside one process/campaign (that wedges the server).
+- **Verify the instrument before an expensive run:** confirm react actually banks (>0 spans) via
+  a direct `_react_plan` probe before trusting a full-bench number. Degenerate metrics
+  (FACT 0.0% both arms) = broken harness, not a real result.
+- Judge = `kimi-k2.7-code:cloud` (works via Ollama Cloud; not in `/api/tags` but responds —
+  [[kimi-judge-tag]]). Local: `mistral-small3.2:latest`, `gemma4:12b`.
+- Fast measure loops: cache A/B `python -m bench.writer_eval score --variant … --judge ollama
+  --judge-model kimi-k2.7-code:cloud` (writer/FACT); direct `_react_plan` probe (retrieval).
 
 ### Current state (what is TRUE right now)
-- **Default writer = `section_synth`** (`SectionWriter(synthesis=True)`) — promoted this session.
-  Cache A/B (kimi N=4): **RACE 28.31 / FACT 49.3% / E.Cit 16.75 / Read 33.3** (all project bests).
-- **`#10` cite_fix = OFF** (measured flat→harmful on synth; code kept, harmless, unused by default).
-- **`#7-9` ReAct planner** = built, behind `RESEARCH_ENGINE_PLANNER=react` (default off), live-safe.
-- Branch `feat/deepresearch-bench`, ~12 commits ahead of origin, **UNPUSHED**. Suite + mypy(108)
-  + ruff green. Fast measure loop = `bench/writer_eval` cache A/B. Full record below.
+- **Default writer = `section_synth`** (`SectionWriter(synthesis=True)`) — UNCHANGED this session.
+  Best cache A/B: RACE ~28-29 / FACT ~44-50% / E.Cit ~14-18 (kimi N=4; ±2 RACE / ±10pt FACT run-to-run).
+- **#13 verify/regenerate** (`synthesis/verify_regen.py` + variants `section_synth_verify/_regen`)
+  = MEASURED NEGATIVE, kept but unused ([[verify-regen-negative]]).
+- **Hybrid Phase 0.1 wiring** = built, `RESEARCH_ENGINE_REACT_REASONING_MODEL` env (default no-op).
+- **`_strip_reasoning`** added to `ollama_client.py` — strips leaked `<think>` (reasoning GGUFs
+  ignore think=false); no-op for non-reasoning models.
+- **`--writer-model`** override added to `bench/writer_eval`.
+- Branch `feat/deepresearch-bench`. Suite + mypy(106) + ruff green. **This session's work COMMITTED
+  + PUSHED** (see git log). Docs: `finish_line_research_v4.md`, `hybrid_tongyi_plan.md`.
+
+---
+
+## 2026-07-16 — research run v4 → #13 verify/regenerate BUILT + MEASURED NEGATIVE; strategic model scan
+
+Standing-order research run done. Read the FACT scorer + 3 papers in full (VeriCite
+2510.11394, FullCite 2606.07130, FineRef 2602.18437) → `docs/plan/finish_line_research_v4.md`.
+
+**KEY REFRAME:** FACT is judge-**entailment** of claim vs the **full re-fetched page
+(6000 chars)** — NOT a substring/verbatim check (`bench/fact.py` + `FACT_SUPPORT_PROMPT`).
+Built #13 = VeriCite-style verify-and-regenerate (`synthesis/verify_regen.py`, TDD 8
+tests, mypy+ruff clean): per cited sentence, local-model entailment vs its bank span;
+verify=strip unsupported `[eN]`, regenerate=rewrite toward span then drop. Variants
+`section_synth_verify` / `section_synth_regen`.
+
+**MEASURED — same-run cache A/B (kimi, N=4) — #13 FAILS the gate:**
+| variant | RACE | FACT | E.Cit |
+|---|---|---|---|
+| **section_synth (champion)** | **29.27** | **43.9%** | **15.00** |
+| section_synth_verify (drop) | 29.13 | 42.0% | 6.25 |
+| section_synth_regen (rewrite) | 26.67 | 42.3% | 11.75 |
+| section_faithful_deepen | 24.17 | 37.4% | 11.00 |
+→ v4 hypothesis instructively WRONG: local entailment vs the LONE SPAN ≠ the FACT
+judge's claim-vs-FULL-PAGE check (span is a subset → too strict). Drops/rewrites the
+wrong cites; regen degrades the synth prose that won RACE. **section_synth stays
+champion + default; no promotion.** Code kept (harmless, documents lesson).
+[[verify-regen-negative]]. NB this run's synth baseline (29.27/43.9) vs historical
+(28.31/49.3) = the known ±2 RACE / ±10pt FACT run-to-run swing.
+
+**Model viability scan (user asked):** deepseek-r1:14b, WebThinker 8/14B, MiroThinker
+14B all hardware-viable but agentic REASONING models that conflict with the engine's
+`think=false` + passive-writer design → as writers they regress FACT. The gap vs the
+WebWeaver/WebThinker proof is **TRAINING, not architecture**. Best obtainable trained
+model = **Tongyi-DeepResearch-30B-A3B** (3.3B-active MoE, GGUF + Ollama
+`huihui_ai/tongyi-deepresearch-abliterated` ready, fits 16GB+64GB offload). Pays off
+only if wired to DRIVE the ReAct loop (`think=true` lane, our search/browser as tools)
+— Phase 3-4 with a trained backbone. Verify its DeepResearch-Bench RACE first.
+[[trained-deepresearch-models]].
+
+### ⏭️ NEXT SESSION options
+1. **Page-aware verify** (not the lone span): if retrying FACT, check the claim against
+   the FULL source page text, mirroring the grader — the span-only check just failed.
+2. **Tongyi-DR ReAct integration spike** (the strategic bet): wire it into the react
+   planner lane as the loop driver; measure retrieval depth + RACE. Bigger swing than
+   writer tweaks; FACT is likely retrieval/structural-bound now.
+3. Retrieval volume via the (fast) react live path — still open.
+
+**Branch:** `feat/deepresearch-bench`, unpushed. New files `synthesis/verify_regen.py`
++ test + 2 writer_eval variants + `docs/plan/finish_line_research_v4.md`. Suite green.
 
 ---
 

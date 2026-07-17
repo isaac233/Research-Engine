@@ -98,3 +98,58 @@ def test_react_plan_banks_evidence_from_live_components() -> None:
 def test_react_plan_skipped_when_flag_off() -> None:
     orch = _orch("linear")
     assert orch._react_plan("aging topic") is None
+
+
+class _RecordingProvider(_DispatchProvider):
+    """Record the model each reasoning step was called with."""
+
+    def __init__(self) -> None:
+        self.models: dict[str, str] = {}
+
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None):  # noqa: ANN001
+        blob = " ".join(m.content for m in messages).lower()
+        if "information objectives" in blob:
+            self.models["objectives"] = model
+        elif "summarise" in blob:
+            self.models["summarise"] = model
+        elif "web search query" in blob:
+            self.models["refine"] = model
+        elif "outline" in blob:
+            self.models["outline"] = model
+        return super().complete(messages, model, temperature, max_tokens, format)
+
+
+def test_reasoning_model_env_routes_reasoning_steps(monkeypatch) -> None:  # noqa: ANN001
+    # Hybrid Phase 0.1: the reasoning seams use the override model; unset ⇒ synth model.
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_MODEL", "tongyi-test")
+    provider = _RecordingProvider()
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store, EventBus(store),
+        browser=_FakeBrowser(),  # type: ignore[arg-type]
+        discovery=_FakeDiscovery(),  # type: ignore[arg-type]
+        ranker=_FakeRanker(),  # type: ignore[arg-type]
+        synthesizer=SimpleNamespace(provider=provider, model="fake"),  # type: ignore[arg-type]
+    )
+    orch.planner_mode = "react"
+    orch._react_plan("aging topic in japan")
+    assert provider.models.get("objectives") == "tongyi-test"
+    assert provider.models.get("summarise") == "tongyi-test"
+    assert provider.models.get("refine") == "tongyi-test"
+    assert provider.models.get("outline") == "tongyi-test"
+
+
+def test_reasoning_model_defaults_to_synth_model_when_unset(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_REACT_REASONING_MODEL", raising=False)
+    provider = _RecordingProvider()
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store, EventBus(store),
+        browser=_FakeBrowser(),  # type: ignore[arg-type]
+        discovery=_FakeDiscovery(),  # type: ignore[arg-type]
+        ranker=_FakeRanker(),  # type: ignore[arg-type]
+        synthesizer=SimpleNamespace(provider=provider, model="fake"),  # type: ignore[arg-type]
+    )
+    orch.planner_mode = "react"
+    orch._react_plan("aging topic in japan")
+    assert provider.models.get("objectives") == "fake"  # byte-identical to single-model path
