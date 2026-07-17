@@ -62,6 +62,7 @@ class OllamaClient(LLMProvider):
         format: dict[str, Any] | None = None,
         options: dict[str, Any] | None = None,
         keep_alive: str | int | None = None,
+        request_timeout: float | None = None,
     ) -> str:
         target_model = model or self._default_model
         opts: dict[str, Any] = {"temperature": temperature}
@@ -82,7 +83,15 @@ class OllamaClient(LLMProvider):
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        response = self._http().post(f"{self.base_url}/api/chat", json=payload)
+        # A per-call timeout lets short reasoning calls (summarise/refine) fail fast on
+        # a wedged Ollama scheduler instead of hanging for the full client timeout
+        # (~300s), so the react loop skips that page and keeps its page budget.
+        post_kwargs: dict[str, Any] = {"json": payload}
+        if request_timeout is not None:
+            post_kwargs["timeout"] = httpx.Timeout(
+                request_timeout, connect=min(10.0, request_timeout)
+            )
+        response = self._http().post(f"{self.base_url}/api/chat", **post_kwargs)
         response.raise_for_status()
         data = response.json()
 

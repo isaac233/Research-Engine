@@ -18,12 +18,23 @@ extractive excerpt / the objective text, so the ReAct planner keeps moving.
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
 from research_engine.llm.provider import LLMProvider, Message
 
 _MAX_PAGE_CHARS = 6000  # cap page text shown to the summariser
+
+
+def _reasoning_timeout() -> float:
+    """Per-call read timeout (s) for the react loop's short reasoning calls, so a
+    wedged Ollama scheduler fails fast (fall back to excerpt/objective) instead of
+    hanging the whole page budget on the synth client's ~300s timeout."""
+    try:
+        return max(5.0, float(os.environ.get("RESEARCH_ENGINE_REACT_REASONING_TIMEOUT", "")))
+    except ValueError:
+        return 90.0
 _EXCERPT_CHARS = 400
 
 _SUMMARY_SCHEMA: dict[str, Any] = {
@@ -84,7 +95,8 @@ def summarize_page(
     ]
     try:
         reply = provider.complete(
-            messages, model=model, temperature=0.0, max_tokens=300, format=_SUMMARY_SCHEMA
+            messages, model=model, temperature=0.0, max_tokens=300,
+            format=_SUMMARY_SCHEMA, request_timeout=_reasoning_timeout(),
         )
         summary = str(_parse_json(reply).get("summary", "")).strip()
     except Exception:  # noqa: BLE001 — summarising is best-effort; fall back to an excerpt
@@ -111,7 +123,8 @@ def refine_query(
     ]
     try:
         reply = provider.complete(
-            messages, model=model, temperature=0.0, max_tokens=100, format=_QUERY_SCHEMA
+            messages, model=model, temperature=0.0, max_tokens=100,
+            format=_QUERY_SCHEMA, request_timeout=_reasoning_timeout(),
         )
         refined = str(_parse_json(reply).get("query", "")).strip()
     except Exception:  # noqa: BLE001 — planning is best-effort; fall back to the objective

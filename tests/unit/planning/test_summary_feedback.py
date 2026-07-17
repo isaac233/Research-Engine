@@ -12,7 +12,7 @@ class _Provider:
         self.reply = reply
         self.calls: list = []
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None):  # noqa: ANN001
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
         self.calls.append(messages)
         return self.reply
 

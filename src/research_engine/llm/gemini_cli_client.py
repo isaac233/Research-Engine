@@ -74,6 +74,7 @@ class GeminiCLIClient(LLMProvider):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         format: dict[str, Any] | None = None,  # noqa: ARG002 — no CLI schema slot
+        request_timeout: float | None = None,  # noqa: ARG002 — CLI-managed timeout
     ) -> str:
         # Join all messages into one stdin blob; the CLI has no separate system slot.
         stdin = "\n\n".join(

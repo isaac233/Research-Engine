@@ -28,11 +28,16 @@ class LLMProvider(ABC):
         temperature: float = 0.7,
         max_tokens: int | None = None,
         format: dict[str, Any] | None = None,
+        *,
+        request_timeout: float | None = None,
     ) -> str:
         """Return the model's text response for the given messages.
 
         ``format`` is an optional JSON schema for grammar-constrained decoding;
         providers that support it (Ollama) emit schema-valid JSON, others ignore it.
+        ``request_timeout`` optionally overrides the per-call read timeout (seconds)
+        so short reasoning calls fail fast instead of hanging on a wedged backend;
+        providers that don't support it ignore it.
         """
 
     @abstractmethod

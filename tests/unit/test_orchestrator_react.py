@@ -29,7 +29,7 @@ class _DispatchProvider:
 
     name = "fake"
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None):  # noqa: ANN001
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
         blob = " ".join(m.content for m in messages).lower()
         if "information objectives" in blob:
             return '{"objectives": [{"objective": "how big is the aging cohort", "query": "japan aging population"}]}'
@@ -130,7 +130,7 @@ class _RecordingProvider(_DispatchProvider):
     def __init__(self) -> None:
         self.models: dict[str, str] = {}
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None):  # noqa: ANN001
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
         blob = " ".join(m.content for m in messages).lower()
         if "information objectives" in blob:
             self.models["objectives"] = model
