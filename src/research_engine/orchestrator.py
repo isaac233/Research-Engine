@@ -124,6 +124,13 @@ def _writer_length() -> tuple[int, int]:
     )
 
 
+def _react_skips_linear_collect(planner_mode: str) -> bool:
+    """True when react owns retrieval and the linear DISCOVER→SCREEN→EXTRACT collect
+    (all unused by react, which searches serp directly at evaluate-time) should be
+    skipped for speed. Env-gated; default keeps the full linear collect as a fallback."""
+    return planner_mode == "react" and bool(os.environ.get("RESEARCH_ENGINE_REACT_SKIP_COLLECT"))
+
+
 def _react_per_objective_searches() -> int:
     """How many refined searches an under-filled objective may retry (Lever 2).
 
@@ -543,6 +550,10 @@ class Orchestrator(OrchestratorInstrumentation):
     def _run_discover(self, campaign: Campaign) -> dict[str, Any]:
         """Dispatch discovery or unblocking probe depending on campaign type."""
         self._validate_request_input(campaign)
+        # react does its own serp retrieval at evaluate-time (via discovery.registry,
+        # not this stage's output), so the whole linear collect is skippable for speed.
+        if _react_skips_linear_collect(self.planner_mode):
+            return self._run_skipped(campaign, "react planner owns retrieval (discover skipped)")
         if campaign.meta.get("campaign_type") == "unblocking" and self.browser is not None:
             result = self.browser.unblock(campaign.request.query)
             self.record_agent_action(
@@ -718,7 +729,7 @@ class Orchestrator(OrchestratorInstrumentation):
         # slowest stage (~20-30 min/task of fetch+LLM extract). Skip it when react owns
         # retrieval (env-gated) to make react runs practical. The react brief supplies
         # the deliverable; if react banks nothing the brief is honestly flagged empty.
-        if self.planner_mode == "react" and os.environ.get("RESEARCH_ENGINE_REACT_SKIP_COLLECT"):
+        if _react_skips_linear_collect(self.planner_mode):
             return self._run_skipped(campaign, "react planner owns retrieval (collect skipped)")
         self._switch_lane(campaign, "extract")
         included_data = campaign.meta.get("included_papers", [])
@@ -871,8 +882,16 @@ class Orchestrator(OrchestratorInstrumentation):
         """Evaluate extracted output and produce a report."""
         inputs = self._load_evaluation_inputs(campaign)
         if inputs is None:
-            return self._run_skipped(campaign, "no extracted sources to evaluate")
-        sources, challenges, verifications = inputs
+            # The ReAct planner supplies its own bank+brief from evaluate-time retrieval,
+            # so an empty linear extract (e.g. RESEARCH_ENGINE_REACT_SKIP_COLLECT) must
+            # NOT skip evaluate — react still runs and produces the deliverable.
+            if self.planner_mode == "react" and self.synthesizer is not None:
+                empty: list[Any] = []
+                sources, challenges, verifications = empty, list(empty), list(empty)
+            else:
+                return self._run_skipped(campaign, "no extracted sources to evaluate")
+        else:
+            sources, challenges, verifications = inputs
         if self.synthesizer is not None:
             self._switch_lane(campaign, "evaluate")
             self._write_handoff(campaign, sources)
