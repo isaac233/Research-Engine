@@ -115,6 +115,18 @@ def _react_dbg(msg: str) -> None:
         print(f"[react-dbg] {msg}", file=sys.stderr, flush=True)
 
 
+def _progress(msg: str) -> None:
+    """Emit a pipeline progress line (gated on RESEARCH_ENGINE_PROGRESS).
+
+    Long collection stages (screen/extract) do many sequential LLM calls without a
+    per-item disk write, so a run looks frozen to a file-watching stall monitor even
+    when healthy. These stderr lines give the watchdog a live progress signal and the
+    operator visibility into where a run actually is.
+    """
+    if os.environ.get("RESEARCH_ENGINE_PROGRESS"):
+        print(f"[progress] {msg}", file=sys.stderr, flush=True)
+
+
 def _resolve_byte_fetcher(browser: Any) -> Callable[[str], bytes]:
     """Return a callable that actually fetches page bytes for ``browser``.
 
@@ -336,6 +348,8 @@ class Orchestrator(OrchestratorInstrumentation):
     def _execute_stage(self, campaign: Campaign, stage: CampaignStage) -> Campaign:
         handler_name = f"_run_{stage.value}"
         handler = getattr(self, handler_name, self._run_stub)
+        _progress(f"stage START {stage.value}")
+        stage_start = datetime.now(UTC)
         try:
             result = handler(campaign)
         except Exception as exc:
@@ -346,6 +360,10 @@ class Orchestrator(OrchestratorInstrumentation):
                 {"stage": stage.value, "error": redact_secrets(str(exc))},
             )
             raise
+        _progress(
+            f"stage END   {stage.value} "
+            f"[{(datetime.now(UTC) - stage_start).total_seconds():.0f}s]"
+        )
         self.event_bus.emit(
             campaign.id,
             "stage_exit",
@@ -672,13 +690,19 @@ class Orchestrator(OrchestratorInstrumentation):
                 continue
             work.append((paper, content_url, bool(resolved.get("is_oa", False))))
 
+        done = 0
+
         def _extract_one(item: tuple[Paper, str | None, bool]) -> dict[str, Any]:
+            nonlocal done
             paper, content_url, is_oa = item
             source = self.extractor.extract(  # type: ignore[union-attr]
                 paper, content=None, content_url=content_url, is_oa=is_oa, fetch_fn=fetch_fn
             )
+            done += 1  # GIL-atomic increment; approximate order under threads is fine
+            _progress(f"extract {done}/{len(work)} {(paper.url or paper.title or '')[:60]}")
             return extracted_source_to_dict(source)
 
+        _progress(f"extract START {len(work)} sources")
         results = parallel_map(
             _extract_one,
             work,
