@@ -52,6 +52,27 @@ def test_drops_noisy_tags() -> None:
     assert "color:red" not in result.markdown
 
 
+def test_pathological_unclosed_svg_does_not_hang() -> None:
+    """Many unclosed <svg> icons must not trigger an O(Ntags * n) rescan.
+
+    Root cause of the collect stall: modern pages embed hundreds of inline SVG
+    icons, and when their closes are absent/malformed the `<svg ...>.*?</svg>`
+    DOTALL sub in _drop_noisy_tags rescanned to end of document at every `<svg`
+    start position — ~100 min on a ~2 MB page (pure-CPU, no timeout fires). Even
+    the 2 MB size cap did NOT bound it. The fix must complete near-instantly and
+    still surface the real text.
+    """
+    import time
+
+    lead = "<html><body><h1>Title</h1><p>Real content here.</p>"
+    icons = "<svg class='i' viewBox='0 0 9 9'>" * 100_000  # ~2.6 MB, NO closing tags
+    start = time.monotonic()
+    result = markdownify(lead + icons + "</body></html>")
+    elapsed = time.monotonic() - start
+    assert elapsed < 5.0, f"markdownify took {elapsed:.1f}s — pathological rescan unbounded"
+    assert "Real content here." in result.markdown
+
+
 def test_caps_oversized_html_input() -> None:
     """A huge page must not freeze the run: input is capped before the regex passes.
 

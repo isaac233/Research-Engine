@@ -9,10 +9,13 @@ from typing import Any
 # Cap HTML fed to the regex passes. A multi-MB page ran the DOTALL passes into
 # catastrophic backtracking (pure-CPU, no fetch/Ollama timeout fires) and froze a
 # whole collect batch. Truncating bounds the work — real content lives near the
-# top, so a 2 MB slice keeps the readable body.
-# ponytail: size cap, not a backtracking fix. Adversarial unclosed-tag input can
-# still be O(n²) within the cap; upgrade path is a per-item wall-clock timeout in
-# util/parallel.py if a pathological page slips through.
+# top, so a 2 MB slice keeps the readable body. The specific O(Ntags * n) hang
+# (unclosed inline <svg> icons) is now cut at the source in _drop_noisy_tags; this
+# cap remains a blunt backstop for any other super-linear pass within the slice.
+# ponytail: cap + the _drop_noisy_tags guard. A page mixing many closed AND many
+# unclosed noisy tags could still be O(n²) within the cap; upgrade path is a
+# per-item wall-clock timeout run in a SEPARATE PROCESS (a thread can't preempt a
+# CPU-bound regex — `re` holds the GIL) if a pathological page slips through.
 _MAX_HTML_CHARS = 2_000_000
 
 
@@ -118,9 +121,21 @@ def _convert_tables(html: str) -> str:
 
 
 def _drop_noisy_tags(html: str) -> str:
-    """Remove scripts, styles, nav, header, footer, aside, and SVG content."""
+    """Remove scripts, styles, nav, header, footer, aside, and SVG content.
+
+    The ``<tag>.*?</tag>`` DOTALL sub rescans to end-of-document at every opening
+    tag that has no matching close, so a page with hundreds of UNCLOSED inline
+    ``<svg>`` icons (common) became O(Ntags * n) and hung a whole collect for
+    ~100 min even under the 2 MB cap. Skip a tag entirely when its closing form is
+    absent — the leftover opening tags are stripped linearly by the later
+    ``<[^>]+>`` passes, so nothing noisy survives.
+    """
+    lowered = html.lower()
     for tag in ["script", "style", "nav", "header", "footer", "aside", "svg", "noscript"]:
+        if f"</{tag}>" not in lowered:
+            continue  # no close -> the paired sub would rescan catastrophically
         html = re.sub(rf"<{tag}\b[^>]*>.*?</{tag}>", "", html, flags=re.IGNORECASE | re.DOTALL)
+        lowered = html.lower()
     return html
 
 
