@@ -1,5 +1,12 @@
 # Finish-line research v5 — the measured gap is SCALE + PLAN-THEN-FILL, not volume or writer-polish (2026-07-17)
 
+> **✅ VALIDATED same session (2026-07-17 LATE).** Built all 3 levers + collect-skip + fast-fail
+> timeout (env-gated); measured task 51, kimi: **RACE 14.66 → 29.18 (DOUBLED), IF 8.65 → 33.0
+> (×3.8), FACT → 70%**, monotonic across 3 runs of increasing retrieval depth (14.66 → 20.51 →
+> 29.18). The plan-then-fill thesis below is CONFIRMED directionally. Gap to bar 40.67 now ~11
+> RACE. Remaining: fuller retrieval (only 4 of ~6 objectives banked; CDP 403-recovery), N≥3
+> confirmation, readability polish. See HANDOFF.md top "PLAN-THEN-FILL BREAKTHROUGH".
+
 Grounded in **today's measured data** (STEP 1 falsification + task-anchored-outline
 experiment) cross-referenced with the SOTA methods already distilled in v1-v4 and the
 actual DeepResearch-Bench RACE criteria (`bench/data/criteria.jsonl`) and reference

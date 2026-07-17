@@ -1,4 +1,65 @@
-# HANDOFF — 2026-07-16
+# HANDOFF — 2026-07-17
+
+## 🚀 2026-07-17 (LATE) — PLAN-THEN-FILL BREAKTHROUGH: live RACE 14.66 → 29.18 (DOUBLED), IF 8.65 → 33.0 (×3.8)
+
+**The biggest single RACE gain in the project, on the LIVE path, task 51 (N=1, kimi judge).**
+Distilled the core SOTA gap (research v5, `docs/plan/finish_line_research_v5.md`): **SOTA
+plans-then-fills at reference scale (63k-char reference); we gathered-then-organized at 1/5
+scale (13k)** and drifted off-task. Built 3 coupled levers + 2 infra unlocks, all env-gated,
+TDD, mypy+ruff, **582 unit tests green**, committed on `feat/deepresearch-bench` (unpushed).
+
+**Monotonic across 3 runs of increasing retrieval depth (this is a real signal, not N=1 noise):**
+| run | RACE | comp | insight | IF | read | FACT | pages/sec |
+|---|---|---|---|---|---|---|---|
+| STEP 1 plain react | 14.66 | 14.1 | 7.5 | 8.65 | 33.1 | 79% | 17 / 6 (health-essay drift) |
+| StepD3 combined (wedge-limited) | 20.51 | 21.4 | 17.6 | 20.5 | 24.5 | 41% | 8 / 3 |
+| **StepE combined + fast-fail** | **29.18** | 29.6 | 23.8 | **33.0** | 32.4 | **70%** | 12 / 4 |
+
+Bar = Claude-3.7 RACE 40.67 / FACT 93.7%. **Gap to bar now ~11 RACE (was ~26).** Sections became
+the ASKED dims (Population 2020-2050 / clothing / food / housing) instead of a healthcare essay.
+
+**The levers (all env-gated, default OFF — default linear path unchanged):**
+1. **Lever 3 — reference-scale writing** (`9320ebc`): `SectionWriter.max_sentences` +
+   `RESEARCH_ENGINE_WRITER_MAX_SENTENCES` / `_WRITER_MAX_TOKENS`. Writer was hard-capped at
+   ~8 sent / 1200 tok / section (→13k brief vs 63k reference).
+2. **Lever 1 — task-seeded outline** (`9320ebc`): `ReactPlanner.seeded_outline` = one section
+   per objective (`RESEARCH_ENGINE_REACT_SEEDED_OUTLINE`). Kills the evidence-drift that made
+   the report follow the banked evidence's dominant topic instead of the question.
+3. **Lever 2 — balanced retrieval** (`9320ebc`): `ReactPlanner.per_objective_searches` retries
+   a refined search per objective (`RESEARCH_ENGINE_REACT_PER_OBJECTIVE_SEARCHES`) so every
+   asked dimension gets evidence.
+4. **perf — collect-skip** (`5dd6ed4`, `f3acccf`): `RESEARCH_ENGINE_REACT_SKIP_COLLECT` skips
+   the whole linear DISCOVER→SCREEN→EXTRACT (unused by react + the screen ranker is what WEDGES
+   Ollama). react starts in ~60s vs ~10min. NB the fix also had to let `_run_evaluate` proceed
+   with empty linear sources for react (else it bailed "no extracted sources" → RACE 0.00).
+5. **infra — fast-fail timeout** (`c17dcd0`): per-call `request_timeout` on `LLMProvider.complete`;
+   react's summarize/refine use `RESEARCH_ENGINE_REACT_REASONING_TIMEOUT` (default 90s) so a
+   wedged Ollama call fails fast (excerpt/objective fallback) instead of hanging 300s. THIS
+   unblocked retrieval from 8 → 12 pages → RACE 20.51 → 29.18.
+
+**THE WINNING ENV (reproduce / build on):**
+```
+RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json' \
+RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=48 \
+RESEARCH_ENGINE_REACT_SEEDED_OUTLINE=1 RESEARCH_ENGINE_REACT_PER_OBJECTIVE_SEARCHES=3 \
+RESEARCH_ENGINE_REACT_REASONING_TIMEOUT=90 \
+RESEARCH_ENGINE_WRITER_MAX_SENTENCES=16 RESEARCH_ENGINE_WRITER_MAX_TOKENS=2400 \
+RESEARCH_ENGINE_REACT_SKIP_COLLECT=1 RESEARCH_ENGINE_MAX_WORKERS=1 RESEARCH_ENGINE_PROGRESS=1 \
+RESEARCH_ENGINE_REACT_DEBUG=1 RESEARCH_ENGINE_ITEM_TIMEOUT=120 \
+research-engine bench --tasks 1 --language en --judge ollama --judge-model kimi-k2.7-code:cloud --quality 0.3
+```
+
+### ⏭️⏭️ NEXT SESSION — START HERE (push from 29.18 toward the 40.67 bar)
+**Session ops:** `podman machine start` → `cd ../search-infra && (podman-compose up -d searxng || podman compose up -d searxng)` → warm SearXNG (`curl "localhost:8080/search?q=x&format=json"` results>0). Ollama up (24 models; `mistral-small3.2:latest` synth lane). **ALWAYS archive `bench/out/engine.jsonl`+`scores.jsonl` and purge serp rows before a re-run** (else bench re-scores the stale task). Attach `bench/watchdog.py` via Monitor (stall 300s ok now that fast-fail caps calls at 90s).
+
+1. **CONFIRM N≥3** — the 29.18 is N=1. Run the winning env with `--tasks 3` (en). With SKIP_COLLECT each task is ~15-20 min, so ~1h total. Gate: does the mean RACE hold ≥ ~25 across tasks 51-53? This is the single most important next step — bank a non-N=1 number.
+2. **FULLER RETRIEVAL (the clearest remaining RACE lever)** — StepE banked only **4 of ~6 objectives** into sections; transport + willingness dimensions still dropped (their pages 403'd or search returned nothing fetchable). Levers: (a) **CDP/headless 403-recovery** (browser subsystem) to recover the ~50% bot-blocked reads — would fill the dropped dimensions; (b) raise `REACT_PER_OBJECTIVE_SEARCHES` to 4-5; (c) dedup the objectives_fn output (task 51 emits 8 objectives with ~4 dupes → only ~4 distinct sections). More sections covering more asked dims → comp + IF toward the bar.
+3. **Readability/length polish** — StepE read 32.4 (bar 41.5); brief 16k vs reference 63k. Push `WRITER_MAX_SENTENCES`/`_MAX_TOKENS` higher and re-measure (watch FACT doesn't drop).
+4. **Ollama wedge discipline** ([[ollama-recovery-discipline]]): the scheduler still wedges under sustained sequential load. fast-fail(90s) makes runs robust, but if a whole run hangs: py-spy the PID FIRST (names the blocked frame — it's `ranker`/`summarize_page` → `ollama_client.complete` → httpx.post), GPU 0% + /api/tags-still-UP = wedge → graceful tray restart (`Stop-Process 'ollama app','ollama'` → relaunch `ollama app.exe`; NEVER `taskkill //F` or manual `ollama serve`). Do NOT kill a bench mid-Ollama-call (wedges the server).
+
+**Unmeasured/deferred:** writer LENGTH lever in isolation (StepC killed by wedge); react-vs-linear at these settings. Both lower priority than N≥3 confirmation.
+
+---
 
 ## ✅ 2026-07-17 — FIRST complete end-to-end react campaign: RACE 16.3 / FACT 52.5% (N=1); 4 stall bugs fixed
 
