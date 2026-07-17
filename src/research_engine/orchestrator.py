@@ -72,7 +72,11 @@ from research_engine.synthesis.synthesizer import (
     drop_failed_claims,
     unique_insight_filter,
 )
-from research_engine.util.parallel import max_workers_from_env, parallel_map
+from research_engine.util.parallel import (
+    item_timeout_from_env,
+    max_workers_from_env,
+    parallel_map,
+)
 
 # Candidates the ReAct loop pulls per refined sub-query before ranking+reading.
 _REACT_PER_QUERY = 10
@@ -675,7 +679,12 @@ class Orchestrator(OrchestratorInstrumentation):
             )
             return extracted_source_to_dict(source)
 
-        results = parallel_map(_extract_one, work, max_workers=max_workers_from_env())
+        results = parallel_map(
+            _extract_one,
+            work,
+            max_workers=max_workers_from_env(),
+            item_timeout=item_timeout_from_env(),
+        )
         extracted: list[dict[str, Any]] = [r for r in results if r is not None]
         self.store.update_campaign(campaign.with_meta("extracted_sources", extracted))
 

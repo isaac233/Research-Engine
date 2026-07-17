@@ -77,7 +77,12 @@ class OllamaClient(LLMProvider):
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        with httpx.Client(timeout=self.timeout) as client:
+        # Split the timeout: a stuck TCP connect fails fast (10s) while a legitimately
+        # slow generation still gets the full read budget. A single float applies the
+        # whole budget to connect too, so a wedged Ollama could hang ~self.timeout on
+        # connect alone and stall the extract batch.
+        limits = httpx.Timeout(self.timeout, connect=min(10.0, self.timeout))
+        with httpx.Client(timeout=limits) as client:
             response = client.post(
                 f"{self.base_url}/api/chat",
                 json=payload,

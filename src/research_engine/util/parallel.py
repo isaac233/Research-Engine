@@ -18,10 +18,15 @@ import logging
 import os
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 
 logger = logging.getLogger(__name__)
 
 _DEFAULT_WORKERS = 4
+# A single fetch + LLM extract completes in seconds; anything past this is a wedged
+# Ollama/httpx call that would otherwise hang the whole batch (a stuck extract worker
+# froze a campaign for >100 min). Bounded so one bad item yields None, not a freeze.
+_DEFAULT_ITEM_TIMEOUT = 180.0
 
 
 def max_workers_from_env(default: int = _DEFAULT_WORKERS) -> int:
@@ -35,13 +40,32 @@ def max_workers_from_env(default: int = _DEFAULT_WORKERS) -> int:
         return default
 
 
+def item_timeout_from_env(default: float | None = _DEFAULT_ITEM_TIMEOUT) -> float | None:
+    """Read ``RESEARCH_ENGINE_ITEM_TIMEOUT`` seconds; ``<=0`` disables the timeout."""
+    raw = os.environ.get("RESEARCH_ENGINE_ITEM_TIMEOUT")
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    return value if value > 0 else None
+
+
 def parallel_map[T, R](
     func: Callable[[T], R],
     items: Sequence[T],
     *,
     max_workers: int = _DEFAULT_WORKERS,
+    item_timeout: float | None = None,
 ) -> list[R | None]:
-    """Apply ``func`` to each item across a bounded pool; ordered, per-item errors → ``None``."""
+    """Apply ``func`` to each item across a bounded pool; ordered, per-item errors → ``None``.
+
+    ``item_timeout`` (seconds) bounds each item: a worker still running past it yields
+    ``None`` and the batch continues. This only preempts I/O-bound work (a stuck httpx
+    call releases the GIL); a CPU-bound hang holds the GIL and cannot be interrupted here.
+    The abandoned worker unwinds on its own (e.g. the httpx timeout) — we don't wait on it.
+    """
     if not items:
         return []
 
@@ -53,7 +77,24 @@ def parallel_map[T, R](
             return None
 
     workers = min(max(1, max_workers), len(items))
-    if workers == 1:
+    # A serial call cannot be timed out (nothing else runs to abandon it), so the
+    # fast path only applies when no timeout is asked for.
+    if workers == 1 and item_timeout is None:
         return [_safe(it) for it in items]
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        return list(pool.map(_safe, items))
+
+    pool = ThreadPoolExecutor(max_workers=workers)
+    try:
+        futures = [pool.submit(_safe, it) for it in items]
+        results: list[R | None] = []
+        for future in futures:
+            try:
+                results.append(future.result(timeout=item_timeout))
+            except FuturesTimeoutError:
+                logger.warning("parallel_map item timed out after %ss", item_timeout)
+                future.cancel()
+                results.append(None)
+        return results
+    finally:
+        # Never block batch return on a hung I/O worker; it unwinds at its own
+        # timeout. cancel_futures drops anything not yet started.
+        pool.shutdown(wait=False, cancel_futures=True)
