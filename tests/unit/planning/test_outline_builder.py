@@ -81,3 +81,24 @@ def test_empty_bank_returns_empty_outline() -> None:
     empty = EvidenceBank.from_sources([])
     outline = OutlineBuilder(_FakeProvider("{}")).build(empty, "q")
     assert outline.sections == ()
+
+
+def test_task_anchored_prompt_names_the_questions_required_dimensions() -> None:
+    # Default outline organizes evidence, drifting to whatever the bank happens to
+    # cover (instruction_following ~8/100). The anchored outline must first extract
+    # the question's OWN explicit required dimensions and force a section per one.
+    bank = _bank()
+    rid = bank.spans()[0].id
+    reply = json.dumps({"sections": [{"title": "Population", "intent": "i", "evidence_ids": [rid]}]})
+    fake = _FakeProvider(reply)
+    outline = OutlineBuilder(fake, task_anchored=True).build(bank, "clothing and housing costs")
+    # The anchored prompt instructs the model to derive sections from the question.
+    assert "explicitly asks" in fake.last_prompt.lower() or "required" in fake.last_prompt.lower()
+    assert outline.sections  # still produces a valid, pruned outline
+
+
+def test_default_outline_is_not_task_anchored() -> None:
+    bank = _bank()
+    fake = _FakeProvider(json.dumps({"sections": []}))
+    OutlineBuilder(fake).build(bank, "q")
+    assert "explicitly asks" not in fake.last_prompt.lower()

@@ -124,6 +124,20 @@ def _section_synth(bank: EvidenceBank, query: str, provider: LLMProvider, model:
     return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
 
 
+def _section_synth_anchored(
+    bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
+) -> str:
+    # Task-anchored outline (RACE instruction_following + comprehensiveness): the
+    # question's OWN explicit dimensions drive the sections, not whatever topic the
+    # banked evidence happens to dominate. Then the champion synth writer + WARP
+    # deepen. Isolates the outline-anchoring effect vs section_synth.
+    outline = OutlineBuilder(provider, model, task_anchored=True).build(bank, query)
+    draft = SectionWriter(provider, model, carry_context=True, synthesis=True).write(
+        outline, bank, query
+    )
+    return str(deepen_report(draft, bank, query, provider, model)) if draft.strip() else draft
+
+
 def _section_synth_pcite(
     bank: EvidenceBank, query: str, provider: LLMProvider, model: str | None
 ) -> str:
@@ -163,6 +177,7 @@ WRITERS: dict[str, WriterFn] = {
     "section_deepen_paragraph": _section_deepen_paragraph,
     "section_deepen_pcite": _section_deepen_pcite,
     "section_synth": _section_synth,
+    "section_synth_anchored": _section_synth_anchored,
     "section_synth_pcite": _section_synth_pcite,
     "section_faithful_deepen": _section_faithful_deepen,
     "section_synth_verify": _section_synth_verify,

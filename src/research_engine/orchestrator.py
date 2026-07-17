@@ -105,6 +105,17 @@ def _react_budget() -> tuple[int, int, float]:
     )
 
 
+def _react_anchored_outline() -> bool:
+    """Task-anchor the react outline (question's dimensions drive sections) when set.
+
+    The default evidence-driven outline drifts to whatever topic the banked spans
+    dominate (measured: live react on task 51 = a healthcare essay for a market-size
+    question, RACE instruction_following ~8.65/100). Env-gated so the default path is
+    unchanged; on = experiment on the live surface that actually shows the failure.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_REACT_ANCHORED_OUTLINE"))
+
+
 def _react_dbg(msg: str) -> None:
     """Diagnostic trace for the ReAct path, gated on RESEARCH_ENGINE_REACT_DEBUG.
 
@@ -1073,7 +1084,9 @@ class Orchestrator(OrchestratorInstrumentation):
             read_fn=read_fn,
             summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, reasoning_model),
             refine_fn=lambda q, obj, digest: refine_query(q, obj, digest, provider, reasoning_model),
-            outline_fn=lambda q, bank: OutlineBuilder(provider, reasoning_model).build(bank, q),
+            outline_fn=lambda q, bank: OutlineBuilder(
+                provider, reasoning_model, task_anchored=_react_anchored_outline()
+            ).build(bank, q),
             max_pages=max_pages,
             per_objective_pages=per_objective,
             max_seconds=max_seconds,
