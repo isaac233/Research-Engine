@@ -22,6 +22,7 @@ from research_engine.config import EngineConfig
 from research_engine.discovery.pipeline import DiscoveryPipeline
 from research_engine.discovery.query_decomposer import plan_objectives
 from research_engine.discovery.query_planner import QueryPlanner
+from research_engine.discovery.retrieval_cache import RetrievalCache
 from research_engine.discovery.schema import Paper
 from research_engine.evaluation.deep_audit import DeepAuditor
 from research_engine.evaluation.harness import EvaluationHarness
@@ -219,6 +220,19 @@ def _pdf_bytes_to_text(raw: bytes, max_bytes: int) -> str:
         return ""
     result = PDFConverter().convert_bytes(raw)
     return result.markdown[:6000] if result.ok else ""
+
+
+def _retrieval_cache_enabled() -> bool:
+    """Record-then-replay serp results + page reads for deterministic re-runs when set.
+
+    The react retrieval layer is live (SearXNG + page fetches), so the same config banks
+    different evidence run-to-run (~±11 RACE variance on task 53) — you tune against noise.
+    With this on, each serp query's ordered results and each page's text are recorded on first
+    encounter and replayed thereafter, so a re-run of the same (temp=0) config banks identical
+    evidence → variance collapses to judge noise. Env-gated; unset = live, byte-identical.
+    Delete the serp_replay_cache/page_replay_cache tables (data/cache.db) for a fresh recording.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_RETRIEVAL_CACHE"))
 
 
 def _grounding_brief_enabled() -> bool:
@@ -1319,6 +1333,11 @@ class Orchestrator(OrchestratorInstrumentation):
                 return None  # PDFs unreadable unless ingestion (W5) is on
             return SourceRef(url=url, title=title or "")
 
+        # Determinism cache (record-then-replay serp + page reads); None = live behavior.
+        retrieval_cache = (
+            RetrievalCache(self.config.cache_db_path()) if _retrieval_cache_enabled() else None
+        )
+
         def search_fn(sub_query: str) -> list[SourceRef]:
             # Lightweight serp-only search: SearXNG is already relevance-ranked, so we
             # skip the full discovery pipeline (academic APIs, snowball, resolve) AND
@@ -1326,11 +1345,22 @@ class Orchestrator(OrchestratorInstrumentation):
             # too slow to finish (606 gemma calls/task, HANDOFF). Academic-only/test
             # envs fall back to the pipeline (still no LLM ranker).
             if serp_ok and registry is not None:
-                found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
-                papers = list(found.papers) if found.ok else []
-                _react_dbg(
-                    f"search_fn: serp q={sub_query[:60]!r} ok={found.ok} papers={len(papers)}"
-                )
+                if retrieval_cache is not None:
+                    cached = retrieval_cache.get_serp(sub_query)
+                    if cached is not None:
+                        papers = cached
+                        _react_dbg(f"search_fn: serp REPLAY q={sub_query[:60]!r} papers={len(papers)}")
+                    else:
+                        found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
+                        papers = list(found.papers) if found.ok else []
+                        retrieval_cache.put_serp(sub_query, papers)
+                        _react_dbg(f"search_fn: serp record q={sub_query[:60]!r} papers={len(papers)}")
+                else:
+                    found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
+                    papers = list(found.papers) if found.ok else []
+                    _react_dbg(
+                        f"search_fn: serp q={sub_query[:60]!r} ok={found.ok} papers={len(papers)}"
+                    )
             else:
                 result = discovery.run(sub_query, context="", max_sources=_REACT_PER_QUERY)
                 papers = [Paper.from_dict(g.canonical.to_dict()) for g in result.deduped_groups]
@@ -1352,14 +1382,25 @@ class Orchestrator(OrchestratorInstrumentation):
             except ValueError:
                 _react_dbg(f"read_fn: url rejected {ref.url[:80]!r}")
                 return ""
+            if retrieval_cache is not None:
+                cached = retrieval_cache.get_page(ref.url)
+                if cached is not None:  # replay (incl. a cached "" for a known dry/blocked read)
+                    _counts["read_calls"] += 1
+                    _counts["read_chars"] += len(cached)
+                    _react_dbg(f"read_fn: page REPLAY {ref.url[:80]!r} chars={len(cached)}")
+                    return cached
             try:
                 text = self._fetch_pdf_text(ref.url) if is_pdf else self._fetch_page_text(ref.url)
                 _counts["read_calls"] += 1
                 _counts["read_chars"] += len(text)
                 _react_dbg(f"read_fn: fetched {ref.url[:80]!r} pdf={is_pdf} chars={len(text)}")
+                if retrieval_cache is not None:
+                    retrieval_cache.put_page(ref.url, text)
                 return text
             except Exception as exc:  # noqa: BLE001 — a failed fetch contributes nothing, not fatal
                 _react_dbg(f"read_fn: fetch EXC {ref.url[:80]!r} {type(exc).__name__}: {exc}")
+                if retrieval_cache is not None:
+                    retrieval_cache.put_page(ref.url, "")  # record the dry read → deterministic
                 return ""
 
         def _objectives(q: str) -> list[Any]:
