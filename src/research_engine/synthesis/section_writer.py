@@ -100,6 +100,7 @@ class SectionWriter:
         carry_context: bool = False,
         paragraph_cite: bool = False,
         synthesis: bool = False,
+        max_sentences: int = 8,
     ) -> None:
         self.provider = provider
         self.model = model
@@ -108,6 +109,7 @@ class SectionWriter:
         self.carry_context = carry_context
         self.paragraph_cite = paragraph_cite
         self.synthesis = synthesis
+        self.max_sentences = max_sentences
 
     def write(self, outline: Outline, bank: EvidenceBank, query: str) -> str:
         parts: list[str] = []
@@ -137,8 +139,11 @@ class SectionWriter:
     ) -> str:
         evidence = "\n".join(f"[{s.id}] {s.text}" for s in spans)
         allowed = {s.id for s in spans}
-        # Target a sentence count that scales with the evidence available.
-        n = max(2, min(len(spans), 8))
+        # Target a sentence count that scales with the evidence available, capped so a
+        # section stays focused. The cap is tunable (RACE is reference-normalized against
+        # a ~63k-char reference; our default ~13k brief is 1/5 scale — raising the cap
+        # lets sections reach reference length when the evidence supports it).
+        n = max(2, min(len(spans), self.max_sentences))
         if self.synthesis:
             template = _USER_SYNTHESIS
         elif self.paragraph_cite:

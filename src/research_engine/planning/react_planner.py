@@ -30,7 +30,7 @@ from typing import Any
 
 from research_engine.memory.evidence_bank import EvidenceBank
 from research_engine.memory.summary_bank import SummaryBank, SummaryNote
-from research_engine.planning.outline import Outline
+from research_engine.planning.outline import Outline, OutlineSection
 
 # Injected-callable signatures.
 ObjectivesFn = Callable[[str], list[str]]
@@ -66,12 +66,16 @@ class PlanResult:
     iterations: int
 
 
-def _page_dict(ref: SourceRef, text: str) -> dict[str, Any]:
-    """Shape a read page as an ``ExtractedSource``-like dict for ``EvidenceBank``."""
+def _page_dict(ref: SourceRef, text: str, objective: str = "") -> dict[str, Any]:
+    """Shape a read page as an ``ExtractedSource``-like dict for ``EvidenceBank``.
+
+    ``objective`` tags which decomposition objective banked this page, so a task-seeded
+    outline can group each objective's spans into its own section (Lever 1).
+    """
     return {
         "title": ref.title,
         "paper": {"url": ref.url, "title": ref.title},
-        "meta": {"page_text": text},
+        "meta": {"page_text": text, "objective": objective},
     }
 
 
@@ -90,6 +94,8 @@ class ReactPlanner:
         max_iters: int = 8,
         max_pages: int = 40,
         per_objective_pages: int = 4,
+        per_objective_searches: int = 1,
+        seeded_outline: bool = False,
         max_seconds: float | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
@@ -102,6 +108,14 @@ class ReactPlanner:
         self.max_iters = max_iters
         self.max_pages = max_pages
         self.per_objective_pages = per_objective_pages
+        # Lever 2 (balanced retrieval): a thin objective retries a refined search up to
+        # this many times to reach its per-objective quota, so every asked dimension
+        # gets evidence instead of the budget piling onto the dominant serp topic.
+        self.per_objective_searches = per_objective_searches
+        # Lever 1 (task-seeded skeleton): when set, the final outline is one section per
+        # objective (filled with that objective's spans) instead of the LLM rebuild that
+        # drifts to the banked evidence's dominant topic.
+        self.seeded_outline = seeded_outline
         # Hard wall-clock budget: a live run must never hang. When exceeded the loop
         # stops with whatever it has banked (the writer still gets an outline+bank).
         self.max_seconds = max_seconds
@@ -123,8 +137,7 @@ class ReactPlanner:
             if iterations >= self.max_iters or len(pages) >= self.max_pages or over_budget:
                 break
             iterations += 1
-            refined = self.refine_fn(query, objective, summaries.digest())
-            added = self._collect(query, objective, refined, pages, seen_urls, summaries)
+            added = self._collect(query, objective, pages, seen_urls, summaries)
             if added == 0:
                 # A dry objective (no serp hits / every candidate 403s or is already
                 # seen) must not abort the whole run before anything is banked — that
@@ -140,9 +153,57 @@ class ReactPlanner:
             bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)
             outline = self.outline_fn(query, bank)
 
+        if self.seeded_outline and pages:
+            bank = EvidenceBank.from_pages(pages, lambda _u: "", query, max_fetches=0)
+            outline = self._seed_outline(objectives, pages, bank) or outline
         return PlanResult(bank, outline, summaries, list(pages), len(pages), iterations)
 
+    def _seed_outline(
+        self, objectives: list[str], pages: list[dict[str, Any]], bank: EvidenceBank
+    ) -> Outline | None:
+        """Lever 1: one outline section per objective, filled with that objective's
+        banked spans — so the report follows the task's dimensions, not the evidence's
+        dominant topic. Returns None (caller keeps the co-evolved outline) if nothing
+        maps, so an all-unmapped run never yields an empty outline."""
+        url_objective = {
+            p["paper"]["url"]: p.get("meta", {}).get("objective", "") for p in pages
+        }
+        section_ids: dict[str, list[str]] = {}
+        for span in bank.spans():
+            objective = url_objective.get(span.url, "")
+            section_ids.setdefault(objective, []).append(span.id)
+        # Preserve objective order; drop dupes; skip objectives that banked no spans.
+        seen: set[str] = set()
+        sections = []
+        for objective in objectives:
+            if objective in seen or not section_ids.get(objective):
+                continue
+            seen.add(objective)
+            sections.append(OutlineSection(objective, objective, tuple(section_ids[objective])))
+        return Outline(sections=tuple(sections)) if sections else None
+
     def _collect(
+        self,
+        query: str,
+        objective: str,
+        pages: list[dict[str, Any]],
+        seen_urls: set[str],
+        summaries: SummaryBank,
+    ) -> int:
+        """Read toward ``per_objective_pages`` new pages for one objective, retrying a
+        refined search up to ``per_objective_searches`` times so a thin objective still
+        reaches its quota (Lever 2). Returns how many were actually banked (0 = stall)."""
+        added = 0
+        for _ in range(max(1, self.per_objective_searches)):
+            refined = self.refine_fn(query, objective, summaries.digest())
+            added += self._read_one_search(
+                query, objective, refined, pages, seen_urls, summaries, added
+            )
+            if added >= self.per_objective_pages or len(pages) >= self.max_pages:
+                break
+        return added
+
+    def _read_one_search(
         self,
         query: str,
         objective: str,
@@ -150,12 +211,12 @@ class ReactPlanner:
         pages: list[dict[str, Any]],
         seen_urls: set[str],
         summaries: SummaryBank,
+        already_added: int,
     ) -> int:
-        """Read up to ``per_objective_pages`` new pages for one objective; return
-        how many were actually banked (0 signals a stalled query space)."""
+        """Read new fetchable pages from one search; return how many were banked."""
         added = 0
         for ref in self.search_fn(refined_query):
-            if len(pages) >= self.max_pages or added >= self.per_objective_pages:
+            if len(pages) >= self.max_pages or already_added + added >= self.per_objective_pages:
                 break
             if ref.url in seen_urls:
                 continue
@@ -167,6 +228,6 @@ class ReactPlanner:
             summaries.add(
                 SummaryNote(url=ref.url, title=ref.title, objective=objective, summary=summary)
             )
-            pages.append(_page_dict(ref, text))
+            pages.append(_page_dict(ref, text, objective))
             added += 1
         return added

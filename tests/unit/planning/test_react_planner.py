@@ -156,3 +156,70 @@ def test_skips_pages_with_empty_text() -> None:
     planner.read_fn = lambda _ref: "   "  # type: ignore[assignment]
     result = planner.run("the topic")
     assert result.pages_read == 0
+
+
+def test_seeded_outline_is_one_section_per_objective_not_evidence_driven() -> None:
+    # Lever 1: the QUESTION's dimensions drive the outline (a section per objective,
+    # filled with the spans banked FOR that objective) so the report can't drift to
+    # whatever topic the banked evidence happens to dominate.
+    refs = {
+        "q:clothing": [SourceRef("https://cloth.com", "C")],
+        "q:transport": [SourceRef("https://trans.com", "T")],
+    }
+    planner, _ = _fakes(["clothing", "transport"], refs)
+    planner.seeded_outline = True
+    # Distinct page text per url so the bank does not dedup them to one span.
+    bodies = {
+        "https://cloth.com": "Elderly clothing spending on the topic rose sharply over the decade.",
+        "https://trans.com": "Senior transport demand about the topic shifted toward accessible services.",
+    }
+    planner.read_fn = lambda ref: bodies[ref.url]  # type: ignore[assignment]
+    result = planner.run("the topic")
+    titles = [s.title for s in result.outline.sections]
+    assert titles == ["clothing", "transport"]  # skeleton = objectives, in order
+    # Each section cites only the span banked under its own objective.
+    cloth_ids = {s.id for s in result.evidence_bank.spans() if s.url == "https://cloth.com"}
+    cloth_section = next(s for s in result.outline.sections if s.title == "clothing")
+    assert set(cloth_section.evidence_ids) == cloth_ids
+
+
+def test_per_objective_searches_retries_until_filled() -> None:
+    # Lever 2: a thin objective (first search yields one page) retries a refined
+    # search to reach its coverage quota, so no asked dimension stays under-evidenced.
+    # refine_fn returns "q:<objective>"; the retry digest differs so we vary the ref map
+    # by making the same query return more refs only on the second call.
+    calls = {"n": 0}
+
+    def objectives_fn(_q):
+        return ["obj1"]
+
+    def refine_fn(_q, _obj, _digest):
+        return "q:obj1"
+
+    def search_fn(_query):
+        calls["n"] += 1
+        # first search: 1 page; second search: a fresh page (retry fills toward quota)
+        return [SourceRef(f"https://a.com/{calls['n']}", "")]
+
+    def read_fn(ref):
+        return _text(ref.url)
+
+    def summarize_fn(_q, _obj, _t):
+        return "s"
+
+    def outline_fn(_q, bank):
+        return Outline(sections=(OutlineSection("F", "", tuple(s.id for s in bank.spans())),))
+
+    planner = ReactPlanner(
+        objectives_fn=objectives_fn,
+        search_fn=search_fn,
+        read_fn=read_fn,
+        summarize_fn=summarize_fn,
+        refine_fn=refine_fn,
+        outline_fn=outline_fn,
+        per_objective_pages=2,
+        per_objective_searches=3,
+    )
+    result = planner.run("the topic")
+    assert result.pages_read == 2  # retried a second search to hit the per-objective quota
+    assert calls["n"] == 2

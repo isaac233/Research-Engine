@@ -49,6 +49,27 @@ class _CaptureProvider:
         return "Elderly population rises [e1]."
 
 
+def test_max_sentences_cap_scales_the_requested_sentence_count() -> None:
+    # RACE is reference-normalized against a ~63k reference; our ~13k brief is 1/5 scale.
+    # A higher max_sentences must let a well-supported section request more sentences.
+    text = " ".join(f"Fact number {i} about elderly consumption is notable clearly." for i in range(6))
+    src = {"title": "T", "paper": {"url": "https://a.org", "title": "T"}, "meta": {"page_text": text}, "claims": []}
+    bank = EvidenceBank.from_pages([src], lambda u: "", query="elderly")
+    ids = [s.id for s in bank.spans()]
+    outline = Outline(sections=(OutlineSection("S", "all", tuple(ids)),))
+
+    small, big = _CaptureProvider(), _CaptureProvider()
+    SectionWriter(small, synthesis=True, max_sentences=3).write(outline, bank, "q")
+    SectionWriter(big, synthesis=True, max_sentences=8).write(outline, bank, "q")
+
+    def _aim(prompt: str) -> int:
+        after = prompt.split("Aim for ", 1)[1]
+        return int(after.split(" to ", 1)[0])
+
+    assert len(ids) >= 5  # enough spans for the cap to bite
+    assert _aim(big.seen) > _aim(small.seen)
+
+
 def test_synthesis_mode_asks_for_analytical_paragraphs_and_bans_lists() -> None:
     bank, outline, _ = _bank_and_outline()
     prov = _CaptureProvider()

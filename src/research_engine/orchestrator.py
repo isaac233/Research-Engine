@@ -105,6 +105,47 @@ def _react_budget() -> tuple[int, int, float]:
     )
 
 
+def _writer_length() -> tuple[int, int]:
+    """(max_sentences_per_section, max_tokens_per_section) from env, else defaults.
+
+    RACE is reference-normalized against a ~63k-char reference; the default ~13k brief
+    is 1/5 scale. Raising these lets the section writer reach reference length when the
+    evidence supports it. Defaults preserve current behavior (8 sentences, 1200 tokens).
+    """
+    def _int(name: str, default: int) -> int:
+        try:
+            return max(1, int(os.environ.get(name, "")))
+        except ValueError:
+            return default
+
+    return (
+        _int("RESEARCH_ENGINE_WRITER_MAX_SENTENCES", 8),
+        _int("RESEARCH_ENGINE_WRITER_MAX_TOKENS", 1200),
+    )
+
+
+def _react_per_objective_searches() -> int:
+    """How many refined searches an under-filled objective may retry (Lever 2).
+
+    Balances retrieval across ALL asked dimensions instead of piling the budget on the
+    dominant serp topic; default 1 = current single-search behavior.
+    """
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_REACT_PER_OBJECTIVE_SEARCHES", "")))
+    except ValueError:
+        return 1
+
+
+def _react_seeded_outline() -> bool:
+    """Build the react outline as one section per objective (Lever 1) when set.
+
+    The default evidence-driven outline drifts to the banked evidence's dominant topic;
+    seeding from the objectives keeps the report on the question's own dimensions.
+    Env-gated so the default path is unchanged.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_REACT_SEEDED_OUTLINE"))
+
+
 def _react_anchored_outline() -> bool:
     """Task-anchor the react outline (question's dimensions drive sections) when set.
 
@@ -978,9 +1019,15 @@ class Orchestrator(OrchestratorInstrumentation):
             f"pages={result.pages_read} sections={len(result.outline.sections)}"
         )
         provider, model = self.synthesizer.provider, self.synthesizer.model
-        draft = SectionWriter(provider, model, carry_context=True, synthesis=True).write(
-            result.outline, result.evidence_bank, query
-        )
+        max_sentences, max_tokens = _writer_length()
+        draft = SectionWriter(
+            provider,
+            model,
+            max_tokens=max_tokens,
+            carry_context=True,
+            synthesis=True,
+            max_sentences=max_sentences,
+        ).write(result.outline, result.evidence_bank, query)
         if not draft.strip():
             return ""
         return str(deepen_report(draft, result.evidence_bank, query, provider, model))
@@ -1089,6 +1136,8 @@ class Orchestrator(OrchestratorInstrumentation):
             ).build(bank, q),
             max_pages=max_pages,
             per_objective_pages=per_objective,
+            per_objective_searches=_react_per_objective_searches(),
+            seeded_outline=_react_seeded_outline(),
             max_seconds=max_seconds,
         )
         result = planner.run(query)
