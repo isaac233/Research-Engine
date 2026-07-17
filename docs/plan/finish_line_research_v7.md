@@ -118,6 +118,18 @@ axis where 53 (32.5%) most trails 52 (72.5%). It is the first thing to build and
 Method discipline unchanged: same winning env + kimi judge, archive `engine.jsonl`/`scores.jsonl`
 + purge serp before each run, watchdog attached, task 53 is the measurement surface.
 
+**⚠️ MEASUREMENT INSTRUMENT (added 2026-07-17, commit `2e0a5c9`): live task 53 swings ~±11 RACE
+at N=1** (proven: an inert W5 run — 0 PDFs read = baseline-equivalent config — scored 21.05 vs
+baseline 32.68). Single-run deltas are noise. **Before trusting any weapon comparison, run under
+`RESEARCH_ENGINE_RETRIEVAL_CACHE=1`** (`discovery/retrieval_cache.py`) which record-then-replays
+serp results + page reads so a re-run of the same config banks identical evidence → variance
+collapses to judge noise. First run per config RECORDS (live), subsequent runs REPLAY. Reset a
+stale recording by deleting the `serp_replay_cache`/`page_replay_cache` tables in `data/cache.db`.
+First isolation matrix (all N=1, pre-cache — noise-dominated): baseline 32.68 / W1-abstain 31.31 /
+W5-PDF(inert) 21.05 / W3-lock 22.49 / combined 24.19. Mechanistic reads that survived the noise:
+W1 neutral/safe; **W2+W4 net-negative (grounding brief's 80-cell grid diluted retrieval 54→33
+spans)**; W3 likely-negative (skips deepen = the comp/insight driver); W5 inert unless PDFs surface.
+
 ## 4. References (all read/verified this session)
 - **MiniCheck** — github.com/Liyan06/MiniCheck (Apache-2.0); Ollama `bespoke-minicheck` (7B, 4.7GB,
   32K); pip `minicheck` `flan-t5-large` (770M, GPT-4-level). arXiv:2404.10774. LLM-AggreFact SOTA.

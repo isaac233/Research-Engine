@@ -31,15 +31,22 @@ diluted retrieval to 33 spans → RACE −8); **W3 = likely-negative** (skips de
 driver → retune to section-SCOPED deepen, not skip); **W5 = inert** unless PDFs appear.
 
 ### ⏭️ NEXT SESSION — START HERE
-1. **Fix the instrument before more runs.** N=1 live task 53 swings ±11 RACE. Either (a) N≥3-5 per
-   config (hours), (b) make serp deterministic (cache serp rows so a config re-banks the same pages
-   — the biggest variance source), or (c) use the bounded cache A/B (`bench/writer_eval`) for
-   writer/FACT levers. Do NOT trust another single live-task delta.
+1. **✅ INSTRUMENT FIX BUILT (`2e0a5c9`) — USE IT FIRST.** `RESEARCH_ENGINE_RETRIEVAL_CACHE=1`
+   record-then-replays serp results + page reads (`discovery/retrieval_cache.py`, in `data/cache.db`)
+   so a re-run of the SAME config banks identical evidence → the ~±11 RACE variance collapses to
+   judge noise. **Workflow:** run each config ONCE to RECORD (cache miss = live), then it REPLAYS
+   deterministically; to compare configs, the shared queries stay held constant. **Reset a stale
+   recording:** `DELETE FROM serp_replay_cache; DELETE FROM page_replay_cache;` in `data/cache.db`
+   (or unset the flag). KNOWN LIMITATION (documented in the module): the serp key is an uncached
+   LLM-refined query — temp=0 makes it usually stable but not bit-identical; the next increment is
+   to cache the reasoning calls (objectives/refine/summarize/outline) too. **This is now the
+   measurement instrument — re-run the weapon comparisons under it before trusting any delta.**
 2. **Retune, don't discard:** W2/W4 → gap-query ONLY after core objectives are banked + cap entities
    (~5) & gap-budget (~2/round) so the ledger ADDS depth. W3 → section-scoped deepen instead of
    skipping deepen. W1 → keep as-is (opt-in), maybe sweep τ on the cache A/B.
 3. Everything committed default-OFF → `main`/default path unharmed. Winning env unchanged (HANDOFF
-   below). All weapon env flags in `docs/plan/finish_line_research_v7.md` §1.
+   below). All weapon env flags in `docs/plan/finish_line_research_v7.md` §1; retrieval-cache flag
+   `RESEARCH_ENGINE_RETRIEVAL_CACHE`.
 
 ---
 
