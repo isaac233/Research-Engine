@@ -38,11 +38,35 @@ before. react banked **122 spans / 16 pages / 8 iters IN-CAMPAIGN** (`_react_pla
 (reads hang, GPU idle) while a fresh curl answers in <1s. Ran with `RESEARCH_ENGINE_MAX_WORKERS=1`
 (serial) to sidestep. Consider `OLLAMA_NUM_PARALLEL` tuning or capping default extract workers to 2.
 
-### ⏭️ NEXT: measure the volume lever properly (now that runs COMPLETE)
-`RESEARCH_ENGINE_SERP_ENDPOINT=… RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=48
-RESEARCH_ENGINE_PROGRESS=1 RESEARCH_ENGINE_MAX_WORKERS=1 research-engine bench --tasks 4 --judge ollama
---judge-model kimi-k2.7-code:cloud` — archive engine.jsonl first; attach `bench/watchdog.py` via Monitor
-(stall 180-300s). Compare react vs linear same-scale, N≥4. Gate: does react RACE beat linear as pages rise?
+### ⏭️⏭️ NEXT SESSION — START HERE (runs COMPLETE now; do these in order)
+
+**Session ops first (both likely already UP — verify):**
+- SearXNG: `curl -s "http://localhost:8080/search?q=x&format=json"` returns results>0. If down:
+  `podman machine start` → `cd ../search-infra && (podman-compose up -d searxng || podman compose up -d searxng)` → warm it.
+- Ollama UP (`curl http://localhost:11434/api/tags`). Models: `mistral-small3.2:latest`, `gemma4:12b`, Tongyi Q4.
+- **ALWAYS run under the watchdog** ([[monitor-long-processes]]): launch the bench in background, then attach
+  `python bench/watchdog.py --watch data/state.db --watch <log> --done-file <log> --done-regex "RACE overall" --stall-secs 240` via the **Monitor** tool. Do NOT passively wait on the completion notification (a wedge never sends one). If STALL fires: **py-spy dump the PID FIRST** (names the exact blocked frame — don't guess), check GPU + netstat, then kill.
+- **Run SERIAL** (`RESEARCH_ENGINE_MAX_WORKERS=1`) — 4 workers wedge Ollama's scheduler.
+- **Archive `engine.jsonl` + `scores.jsonl` BEFORE any re-run** (they now hold task 51 → bench SKIPS it and re-scores the stale article — this faked a result this session):
+  `mv bench/out/engine.jsonl bench/out/engine_$(date +%s).bak.jsonl; mv bench/out/scores.jsonl bench/out/scores_$(date +%s).bak.jsonl` and purge serp cache (`python -c "import sqlite3;c=sqlite3.connect('data/cache.db');c.execute(\"DELETE FROM source_cache WHERE source='serp'\");c.commit()"`).
+
+**STEP 1 — Fast thesis falsification (~35 min, 1 task).** Does MORE pages beat tonight's 16 pages (RACE 16.3)?
+```
+RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json' \
+RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=48 RESEARCH_ENGINE_REACT_DEBUG=1 \
+RESEARCH_ENGINE_PROGRESS=1 RESEARCH_ENGINE_ITEM_TIMEOUT=120 RESEARCH_ENGINE_MAX_WORKERS=1 \
+research-engine bench --tasks 1 --language en --judge ollama --judge-model kimi-k2.7-code:cloud --quality 0.3
+```
+GATE: if RACE does NOT rise meaningfully above 16.3, the volume thesis is likely DEAD at this stack —
+do not spend 3-4h on N=4. Pivot the lever to the writer/FACT side or a trained backbone (Tongyi).
+
+**STEP 2 — only if STEP 1 promising: proper N≥4 react-vs-linear (~3-4h).** Same env, `--tasks 4`, run BOTH
+`RESEARCH_ENGINE_PLANNER=react` and `=linear` (archive engine.jsonl between arms), same kimi judge, same scale.
+Gate: react RACE **and** FACT ≥ linear as pages rise.
+
+**Context for the number:** tonight react@16pg = RACE 16.3 / FACT 52.5% (N=1) vs the broken runs' LINEAR-fallback
+~26 RACE on the same task — so react must scale pages WELL past linear's 40 sources to win. FACT is already healthy;
+RACE (comprehensiveness/insight/depth) is the gap. If pages don't move RACE, retrieval breadth is NOT the lever.
 
 ---
 
