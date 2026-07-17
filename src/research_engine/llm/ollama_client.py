@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import httpx
@@ -39,6 +40,10 @@ class OllamaClient(LLMProvider):
         self.base_url = base_url.rstrip("/")
         self._default_model = default_model
         self.timeout = timeout
+        # One reused keep-alive client (see _http): a fresh client per call churned
+        # connections under tight ranker/extract loops and stalled some in SYN_SENT.
+        self._client: httpx.Client | None = None
+        self._client_lock = threading.Lock()
         # Thinking models (e.g. gemma4) otherwise spend the token budget on a
         # hidden reasoning preamble and return empty content. The engine wants
         # direct structured output, so disable thinking by default.
@@ -77,21 +82,40 @@ class OllamaClient(LLMProvider):
         if keep_alive is not None:
             payload["keep_alive"] = keep_alive
 
-        # Split the timeout: a stuck TCP connect fails fast (10s) while a legitimately
-        # slow generation still gets the full read budget. A single float applies the
-        # whole budget to connect too, so a wedged Ollama could hang ~self.timeout on
-        # connect alone and stall the extract batch.
-        limits = httpx.Timeout(self.timeout, connect=min(10.0, self.timeout))
-        with httpx.Client(timeout=limits) as client:
-            response = client.post(
-                f"{self.base_url}/api/chat",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
+        response = self._http().post(f"{self.base_url}/api/chat", json=payload)
+        response.raise_for_status()
+        data = response.json()
 
         message = data.get("message", {}) or {}
         return _strip_reasoning(str(message.get("content", "")))
+
+    def _http(self) -> httpx.Client:
+        """Return ONE reused keep-alive client, built lazily and thread-safely.
+
+        A fresh ``httpx.Client`` per call opened a new TCP connection every time;
+        under the ranker/extractor's tight call loops that churned connections and
+        left some stuck in SYN_SENT — connect stalls that froze a whole collect for
+        minutes even though Ollama answered a single request in <1s. A pooled,
+        keep-alive client removes the per-call handshake. ``httpx.Client`` is safe to
+        share across the extract thread pool. Timeout is split so a stuck TCP connect
+        fails in 10s while a slow generation keeps the full read budget.
+        """
+        client = self._client
+        if client is not None and not client.is_closed:
+            return client
+        with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.Client(
+                    timeout=httpx.Timeout(self.timeout, connect=min(10.0, self.timeout)),
+                    limits=httpx.Limits(max_keepalive_connections=8, max_connections=16),
+                )
+            return self._client
+
+    def close(self) -> None:
+        """Close the reused client (best-effort; safe to call repeatedly)."""
+        client = self._client
+        if client is not None and not client.is_closed:
+            client.close()
 
     def ps(self) -> list[dict[str, Any]]:
         """Return models currently loaded in memory (GET /api/ps)."""
