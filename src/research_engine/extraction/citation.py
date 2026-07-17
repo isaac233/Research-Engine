@@ -6,6 +6,19 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+# Bound the scan: the author-year regex is CPU-bound, so catastrophic backtracking on
+# a huge page can't be preempted by the extract-batch timeout (GIL-held). Real
+# citations live in normal-sized text; a slice keeps the work bounded.
+_MAX_CITATION_CHARS = 200_000
+
+# Author (Year), e.g. "Doe (2020)" / "Smith and Jones (2019)". Whitespace is
+# unambiguous (a single required \s+ per name, no competing \s*) and the name run is
+# bounded ({0,10}); the old pattern's \s+…\s* overlap backtracked EXPONENTIALLY on a
+# run of capitalized words separated by multiple spaces and hung a whole extract batch.
+_AUTHOR_YEAR = re.compile(
+    r"([A-Z][a-zA-Z\-]+(?:\s+(?:and\s+|et\s+al\.\s+)?[A-Z][a-zA-Z\-]+){0,10}\s*\((\d{4})\))"
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Citation:
@@ -28,13 +41,12 @@ def extract_citations(text: str) -> list[Citation]:
     - [1], [2] numbered citations
     - DOI links
     """
+    if len(text) > _MAX_CITATION_CHARS:
+        text = text[:_MAX_CITATION_CHARS]
     citations: list[Citation] = []
 
     # Author (Year)
-    for match in re.finditer(
-        r"([A-Z][a-zA-Z\-]+(?:\s+(?:and|et\s+al\.)?\s*[A-Z][a-zA-Z\-]+)*\s*\((\d{4})\))",
-        text,
-    ):
+    for match in _AUTHOR_YEAR.finditer(text):
         raw = match.group(0)
         authors = [a.strip() for a in re.split(r"\s+(?:and|et\s+al\.)\s*", match.group(1).split("(")[0]) if a.strip()]
         year = int(match.group(2))

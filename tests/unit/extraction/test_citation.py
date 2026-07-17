@@ -27,6 +27,19 @@ def test_extracts_doi() -> None:
     assert any(c.doi == "10.1234/example" for c in doe_citations)
 
 
+def test_author_year_regex_no_catastrophic_backtracking() -> None:
+    import time
+
+    # A run of capitalized words separated by multiple spaces with no "(YYYY)" made
+    # the old \s+…\s* overlap backtrack exponentially — CPU-bound (GIL-held), so the
+    # extract-batch timeout couldn't preempt it and a whole campaign froze. Must be fast.
+    text = "  ".join(["Name"] * 60)
+    start = time.monotonic()
+    cites = extract_citations(text)
+    assert time.monotonic() - start < 2.0
+    assert cites == []  # no year present -> no author-year citations
+
+
 def test_normalize_doi_strips_resolver() -> None:
     assert normalize_doi("https://doi.org/10.1234/example") == "10.1234/example"
     assert normalize_doi("10.1234/example") == "10.1234/example"
