@@ -1,6 +1,6 @@
 # HANDOFF — 2026-07-17
 
-## 🚀 2026-07-17 (LATE) — PLAN-THEN-FILL BREAKTHROUGH: live RACE 14.66 → 29.18 (DOUBLED), IF 8.65 → 33.0 (×3.8)
+## 🚀 2026-07-17 (LATE) — PLAN-THEN-FILL BREAKTHROUGH: live RACE 14.66 → 29.42 mean N=3 (DOUBLED), IF 8.65 → 33.0 (×3.8)
 
 **The biggest single RACE gain in the project, on the LIVE path, task 51 (N=1, kimi judge).**
 Distilled the core SOTA gap (research v5, `docs/plan/finish_line_research_v5.md`): **SOTA
@@ -68,7 +68,9 @@ research-engine bench --tasks 1 --language en --judge ollama --judge-model kimi-
 3. **Readability/length polish** — StepE read 32.4 (bar 41.5); brief 16k vs reference 63k. Push `WRITER_MAX_SENTENCES`/`_MAX_TOKENS` higher and re-measure (watch FACT doesn't drop).
 4. **Ollama wedge discipline** ([[ollama-recovery-discipline]]): the scheduler still wedges under sustained sequential load. fast-fail(90s) makes runs robust, but if a whole run hangs: py-spy the PID FIRST (names the blocked frame — it's `ranker`/`summarize_page` → `ollama_client.complete` → httpx.post), GPU 0% + /api/tags-still-UP = wedge → graceful tray restart (`Stop-Process 'ollama app','ollama'` → relaunch `ollama app.exe`; NEVER `taskkill //F` or manual `ollama serve`). Do NOT kill a bench mid-Ollama-call (wedges the server).
 
-**Unmeasured/deferred:** writer LENGTH lever in isolation (StepC killed by wedge); react-vs-linear at these settings. Both lower priority than N≥3 confirmation.
+**Unmeasured/deferred (both lower priority than the fetchability lever #2 above):** writer LENGTH lever in isolation (StepC killed by wedge); react-vs-linear at these settings.
+
+**TL;DR for the next session:** the plan-then-fill levers are BUILT, committed, and CONFIRMED at N=3 (mean live RACE 29.42, up from 14.66). Nothing to rebuild. Just: bring infra up (Session ops above) → run the WINNING ENV → then attack **retrieval fetchability (step 2)** — that's the ~11 RACE still between us and the 40.67 bar. Everything is env-gated and default-off, so `main`/linear behavior is untouched.
 
 ---
 
