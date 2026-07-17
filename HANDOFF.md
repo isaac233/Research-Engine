@@ -1,5 +1,51 @@
 # HANDOFF — 2026-07-16
 
+## ✅ 2026-07-17 — FIRST complete end-to-end react campaign: RACE 16.3 / FACT 52.5% (N=1); 4 stall bugs fixed
+
+**Milestone:** a full react campaign RAN to completion and scored — the thing that never finished
+before. react banked **122 spans / 16 pages / 8 iters IN-CAMPAIGN** (`_react_plan: DONE spans=122
+… read_chars=87217`), wrote a 6-section brief, judged by kimi:
+| metric | value |
+|---|---|
+| RACE overall | **16.3** (comp 17.0, insight 10.2, IF 14.9, read 27.8) |
+| FACT c.acc | **52.5%** (40 pairs, 21 supported) |
+
+**Reads (honest):**
+- **"react banks 0 in-campaign" = definitively NOT a code bug.** 122 spans banked in a real
+  campaign. It was infra (SearXNG) + the stall stack below.
+- **FACT 52.5% healthy** (historical 44-53% band; real, not the degenerate 0.0%).
+- **Volume thesis NOT validated — arguably negative at this budget.** react used only 16 pages while
+  linear collected 40 sources; the earlier broken runs' LINEAR-fallback brief scored RACE ~26 on
+  this same task 51. So react-at-16-pages < linear-at-40 on RACE. To test the thesis, `REACT_MAX_PAGES`
+  must go WELL above 40 (toward WebWeaver ~100) AND N≥4 (single task is deep in the noise).
+
+**FOUR stall bugs fixed this session (each caught in minutes via watchdog→py-spy→netstat, all TDD):**
+1. `256234e` **connection churn (the big recurring one)** — `ollama_client.complete` opened a FRESH
+   httpx.Client per call; ranker/extractor loops churned connections until some hung in SYN_SENT
+   (GPU idle, blocked in create_connection). Now: ONE reused keep-alive client.
+2. `8025ba7` **citation Author-Year regex exponential backtracking** — `\s+…\s*` overlap around an
+   optional group hung (CPU-bound, GIL-held → item-timeout can't preempt) on capitalized-word runs.
+   Now bounded/unambiguous + 200k cap.
+3. `642f5c4` **markdownify O(Ntags·n)** on unclosed inline `<svg>` icons. Now skips a noisy tag's
+   DOTALL sub when its close is absent.
+4. `83b879c` **extract batch froze on a hung LLM** — `parallel_map` now has a per-item wall-clock
+   timeout (works for IO-bound hangs; GIL caveat documented).
+- Plus: `849bfb7` **bench/watchdog.py** (stall detector via Monitor), `c30d270`+`0ffda4a` **[progress]
+  logging** (RESEARCH_ENGINE_PROGRESS, per-stage + per-extract-item incl. timeouts), `61d0771` react
+  first-dry-objective loop fix.
+
+**Ollama-under-load limit (not a code bug):** 4 concurrent extract workers wedge Ollama's scheduler
+(reads hang, GPU idle) while a fresh curl answers in <1s. Ran with `RESEARCH_ENGINE_MAX_WORKERS=1`
+(serial) to sidestep. Consider `OLLAMA_NUM_PARALLEL` tuning or capping default extract workers to 2.
+
+### ⏭️ NEXT: measure the volume lever properly (now that runs COMPLETE)
+`RESEARCH_ENGINE_SERP_ENDPOINT=… RESEARCH_ENGINE_PLANNER=react RESEARCH_ENGINE_REACT_MAX_PAGES=48
+RESEARCH_ENGINE_PROGRESS=1 RESEARCH_ENGINE_MAX_WORKERS=1 research-engine bench --tasks 4 --judge ollama
+--judge-model kimi-k2.7-code:cloud` — archive engine.jsonl first; attach `bench/watchdog.py` via Monitor
+(stall 180-300s). Compare react vs linear same-scale, N≥4. Gate: does react RACE beat linear as pages rise?
+
+---
+
 ## 🔧 2026-07-16 (LATER) — the "#1 blocking bug" was INFRA, not code (react banks fine); loop-abort fix shipped
 
 **The prior "#1 BLOCKING BUG" (react banks ~174 standalone yet ~0 in-campaign) is DISPROVEN as a
