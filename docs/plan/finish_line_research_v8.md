@@ -1,5 +1,15 @@
 # Finish-Line Research v8 — Task 53 Gap: Diagnosis + Online-Research-Backed Fix Plan (2026-07-18)
 
+> **OUTCOME ADDENDUM (same day, post-plan):** P0 built + measured. A/B on the CDP-era best
+> articles (same mistral judge, same deterministic pair set): **task 53 FACT 25.0% (old
+> harness) → 70.3% (official-parity harness)** — the crater was the instrument, as §2
+> predicted; 53 now scores at task-52 level (65%→69.4%). Task 51's new-arm reading was
+> degraded by rate-limited hosts (4 fetch-hammer runs in one afternoon) — lesson: give the
+> bench FACT fetcher record-then-replay caching (like RESEARCH_ENGINE_RETRIEVAL_CACHE)
+> before repeated same-day A/Bs. P1 rubric scaffold + P2 wayback + W5-citable committed
+> env-gated, UNMEASURED. Commits `4f7b5c0` `68cc3bf` `39a0c46`; artifact
+> `bench/out/fact_parity_ab.jsonl`; details HANDOFF.md top.
+
 **Question:** task 53 ("Researching how the world's wealthiest governments invest") scores far below
 task 52 (Buffett/Munger). Best known: 53 = RACE 32.7 / FACT 32.5% vs 52 = RACE 38.6 / FACT 72.5%
 (CDP-era N=3, `bench/out/scores_20260717_142110.bak.jsonl`). Goal: 53 ≥ 52's best; overall goal:

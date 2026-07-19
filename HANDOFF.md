@@ -51,6 +51,13 @@ Bash-tool tree can't reach localhost:11434 (use PowerShell tree); python outboun
 fails certifi (Windows-store PEM + `VERIFY_X509_STRICT` cleared, session scripts only).
 
 ### ⏭️ NEXT SESSION — START HERE
+0. **Session ops:** Ollama tray autostarts on boot with cloud ENABLED — inside a Claude
+   session it will wedge again (MITM heartbeat). If a bench needs Ollama in-session:
+   stop tray → `OLLAMA_NO_CLOUD=1 ollama serve` (PowerShell tree, not Bash). Outside a
+   Claude session everything is normal, kimi cloud judge included. A/B artifact:
+   `bench/out/fact_parity_ab.jsonl` (gitignored, kept). Also: repeated same-day FACT
+   A/Bs rate-limit the cited hosts (zipdo.co etc. went dark after 4 runs) — add
+   record-then-replay to the bench FACT fetcher before hammering again.
 1. **Re-score with a trustworthy judge for the real baseline:** kimi (outside a Claude
    session, or if cloud path works) or GPT-class via `python -m bench.rescore_fact
    --engine bench/out/engine_20260717_142110.bak.jsonl --judge ollama --judge-model
