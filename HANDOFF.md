@@ -1,4 +1,70 @@
-# HANDOFF — 2026-07-17
+# HANDOFF — 2026-07-18
+
+## 🎯 2026-07-18 — TASK-53 FACT CRATER = OUR HARNESS (measured: 25% → 70.3% under official-parity scoring); P0 parity + P1 rubric + P2 wayback BUILT+COMMITTED
+
+**Diagnosis session (research doc `docs/plan/finish_line_research_v8.md`): read the OFFICIAL
+bench pipeline sources** (`Ayanami0730/deep_research_bench` utils/{scrape,validate,stat}.py).
+Our `bench/fact.py` was harsher than official on 4 axes: (1) official fetches via **Jina
+Reader** (renders JS, reads PDFs, passes bot walls) + 3 retries — ours raw HTTP, no retry;
+(2) official labels invalid pages **`unknown` and EXCLUDES them from the denominator**
+(`stat.py:27`) — ours counted scrape-fails as unsupported; (3) official support = "found
+entirely **or partially** (rounding OK)" — ours strict entailment; (4) official batches all
+statements per URL in one call.
+
+**MEASURED (A/B, same articles = CDP-era best `engine_20260717_142110.bak.jsonl`, same
+mistral-small3.2 judge, same deterministic regex pair set, both arms):**
+| task | OLD harness | NEW official-parity | note |
+|---|---|---|---|
+| 51 Japan elderly | 40.0% | 91.7% on 12 judged / 28 unknown | its hosts (zipdo.co…) rate-limited after 4 hammer runs today — re-measure fresh |
+| 52 Buffett/Munger | 65.0% | **69.4%** (25/36) | clean, 4 unknown |
+| **53 wealthiest govs** | **25.0%** | **70.3%** (26/37, 3 unknown) | **CRATER WAS INSTRUMENT — now at task-52 level** |
+NB mistral judge ≈ kimi-judged numbers directionally (old-53 kimi 32.5% vs old-53 mistral
+25% — same regime). Official-comparable absolutes still need a kimi/GPT-class judge.
+
+**BUILT + COMMITTED (`4f7b5c0`, `68cc3bf`, `39a0c46`; 665 unit green, ruff+mypy clean,
+code-reviewer pass applied — CDP close-leak fixed, PDF-fallback guard, verdict normalization):**
+1. **P0 official-parity FACT scorer** (`bench/fact.py`, default ON — it's the corrected
+   instrument): 3-way verdicts, unknown-excluded accuracy (+ `citation_accuracy_all` legacy
+   view), official validate prompt verbatim, batched per-URL judging (fewer judge calls),
+   fetch retries, **judge fetcher = raw + lazy CDP fallback + PDFConverter** (Jina-parity;
+   `RESEARCH_ENGINE_BENCH_FACT_CDP=0` disables). `FactScorer.close()` releases Chromium.
+   **`bench/rescore_fact.py`** = FACT-only re-scoring over any engine.jsonl (no engine run).
+2. **P1 rubric scaffold** (`RESEARCH_ENGINE_RUBRIC_SCAFFOLD=1`, DuMate arXiv:2606.07299 —
+   leaderboard #1): one JSON call → persistent rubric (title/scope/sections/guidance);
+   sections become objectives + seeded outline (noun-phrase dims, deduped — kills the
+   imperative-heading/cohort-drift failure measured on 53); digest + title steer the writer
+   (`SectionWriter(guidance=, report_title=)`). UNMEASURED (needs live run).
+3. **P2 wayback lane** (`RESEARCH_ENGINE_WAYBACK_FALLBACK=1`): raw fail → CDP miss →
+   `web.archive.org/web/2/<url>` latest snapshot, keyless. UNMEASURED.
+4. **W5 upgrade:** `RESEARCH_ENGINE_PDF_INGEST=1` now also makes PDF spans **CITABLE**
+   (`evidence_bank._pdf_citable`) — legit because official Jina reads PDFs and our parity
+   judge fetcher converts them. SWF annual reports (53's richest sources) become readable
+   AND verifiable. from_pages banks PDF spans only from stored converted text.
+
+**⚠️ SESSION-OPS DISCOVERY (cost half the session — READ [[ollama-recovery-discipline]]):**
+Ollama server wedged (accepts TCP, answers nothing, own GIN log silent) ~6-9s after EVERY
+restart. Root cause = **cloud heartbeat hanging against the Claude session's machine-wide
+transparent MITM proxy** (malformed CA — "Basic Constraints not marked critical").
+**Fix: `OLLAMA_NO_CLOUD=1` → stable.** Consequences while a Claude session runs:
+kimi CLOUD judge unusable (wedge or disabled — use local judge or run outside session);
+Bash-tool tree can't reach localhost:11434 (use PowerShell tree); python outbound HTTPS
+fails certifi (Windows-store PEM + `VERIFY_X509_STRICT` cleared, session scripts only).
+
+### ⏭️ NEXT SESSION — START HERE
+1. **Re-score with a trustworthy judge for the real baseline:** kimi (outside a Claude
+   session, or if cloud path works) or GPT-class via `python -m bench.rescore_fact
+   --engine bench/out/engine_20260717_142110.bak.jsonl --judge ollama --judge-model
+   kimi-k2.7-code:cloud`. Expect task-53 FACT ~55-75% (mistral says 70.3%).
+2. **Measure P1 rubric scaffold live** (the RACE lever): winning env + `CDP_FALLBACK=1
+   RUBRIC_SCAFFOLD=1` (+ optionally `WAYBACK_FALLBACK=1 PDF_INGEST=1`), task 53 first,
+   then N=3 under `RETRIEVAL_CACHE=1`. Targets: IF .34→.40+ (cohort/headings fixed),
+   RACE 32.7→36+. Then push `WRITER_MAX_SENTENCES` 16→24-32 (P3, reference is 70k chars).
+3. Remaining v8 P2 items: objectives dedup (may be subsumed by rubric), fetchability serp
+   rerank, thin-objective data-term retries (surfaces PDFs for W5).
+4. Ephemeral gap-rubric loop (DuMate cycle 2) = deferred — retune W2/W4 territory; only
+   after core banked, ≤2 gap queries/round.
+
+---
 
 ## 🧪 2026-07-17 (LATE-5) — v7 WEAPONS COMMITTED (`684ac3c`) after adversarial review; measured NEGATIVE/NOISE on task 53
 
