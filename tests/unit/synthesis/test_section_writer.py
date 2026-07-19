@@ -134,3 +134,27 @@ def test_paragraph_cite_uses_grouped_template() -> None:
     SectionWriter(_Capture(), paragraph_cite=True).write(outline, bank, "q")
     assert "paragraph" in captured["user"].lower()
     assert "sentence must restate one" not in captured["user"]
+
+
+def test_guidance_appended_to_section_prompts_and_title_overridden() -> None:
+    # P1 rubric scaffold: guidance rides every section prompt; report_title replaces
+    # the "Research Brief: <prompt>" header. Both empty = legacy (other tests).
+    bank, outline, _ = _bank_and_outline()
+    provider = _CaptureProvider()
+    writer = SectionWriter(
+        provider,
+        "m",
+        guidance="Quality criteria:\n- Define the cohort explicitly",
+        report_title="Sovereign Wealth Investment Strategies",
+    )
+    out = writer.write(outline, bank, "how governments invest")
+    assert "Define the cohort explicitly" in provider.seen
+    assert out.startswith("# Sovereign Wealth Investment Strategies\n")
+    assert "Research Brief:" not in out
+
+
+def test_no_guidance_keeps_legacy_header() -> None:
+    bank, outline, _ = _bank_and_outline()
+    writer = SectionWriter(_CaptureProvider(), "m")
+    out = writer.write(outline, bank, "how governments invest")
+    assert out.startswith("# Research Brief: how governments invest")

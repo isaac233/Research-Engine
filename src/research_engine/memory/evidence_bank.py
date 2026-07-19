@@ -11,6 +11,7 @@ the HTML page the FACT verifier can re-read, not a PDF/DOI it cannot.
 from __future__ import annotations
 
 import dataclasses
+import os
 import re
 from collections.abc import Callable
 from typing import Any
@@ -60,12 +61,24 @@ class EvidenceSpan:
     verifiable: bool  # True when url is an HTML page the FACT fetcher can re-read
 
 
+def _pdf_citable() -> bool:
+    """PDF URLs are citable when W5 PDF ingest is on.
+
+    The official FACT pipeline fetches via Jina Reader, which reads PDFs — and
+    our parity fetcher (bench/fact.py default_fetcher) converts PDFs too. So a
+    PDF citation is verifiable whenever the engine can also read PDFs (same W5
+    flag). Off ⇒ byte-identical legacy behavior (PDF-only sources skipped).
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_PDF_INGEST"))
+
+
 def _citable_url(source: dict[str, Any]) -> tuple[str, bool]:
     """Best citable URL, preferring an HTML page over a PDF/DOI.
 
-    Returns (url, verifiable). ``verifiable`` is True only when the chosen URL is
-    an HTML page (the FACT metric fetches + markdownifies; PDFs/DOIs come back
-    unreadable and auto-fail), so a PDF/DOI-only source is cited but flagged.
+    Returns (url, verifiable). ``verifiable`` is True when the chosen URL is an
+    HTML page — or a PDF while W5 ingest is on (the FACT fetcher then converts
+    it). Bare DOIs stay unverifiable; a flagged source is cited but skipped by
+    ``from_pages``.
     """
     paper = source.get("paper") or {}
     candidates = [paper.get("url"), source.get("full_text_url"), paper.get("pdf_url")]
@@ -74,6 +87,11 @@ def _citable_url(source: dict[str, Any]) -> tuple[str, bool]:
         lu = u.lower()
         if not lu.endswith(".pdf") and "doi.org" not in lu:
             return u, True
+    if _pdf_citable():
+        for u in urls:
+            lu = u.lower()
+            if lu.endswith(".pdf") and "doi.org" not in lu:
+                return u, True
     return (urls[0], False) if urls else ("", False)
 
 
@@ -164,6 +182,11 @@ class EvidenceBank:
             # back to a live fetch when no stored text is available.
             page_text = str((source.get("meta") or {}).get("page_text") or "")
             if not page_text.strip():
+                if url.split("?", 1)[0].split("#", 1)[0].lower().endswith(".pdf"):
+                    # A W5-citable PDF is only usable via its stored CONVERTED text
+                    # (react read_fn ran PDFConverter); fetch_fn here is the plain
+                    # HTML transform and would mine spans from raw PDF bytes.
+                    continue
                 if fetched >= max_fetches:
                     continue
                 try:

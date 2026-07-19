@@ -101,6 +101,8 @@ class SectionWriter:
         paragraph_cite: bool = False,
         synthesis: bool = False,
         max_sentences: int = 8,
+        guidance: str = "",
+        report_title: str = "",
     ) -> None:
         self.provider = provider
         self.model = model
@@ -110,6 +112,11 @@ class SectionWriter:
         self.paragraph_cite = paragraph_cite
         self.synthesis = synthesis
         self.max_sentences = max_sentences
+        # Persistent-rubric scaffold (P1): guidance is appended to every section
+        # prompt; report_title replaces the "Research Brief: <prompt>" header.
+        # Both default empty ⇒ byte-identical legacy output.
+        self.guidance = guidance
+        self.report_title = report_title
 
     def write(self, outline: Outline, bank: EvidenceBank, query: str) -> str:
         parts: list[str] = []
@@ -126,7 +133,7 @@ class SectionWriter:
                 parts.append(f"## {section.title}\n\n{body}")
         if not parts:
             return ""
-        header = f"# Research Brief: {query}\n\n"
+        header = f"# {self.report_title}\n\n" if self.report_title else f"# Research Brief: {query}\n\n"
         return header + "\n\n".join(parts) + bank.references()
 
     def _write_section(
@@ -155,6 +162,8 @@ class SectionWriter:
         user = template.format(
             query=query, title=title, intent=intent, evidence=evidence, n=n, n2=n + 4
         )
+        if self.guidance:
+            user = f"{user}\n\nReport-wide requirements:\n{self.guidance}"
         if preceding:
             user = (
                 f"Report so far (build on it, keep the narrative flowing, do NOT "

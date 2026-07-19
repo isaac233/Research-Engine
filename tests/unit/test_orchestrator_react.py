@@ -258,6 +258,118 @@ def test_react_plan_closes_cdp_driver(monkeypatch) -> None:  # noqa: ANN001
     assert fake.closed is True
 
 
+# --- P1 persistent rubric scaffold (DuMate test-time rubric) -----------------
+
+import json as _json  # noqa: E402
+
+
+class _RubricProvider(_DispatchProvider):
+    """Serves a rubric for the rubric prompt; everything else as _DispatchProvider."""
+
+    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+        blob = " ".join(m.content for m in messages).lower()
+        if "rubric-plan" in blob:
+            return _json.dumps(
+                {
+                    "title": "Sovereign Wealth Investment Strategies",
+                    "scope": "The largest state investment funds.",
+                    "sections": ["Fund Cohort and Scale", "Asset Allocation Patterns"],
+                    "guidance": ["Define the cohort explicitly"],
+                }
+            )
+        return super().complete(messages, model, temperature, max_tokens, format)
+
+
+def test_rubric_sections_become_objectives_when_enabled(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", "1")
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store, EventBus(store),
+        browser=_FakeBrowser(),  # type: ignore[arg-type]
+        discovery=_FakeDiscovery(),  # type: ignore[arg-type]
+        ranker=_FakeRanker(),  # type: ignore[arg-type]
+        synthesizer=SimpleNamespace(provider=_RubricProvider(), model="fake"),  # type: ignore[arg-type]
+    )
+    orch.planner_mode = "react"
+    # Query terms must overlap the fixture page (span banking is query-ranked).
+    # The single-URL fixture dries up after objective 1, so only the FIRST rubric
+    # section can complete — what matters is that rubric sections, not the default
+    # plan_objectives decomposition, drive the loop.
+    result = orch._react_plan("aging topic in japan")
+    assert result is not None
+    covered = result.summaries.covered_objectives()
+    assert "Fund Cohort and Scale" in covered
+    assert "how big is the aging cohort" not in covered
+    assert orch._rubric.title == "Sovereign Wealth Investment Strategies"
+    assert "Define the cohort explicitly" in orch._rubric.digest()
+
+
+def test_rubric_off_keeps_default_objectives(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", raising=False)
+    orch = _orch("react")
+    result = orch._react_plan("aging topic in japan")
+    assert result is not None
+    assert result.summaries.covered_objectives() == {"how big is the aging cohort"}
+    assert orch._rubric.title == ""  # trivial rubric ⇒ writer path unchanged
+
+
+# --- Wayback last-resort read fallback (fetchability lever, P2) --------------
+
+
+class _BlockedExceptWayback:
+    """403s every direct read but serves archive.org snapshots."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def fetch_bytes(self, url):  # noqa: ANN001
+        self.calls.append(url)
+        if url.startswith("https://web.archive.org/"):
+            return b"<html><body><p>Archived snapshot content.</p></body></html>"
+        raise RuntimeError("HTTP error 403")
+
+
+def test_fetch_page_text_wayback_after_cdp_miss(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_CDP_FALLBACK", "1")
+    monkeypatch.setenv("RESEARCH_ENGINE_WAYBACK_FALLBACK", "1")
+    orch = _orch("react")
+    fake_browser = _BlockedExceptWayback()
+    orch.browser = fake_browser  # type: ignore[assignment]
+    miss = _FakeCDP("", ok=False, error="blocked")  # CDP also fails
+    monkeypatch.setattr(orch, "_ensure_cdp", lambda: miss)
+    text = orch._fetch_page_text("https://blocked.example/x")
+    assert "Archived snapshot content" in text
+    assert fake_browser.calls[-1] == "https://web.archive.org/web/2/https://blocked.example/x"
+
+
+def test_fetch_page_text_wayback_without_cdp(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_CDP_FALLBACK", raising=False)
+    monkeypatch.setenv("RESEARCH_ENGINE_WAYBACK_FALLBACK", "1")
+    orch = _orch("react")
+    orch.browser = _BlockedExceptWayback()  # type: ignore[assignment]
+    text = orch._fetch_page_text("https://blocked.example/x")
+    assert "Archived snapshot content" in text
+
+
+def test_fetch_page_text_wayback_miss_returns_empty(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_CDP_FALLBACK", raising=False)
+    monkeypatch.setenv("RESEARCH_ENGINE_WAYBACK_FALLBACK", "1")
+    orch = _orch("react")
+    orch.browser = _Blocked()  # type: ignore[assignment]  # blocks archive.org too
+    assert orch._fetch_page_text("https://blocked.example/x") == ""
+
+
+def test_fetch_page_text_no_wayback_when_flag_off(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_CDP_FALLBACK", raising=False)
+    monkeypatch.delenv("RESEARCH_ENGINE_WAYBACK_FALLBACK", raising=False)
+    orch = _orch("react")
+    orch.browser = _BlockedExceptWayback()  # type: ignore[assignment]
+    import pytest
+
+    with pytest.raises(RuntimeError):  # byte-identical legacy behavior
+        orch._fetch_page_text("https://blocked.example/x")
+
+
 # --- W3 section-locked write (ADORE memory-locked synthesis) -----------------
 
 import research_engine.orchestrator as _orch_mod  # noqa: E402

@@ -153,6 +153,25 @@ def test_from_pages_skips_unfetchable_and_pdf_only() -> None:
     assert bank.spans() == []
 
 
+def test_pdf_citable_under_w5_ingest(monkeypatch) -> None:
+    """W5 on ⇒ a PDF-only source is verifiable (the parity FACT fetcher reads PDFs)."""
+    monkeypatch.setenv("RESEARCH_ENGINE_PDF_INGEST", "1")
+    page = (
+        "The sovereign fund allocated forty percent to global equities last year. "
+        "Fixed income holdings declined toward thirty percent of assets."
+    )
+    src = {
+        "title": "Fund report",
+        "paper": {"url": None, "pdf_url": "https://fund.gov/annual.pdf", "title": "Fund report"},
+        "meta": {"page_text": page},
+        "claims": [],
+    }
+    bank = EvidenceBank.from_pages([src], lambda _u: "", query="sovereign fund equities")
+    spans = bank.spans()
+    assert spans
+    assert all(s.url == "https://fund.gov/annual.pdf" and s.verifiable for s in spans)
+
+
 def test_from_pages_prefers_stored_page_text_without_fetching() -> None:
     # Extraction already fetched the page; from_pages must mine the stored text
     # (meta.page_text) and NOT re-fetch — re-fetching every URL triggers 429s.
@@ -182,3 +201,21 @@ def test_from_pages_caps_fetches() -> None:
     bank = EvidenceBank.from_pages(srcs, _pages(pages), query="topic", max_fetches=3)
     urls = {s.url for s in bank.spans()}
     assert len(urls) <= 3
+
+
+def test_from_pages_never_live_fetches_a_pdf(monkeypatch) -> None:
+    """W5-citable PDFs bank only from stored converted text; the from_pages
+    fetch_fn is the plain HTML transform and must never see a .pdf URL."""
+    monkeypatch.setenv("RESEARCH_ENGINE_PDF_INGEST", "1")
+    src = {
+        "title": "Fund report",
+        "paper": {"url": None, "pdf_url": "https://fund.gov/annual.pdf", "title": "Fund report"},
+        "meta": {},  # no stored page_text
+        "claims": [],
+    }
+
+    def boom(url: str) -> str:
+        raise AssertionError(f"must not live-fetch a pdf: {url}")
+
+    bank = EvidenceBank.from_pages([src], boom, query="sovereign fund")
+    assert bank.spans() == []
