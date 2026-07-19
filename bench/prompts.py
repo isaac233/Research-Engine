@@ -103,20 +103,32 @@ Here is the main text of the research report:
 
 Begin extraction now. Output ONLY the JSON list, no chatter or explanation."""
 
-# --- FACT: support check (authored to README metric spec) ---
-FACT_SUPPORT_PROMPT = """You are a strict fact-checking judge. Decide whether the CITED SOURCE supports the CLAIM.
+# --- FACT: batched per-URL support check (ported verbatim: utils/validate.py
+# prompt_template_en). Official semantics: invalid/empty reference -> all
+# statements "unknown"; partial support counts; numeric rounding accepted. ---
+FACT_VALIDATE_PROMPT = """You will be provided with a reference and some statements. Please determine whether each statement is 'supported', 'unsupported', or 'unknown' with respect to the reference. Please note:
+First, assess whether the reference contains any valid content. If the reference contains no valid information, such as a 'page not found' message, then all statements should be considered 'unknown'.
+If the reference is valid, for a given statement: if the facts or data it contains can be found entirely or partially within the reference, it is considered 'supported' (data accepts rounding); if all facts and data in the statement cannot be found in the reference, it is considered 'unsupported'.
 
-<claim>
-{claim}
-</claim>
+You should return the result in a JSON list format, where each item in the list contains the statement's index and the judgment result, for example:
+[
+    {{
+        "idx": 1,
+        "result": "supported"
+    }},
+    {{
+        "idx": 2,
+        "result": "unsupported"
+    }}
+]
 
-<cited_source_content>
-{source_content}
-</cited_source_content>
+Below are the reference and statements:
+<reference>
+{reference}
+</reference>
 
-A claim is "supported" only if the source content directly states or clearly
-entails it. If the source is unrelated, contradicts the claim, is an error
-message, or is too vague to confirm, it is "not supported".
+<statements>
+{statements}
+</statements>
 
-Output ONLY this JSON object:
-{{"supported": true or false, "reason": "one short sentence"}}"""
+Begin the assessment now. Output only the JSON list, without any conversational text or explanations."""

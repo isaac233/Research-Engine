@@ -99,23 +99,26 @@ def run_benchmark(
     per_task: list[dict[str, Any]] = []
     if scores_path.exists():
         scores_path.unlink()
-    for task in tasks:
-        art = articles.get(task["id"])
-        if not art or not art.get("article"):
-            per_task.append({"id": task["id"], "error": "no engine article"})
-            continue
-        prompt = task["prompt"]
-        criteria = criteria_map.get(prompt)
-        reference = reference_map.get(prompt, {}).get("article", "")
-        if not criteria:
-            per_task.append({"id": task["id"], "error": "no criteria for task"})
-            continue
-        race_res = race.score(task["id"], prompt, art["article"], reference, criteria)
-        fact_res = fact.score(task["id"], art["article"])
-        row = {"id": task["id"], "race": race_res, "fact": fact_res}
-        per_task.append(row)
-        with scores_path.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    try:
+        for task in tasks:
+            art = articles.get(task["id"])
+            if not art or not art.get("article"):
+                per_task.append({"id": task["id"], "error": "no engine article"})
+                continue
+            prompt = task["prompt"]
+            criteria = criteria_map.get(prompt)
+            reference = reference_map.get(prompt, {}).get("article", "")
+            if not criteria:
+                per_task.append({"id": task["id"], "error": "no criteria for task"})
+                continue
+            race_res = race.score(task["id"], prompt, art["article"], reference, criteria)
+            fact_res = fact.score(task["id"], art["article"])
+            row = {"id": task["id"], "race": race_res, "fact": fact_res}
+            per_task.append(row)
+            with scores_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    finally:
+        fact.close()  # kill the judge fetcher's lazy Chromium; don't leak one per run
 
     return _aggregate(per_task, judge_kind, judge_model, language, len(tasks))
 

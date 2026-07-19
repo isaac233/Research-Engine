@@ -243,33 +243,36 @@ def score(
     fact = FactScorer(judge, judge_model=judge_model)
 
     results: dict[str, Any] = {}
-    for variant in variants:
-        writer = WRITERS[variant]
-        per_task: list[dict[str, Any]] = []
-        for rec in records:
-            bank = EvidenceBank.from_pages(rec["sources"], lambda _u: "", rec["prompt"])
-            article = writer(bank, rec["prompt"], provider, model)
-            criteria = criteria_map.get(rec["prompt"])
-            if not article.strip() or not criteria:
-                per_task.append({"id": rec["id"], "error": "no article/criteria"})
-                continue
-            reference = reference_map.get(rec["prompt"], {}).get("article", "")
-            per_task.append(
-                {
-                    "id": rec["id"],
-                    "race": race.score(rec["id"], rec["prompt"], article, reference, criteria),
-                    "fact": fact.score(rec["id"], article),
-                }
+    try:
+        for variant in variants:
+            writer = WRITERS[variant]
+            per_task: list[dict[str, Any]] = []
+            for rec in records:
+                bank = EvidenceBank.from_pages(rec["sources"], lambda _u: "", rec["prompt"])
+                article = writer(bank, rec["prompt"], provider, model)
+                criteria = criteria_map.get(rec["prompt"])
+                if not article.strip() or not criteria:
+                    per_task.append({"id": rec["id"], "error": "no article/criteria"})
+                    continue
+                reference = reference_map.get(rec["prompt"], {}).get("article", "")
+                per_task.append(
+                    {
+                        "id": rec["id"],
+                        "race": race.score(rec["id"], rec["prompt"], article, reference, criteria),
+                        "fact": fact.score(rec["id"], article),
+                    }
+                )
+            summary = _aggregate(per_task, judge_kind, judge_model, None, len(records))
+            results[variant] = summary
+            logger.info(
+                "variant %-10s RACE %.2f  FACT %.1f%%  E.Cit %.2f",
+                variant,
+                summary["race_overall"],
+                summary["fact_citation_accuracy"],
+                summary["fact_effective_citations"],
             )
-        summary = _aggregate(per_task, judge_kind, judge_model, None, len(records))
-        results[variant] = summary
-        logger.info(
-            "variant %-10s RACE %.2f  FACT %.1f%%  E.Cit %.2f",
-            variant,
-            summary["race_overall"],
-            summary["fact_citation_accuracy"],
-            summary["fact_effective_citations"],
-        )
+    finally:
+        fact.close()  # kill the judge fetcher's lazy Chromium; don't leak one per score run
     return results
 
 
