@@ -54,6 +54,22 @@ _VALIDATE_SCHEMA = {
 }
 
 
+def _normalize_verdict(result: str) -> str:
+    """Map judge phrasings onto the official 3-way verdict space.
+
+    Cloud judges emit the schema's words; local judges drift to yes/true/no/
+    false/neutral. Anything unrecognized is 'unknown' (excluded — never a
+    free 'supported').
+    """
+    if result in _VERDICTS:
+        return result
+    if result in ("yes", "true", "support", "supported."):
+        return "supported"
+    if result in ("no", "false", "unsupport", "not supported", "unsupported."):
+        return "unsupported"
+    return "unknown"
+
+
 def _cdp_enabled() -> bool:
     """CDP fallback for the judge fetcher; default ON (Jina-parity), '0' disables."""
     return os.environ.get("RESEARCH_ENGINE_BENCH_FACT_CDP", "1") != "0"
@@ -238,16 +254,19 @@ class FactScorer:
                 items = extract_json(raw)
                 if not isinstance(items, list) or len(items) != len(facts):
                     raise ValueError(f"expected {len(facts)} verdicts, got {items!r:.120}")
+                # Local judges emit 0-based idx when the schema says 1-based; detect
+                # by presence of idx==0 and shift accordingly. Missing/broken idx
+                # falls back to the item's position (the list is in statement order).
+                idxs = [item.get("idx") for item in items if isinstance(item, dict)]
+                base = 0 if any(i == 0 for i in idxs) else 1
                 verdicts = ["unknown"] * len(facts)
                 for pos, item in enumerate(items):
-                    # Local judges sometimes drop/rename "idx"; the list is emitted in
-                    # statement order, so fall back to the item's position.
                     idx_raw = item.get("idx", item.get("index")) if isinstance(item, dict) else None
-                    idx = int(idx_raw) - 1 if idx_raw is not None else pos
-                    result = str(item.get("result", "")).strip().lower() if isinstance(item, dict) else ""
+                    idx = int(idx_raw) - base if idx_raw is not None else pos
                     if not 0 <= idx < len(facts):
-                        raise ValueError(f"idx out of range: {item!r}")
-                    verdicts[idx] = result if result in _VERDICTS else "unknown"
+                        idx = pos
+                    result = str(item.get("result", "")).strip().lower() if isinstance(item, dict) else ""
+                    verdicts[idx] = _normalize_verdict(result)
                 return verdicts
             except Exception as exc:  # noqa: BLE001
                 logger.warning("FACT validate attempt %d failed: %s", attempt + 1, exc)

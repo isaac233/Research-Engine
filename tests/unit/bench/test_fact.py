@@ -198,3 +198,31 @@ def test_default_fetcher_failure_reports_scrape_failed(monkeypatch) -> None:
 
     fetch = fact_mod.default_fetcher(_B())  # type: ignore[arg-type]
     assert fetch("https://blocked.example/x").startswith("scrape failed: HTTP error 403")
+
+
+def test_validate_normalizes_zero_based_idx_and_loose_verdicts() -> None:
+    """Local judges emit 0-based idx and yes/true/neutral verdicts; both normalize."""
+
+    class _Loose(_Judge):
+        def complete(self, messages: list[Message], model: str | None = None,
+                     temperature: float = 0.7, max_tokens: int | None = None,
+                     format: dict | None = None) -> str:  # noqa: A002
+            content = messages[0].content
+            if "<statements>" in content:
+                return json.dumps(
+                    [
+                        {"idx": 0, "result": "Yes"},
+                        {"idx": 1, "result": "neutral"},
+                    ]
+                )
+            return json.dumps(
+                [
+                    {"fact": "Claim A", "ref_idx": "1", "url": "http://a.example"},
+                    {"fact": "Claim B", "ref_idx": "1", "url": "http://a.example"},
+                ]
+            )
+
+    res = FactScorer(_Loose(), fetch_url=_fetch, retry_sleep=0.0).score(1, "x")
+    assert res["num_supported"] == 1  # Yes -> supported (0-based idx detected)
+    assert res["num_unknown"] == 1  # neutral -> unknown
+    assert res["citation_accuracy"] == 1.0
