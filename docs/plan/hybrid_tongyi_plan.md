@@ -1,8 +1,14 @@
 # Hybrid Plan: Tongyi-DR as the ReAct planner's reasoning brain (adapt, don't supplant)
 
-## ⏱️ STATUS (2026-07-16) — Phase 0 spike RUN, hypothesis WEAKENED; pivot flagged
-Phase 0.1 (wiring) is BUILT + green (`reasoning_model` override, flag-gated, 2 tests).
-Phase 0.2 spike RAN (isolated single-model probes, task 51, live SearXNG):
+## ⏱️ STATUS (2026-07-20)
+- **Phase 0.1 wiring:** BUILT + green (`RESEARCH_ENGINE_REACT_REASONING_MODEL` override,
+  flag-gated, 2 tests).
+- **Phase 0.2 spike:** RAN (isolated single-model probes, task 51, live SearXNG); findings
+  below. Hypothesis **weakened** at fixed page budget.
+- **Phase 1 lane integration:** BUILT — `tongyi_dr` / `tongyi_dr_q3` lanes added to
+  `config/model_lanes.yaml`, `_react_reasoning_lane()` resolves a managed lane, and
+  `_react_plan` loads/evicts the lane via `ModelLifecycleManager` so only one model is
+  resident. Env: `RESEARCH_ENGINE_REACT_REASONING_LANE`. Not yet live measured.
 
 | reasoning model | pages | spans | iters | outline | time |
 |---|---|---|---|---|---|
@@ -24,6 +30,8 @@ full-campaign react-banking bug (react banks 174 standalone but ~0 inside
 `research-engine bench` — see HANDOFF), then (b) measure full RACE/FACT with the react
 loop at volume on **mistral**, and (c) raise `max_pages`. Revisit Tongyi only if a
 write+FACT/RACE-score of the two banks proves its bank yields a materially better report.
+The new lane integration is the safe, low-cost way to run that comparison when the time
+comes.
 
 ---
 
@@ -95,12 +103,16 @@ mistral/gemma — enough to move RACE-Comp/E.Cit — and live wall-clock on the 
 
 ---
 
-## Phase 1 — Lifecycle + think handling (only if Phase 0 gates)
+## Phase 1 — Lifecycle + lane integration (BUILT 2026-07-20)
 | # | Task | Files | Acceptance |
 |---|---|---|---|
-| 1.1 | Wire Tongyi as a proper lane (`config/model_lanes.yaml` + pull report) so `LaneRoster` resolves it; sequential residency: load Tongyi for PLAN, evict, load writer for WRITE. | `config/model_lanes.yaml`, `orchestrator._switch_lane`, `llm/lifecycle.py` | Live: one model resident at each phase; no VRAM stacking (verify via `/api/ps`). |
-| 1.2 | Decide think per call-type: `think=false`+`_strip_reasoning` default (structured JSON-schema calls: objectives/refine/summarise); measure `think=true` ONLY on the free-form outline step as an upside lever. | `orchestrator.py`, `llm/ollama_client.py` | A/B: does think=true on outline lift RACE? Keep only if measured. |
-| 1.3 | Quant pin: Q4_K_M (Q3 measured to erase the edge; a 100-step loop is more quant-sensitive than one-shot writing). | docs | Q4 tag pinned in lane config. |
+| 1.1 | Wire Tongyi as a proper lane (`config/model_lanes.yaml` + pull report) so `LaneRoster` resolves it; sequential residency: load Tongyi for PLAN, evict, load writer for WRITE. | `config/model_lanes.yaml`, `orchestrator.py` | BUILT: `tongyi_dr` (Q4_K_M, enabled) and `tongyi_dr_q3` (Q3_K_M, disabled) lanes added; `_react_reasoning_lane()` resolves `RESEARCH_ENGINE_REACT_REASONING_LANE` and `_react_plan` calls `lifecycle.switch`/`unload` around the plan phase. Tests green. |
+| 1.2 | Quant pin: Q4_K_M (Q3 measured to erase the edge; a 100-step loop is more quant-sensitive than one-shot writing). | docs | `tongyi_dr` tag pinned to `tongyi-deepresearch-30b-a3b:Q4_K_M`; `tongyi_dr_q3` is `enabled: false`. |
+
+**Usage:** set `RESEARCH_ENGINE_REACT_REASONING_LANE=tongyi_dr` to route the ReAct planner's
+reasoning seams (objectives / refine / outline / summarise) through the managed lane while
+keeping `search_fn`/`read_fn` on the deterministic adapters. Unset ⇒ the existing
+`RESEARCH_ENGINE_REACT_REASONING_MODEL` per-call override (or the synth model) is used.
 
 ---
 

@@ -36,7 +36,7 @@ from research_engine.extraction.structured import (
     extracted_source_from_dict,
     extracted_source_to_dict,
 )
-from research_engine.llm.lane_roster import LaneRoster
+from research_engine.llm.lane_roster import Lane, LaneRoster
 from research_engine.llm.lifecycle import ModelLifecycleManager
 from research_engine.memory.evidence_bank import EvidenceBank
 from research_engine.monitoring.estimator import TimeEstimator
@@ -977,6 +977,24 @@ class Orchestrator(OrchestratorInstrumentation):
                 campaign.id, "switch", {"stage": stage_name, "to_tag": tag}
             )
 
+    def _react_reasoning_lane(self) -> Lane | None:
+        """Resolve a managed reasoning lane for the ReAct planner, if configured.
+
+        ``RESEARCH_ENGINE_REACT_REASONING_LANE`` names a lane in ``model_lanes.yaml``.
+        When it resolves to an enabled lane and a lifecycle manager is available,
+        the orchestrator loads that model for the planner's reasoning steps and
+        evicts it afterwards. This is the managed (VRAM-safe) counterpart to the
+        per-call ``RESEARCH_ENGINE_REACT_REASONING_MODEL`` override.
+        """
+        lane_name = os.environ.get("RESEARCH_ENGINE_REACT_REASONING_LANE")
+        if not lane_name or self.lane_roster is None:
+            return None
+        try:
+            lane = self.lane_roster.lane(lane_name)
+        except KeyError:
+            return None
+        return lane if lane.enabled else None
+
     def _run_extract(self, campaign: Campaign) -> dict[str, Any]:
         """Extract structured fields from included papers."""
         # The ReAct planner does its OWN gap-driven retrieval at evaluate-time, so the
@@ -1472,6 +1490,13 @@ class Orchestrator(OrchestratorInstrumentation):
         # while search/read stay on our deterministic policy-guarded adapters. Unset ⇒
         # reasoning_model is the synth model ⇒ byte-identical to the single-model path.
         reasoning_model = os.environ.get("RESEARCH_ENGINE_REACT_REASONING_MODEL") or model
+        reasoning_lane = self._react_reasoning_lane()
+        if reasoning_lane is not None:
+            reasoning_model = reasoning_lane.tag
+            _react_dbg(
+                f"_react_plan: reasoning_lane={reasoning_lane.name} "
+                f"tag={reasoning_lane.tag!r} num_ctx={reasoning_lane.num_ctx}"
+            )
         discovery = self.discovery
         registry = getattr(discovery, "registry", None)
         serp_ok = registry is not None and "serp" in getattr(registry, "enabled", set())
@@ -1636,6 +1661,10 @@ class Orchestrator(OrchestratorInstrumentation):
                 query, provider, reasoning_model, max_queries=_ephemeral_gap_queries()
             )
             _react_dbg(f"ephemeral_gap: max_queries={_ephemeral_gap_queries()}")
+        # R5 managed reasoning backbone: load the configured lane before the first
+        # reasoning call, evict it after the plan phase so the writer lane can reside.
+        if reasoning_lane is not None and self.lifecycle is not None:
+            self.lifecycle.switch(reasoning_lane.tag, num_ctx=reasoning_lane.num_ctx)
         planner = ReactPlanner(
             objectives_fn=_objectives,
             search_fn=search_fn,
@@ -1656,6 +1685,8 @@ class Orchestrator(OrchestratorInstrumentation):
         try:
             result = planner.run(query)
         finally:
+            if reasoning_lane is not None and self.lifecycle is not None:
+                self.lifecycle.unload(reasoning_lane.tag)
             self._close_cdp()  # kill the headless Chromium; don't leak one per bench task
         _react_dbg(
             f"_react_plan: DONE spans={len(result.evidence_bank.spans())} "

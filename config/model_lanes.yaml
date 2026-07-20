@@ -82,3 +82,23 @@ lanes:
     num_ctx: 16384
     enabled: true
     use: "Synthesize insights (alternate, aggressive quant — synthesis only)."
+
+  tongyi_dr:
+    role: planner
+    tag: "tongyi-deepresearch-30b-a3b:Q4_K_M"
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 18
+    fits_in_vram: false
+    num_ctx: 24576
+    enabled: true
+    use: "ReAct planner reasoning backbone (trained deep-research MoE, Q4 offload)."
+
+  tongyi_dr_q3:
+    role: planner
+    tag: "tongyi-deepresearch-30b-a3b:Q3_K_M"
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 14
+    fits_in_vram: false
+    num_ctx: 24576
+    enabled: false
+    use: "ReAct planner reasoning backbone (native Q3, disabled until measured)."

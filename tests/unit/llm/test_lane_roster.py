@@ -66,3 +66,18 @@ def test_lane_for_role_and_enabled(tmp_path: Path) -> None:
     names = {lane.name for lane in roster.enabled_lanes()}
     assert names == {"fast", "deep"}
     assert "disabled_lane" not in names
+
+
+def test_project_model_lanes_loads_tongyi_reasoning_lanes() -> None:
+    """The shipped config/model_lanes.yaml contains the R5 Tongyi-DR lanes."""
+    config_path = Path(__file__).parents[3] / "config" / "model_lanes.yaml"
+    assert config_path.exists(), f"missing {config_path}"
+    roster = LaneRoster.from_yaml(config_path)
+    tongyi = roster.lane("tongyi_dr")
+    assert tongyi.role == "planner"
+    assert tongyi.enabled is True
+    assert "Q4_K_M" in tongyi.tag
+    tongyi_q3 = roster.lane("tongyi_dr_q3")
+    assert tongyi_q3.role == "planner"
+    assert tongyi_q3.enabled is False
+    assert "Q3_K_M" in tongyi_q3.tag

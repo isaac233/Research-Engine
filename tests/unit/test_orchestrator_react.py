@@ -18,10 +18,59 @@ from research_engine.discovery.schema import (
     ResolveResult,
 )
 from research_engine.events import EventBus
+from research_engine.llm.lane_roster import LaneRoster
 from research_engine.orchestrator import Orchestrator
 from research_engine.state import CampaignStore
 
 _PAGE_HTML = b"<html><body><p>Japan's aging topic population is projected to shrink by 2050.</p></body></html>"
+
+_LANES_YAML = """
+lanes:
+  tongyi_dr:
+    role: planner
+    tag: "tongyi-deepresearch-30b-a3b:Q4_K_M"
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 18
+    fits_in_vram: false
+    num_ctx: 24576
+    enabled: true
+    use: "reasoning"
+  tongyi_dr_q3:
+    role: planner
+    tag: "tongyi-deepresearch-30b-a3b:Q3_K_M"
+    fallback: "mistral-small3.2:latest"
+    est_vram_gb: 14
+    fits_in_vram: false
+    num_ctx: 24576
+    enabled: false
+    use: "reasoning q3"
+"""
+
+
+def _lanes(tmp_path: Path) -> LaneRoster:
+    p = tmp_path / "lanes.yaml"
+    p.write_text(_LANES_YAML, encoding="utf-8")
+    return LaneRoster.from_yaml(p)
+
+
+class _FakeLifecycle:
+    """Record switch/unload calls for the reasoning lane lifecycle test."""
+
+    def __init__(self) -> None:
+        self.current: str | None = None
+        self.switched: list[tuple[str, int | None]] = []
+        self.unloaded: list[str] = []
+
+    def switch(self, tag: str, num_ctx: int | None = None) -> bool:
+        self.switched.append((tag, num_ctx))
+        self.current = tag
+        return True
+
+    def unload(self, tag: str) -> bool:
+        self.unloaded.append(tag)
+        if self.current == tag:
+            self.current = None
+        return True
 
 
 class _DispatchProvider:
@@ -81,6 +130,27 @@ def _orch(planner_mode: str) -> Orchestrator:
         discovery=_FakeDiscovery(),  # type: ignore[arg-type]
         ranker=_FakeRanker(),  # type: ignore[arg-type]
         synthesizer=SimpleNamespace(provider=_DispatchProvider(), model="fake"),  # type: ignore[arg-type]
+    )
+    orch.planner_mode = planner_mode
+    return orch
+
+
+def _orch_with_lanes(
+    tmp_path: Path,
+    planner_mode: str = "react",
+    provider: _DispatchProvider | None = None,
+    lifecycle: _FakeLifecycle | None = None,
+) -> Orchestrator:
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store,
+        EventBus(store),
+        browser=_FakeBrowser(),  # type: ignore[arg-type]
+        discovery=_FakeDiscovery(),  # type: ignore[arg-type]
+        ranker=_FakeRanker(),  # type: ignore[arg-type]
+        synthesizer=SimpleNamespace(provider=provider or _DispatchProvider(), model="fake"),  # type: ignore[arg-type]
+        lifecycle=lifecycle,  # type: ignore[arg-type]
+        lane_roster=_lanes(tmp_path),
     )
     orch.planner_mode = planner_mode
     return orch
@@ -571,3 +641,69 @@ def test_default_write_calls_deepen(monkeypatch) -> None:  # noqa: ANN001
     orch = _orch("react")
     orch._react_brief("aging topic in japan")
     assert called  # deepen runs on the default (unlocked) path
+
+
+# --- R5: managed Tongyi-DR reasoning backbone --------------------------------
+
+
+def test_react_plan_loads_reasoning_lane_and_unloads_after_run(
+    monkeypatch, tmp_path: Path
+) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr")
+    lifecycle = _FakeLifecycle()
+    orch = _orch_with_lanes(tmp_path, lifecycle=lifecycle)
+    result = orch._react_plan("aging topic in japan")
+    assert result is not None
+    assert lifecycle.switched == [("tongyi-deepresearch-30b-a3b:Q4_K_M", 24576)]
+    assert lifecycle.unloaded == ["tongyi-deepresearch-30b-a3b:Q4_K_M"]
+    assert lifecycle.current is None
+
+
+def test_reasoning_lane_routes_reasoning_steps_to_lane_tag(
+    monkeypatch, tmp_path: Path
+) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr")
+    provider = _RecordingProvider()
+    lifecycle = _FakeLifecycle()
+    orch = _orch_with_lanes(tmp_path, provider=provider, lifecycle=lifecycle)
+    orch._react_plan("aging topic in japan")
+    assert provider.models.get("objectives") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
+    assert provider.models.get("summarise") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
+    assert provider.models.get("refine") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
+    assert provider.models.get("outline") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
+
+
+def test_disabled_reasoning_lane_falls_back_to_synth_model(
+    monkeypatch, tmp_path: Path
+) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr_q3")
+    provider = _RecordingProvider()
+    lifecycle = _FakeLifecycle()
+    orch = _orch_with_lanes(tmp_path, provider=provider, lifecycle=lifecycle)
+    orch._react_plan("aging topic in japan")
+    assert provider.models.get("objectives") == "fake"
+    assert lifecycle.switched == []
+
+
+def test_unknown_reasoning_lane_falls_back_to_synth_model(
+    monkeypatch, tmp_path: Path
+) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "no_such_lane")
+    provider = _RecordingProvider()
+    lifecycle = _FakeLifecycle()
+    orch = _orch_with_lanes(tmp_path, provider=provider, lifecycle=lifecycle)
+    orch._react_plan("aging topic in japan")
+    assert provider.models.get("objectives") == "fake"
+    assert lifecycle.switched == []
+
+
+def test_reasoning_lane_overrides_reasoning_model_env(
+    monkeypatch, tmp_path: Path
+) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_MODEL", "env-override")
+    monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr")
+    provider = _RecordingProvider()
+    lifecycle = _FakeLifecycle()
+    orch = _orch_with_lanes(tmp_path, provider=provider, lifecycle=lifecycle)
+    orch._react_plan("aging topic in japan")
+    assert provider.models.get("objectives") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
