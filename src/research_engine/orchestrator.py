@@ -50,7 +50,7 @@ from research_engine.planning.handoff import HandoffDoc
 from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.planning.react_planner import PlanResult, ReactPlanner, SourceRef
 from research_engine.planning.rubric import TRIVIAL as TRIVIAL_RUBRIC
-from research_engine.planning.rubric import Rubric, build_rubric
+from research_engine.planning.rubric import Rubric, build_rubric, critique_rubric
 from research_engine.planning.summary_feedback import refine_query, summarize_page
 from research_engine.screening.enricher import enrich_snippets
 from research_engine.screening.ranker import SourceRanker
@@ -270,6 +270,63 @@ def _grounding_brief_enabled() -> bool:
     means no brief is built and the ledger stays empty (a no-op), so the path is unchanged.
     """
     return bool(os.environ.get("RESEARCH_ENGINE_GROUNDING_BRIEF"))
+
+
+def _scoping_pass_enabled() -> bool:
+    """Ground the persistent rubric's scope in a pre-plan scoping search (R1) when set.
+
+    A vague query ("how the world's wealthiest governments invest") has its cohort/scope
+    guessed blind by ``build_rubric`` today; with this flag the orchestrator first reads a
+    few pages and passes them to ``build_rubric`` so the scope is resolved from real
+    evidence (finish_line_research_v9). Needs ``RUBRIC_SCAFFOLD`` (the rubric master
+    switch). Env-gated; default off keeps the blind-scope path byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_SCOPING_PASS"))
+
+
+def _scoping_pages() -> int:
+    """How many pages the R1 scoping pass reads before building the rubric (default 4)."""
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_SCOPING_PAGES", "")))
+    except ValueError:
+        return 4
+
+
+def _rubric_critic_enabled() -> bool:
+    """Run one critic pass over the built rubric to tighten scope + add acceptance
+    criteria (R2, finish_line_research_v9) when set. Co-ReAct's safeguard against an
+    unverified rubric misleading a weak model. Env-gated; default off = no critic call.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_RUBRIC_CRITIC"))
+
+
+_SCOPE_SNIPPET_CHARS = 1000
+
+
+def _collect_scope_evidence(
+    query: str,
+    search_fn: Callable[[str], list[SourceRef]],
+    read_fn: Callable[[SourceRef], str],
+    max_pages: int,
+    snippet_chars: int,
+) -> str:
+    """Bounded pre-plan scoping read: one search, then up to ``max_pages`` unique,
+    non-empty pages, each capped to ``snippet_chars`` — joined into evidence that grounds
+    the rubric's scope (R1). Reuses the react ``search_fn``/``read_fn`` so retrieval-cache
+    replay, URL validation, and PDF/403 handling are inherited. "" when nothing readable.
+    """
+    snippets: list[str] = []
+    seen: set[str] = set()
+    for ref in search_fn(query):
+        if ref.url in seen:
+            continue
+        seen.add(ref.url)
+        text = read_fn(ref)
+        if text.strip():
+            snippets.append(f"[{ref.title or ref.url}] {text[:snippet_chars]}")
+            if len(snippets) >= max_pages:
+                break
+    return "\n\n".join(snippets)
 
 
 def _coverage_ledger_enabled() -> bool:
@@ -1459,9 +1516,27 @@ class Orchestrator(OrchestratorInstrumentation):
         # Sections become the objectives (and thus the seeded outline) — noun-phrase
         # report dimensions instead of imperative research steps — and the digest +
         # title steer the writer in _react_brief. Env-gated; trivial rubric = no-op.
-        rubric = (
-            build_rubric(query, provider, reasoning_model) if _rubric_scaffold_enabled() else TRIVIAL_RUBRIC
+        # R1 evidence-grounded scope: read a few pages FIRST so the rubric resolves the
+        # cohort from evidence instead of a blind guess (task 53). Only when both the
+        # rubric master switch and the scoping flag are on; else "" → blind path unchanged.
+        scope_evidence = (
+            _collect_scope_evidence(
+                query, search_fn, read_fn, _scoping_pages(), _SCOPE_SNIPPET_CHARS
+            )
+            if _rubric_scaffold_enabled() and _scoping_pass_enabled()
+            else ""
         )
+        if scope_evidence:
+            _react_dbg(f"scoping_pass: evidence_chars={len(scope_evidence)}")
+        rubric = (
+            build_rubric(query, provider, reasoning_model, evidence=scope_evidence)
+            if _rubric_scaffold_enabled()
+            else TRIVIAL_RUBRIC
+        )
+        # R2 verified checklist: one critic pass tightens the cohort/scope + adds acceptance
+        # criteria before the rubric is injected (Co-ReAct: verify, don't trust a blind rubric).
+        if _rubric_critic_enabled():
+            rubric = critique_rubric(rubric, provider, reasoning_model)
         self._rubric = rubric
         if rubric.sections:
             _react_dbg(

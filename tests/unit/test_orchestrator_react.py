@@ -124,6 +124,111 @@ def test_extract_not_skipped_for_linear_even_with_flag(monkeypatch) -> None:  # 
     assert "react planner owns retrieval" not in str(result).lower()
 
 
+# --- R1: evidence-grounded scope (finish_line_execution_v9) --------------------
+
+
+def test_collect_scope_evidence_reads_bounded_unique_pages() -> None:
+    from research_engine.orchestrator import _collect_scope_evidence
+
+    refs = [SimpleNamespace(url=f"https://e/{i}", title=f"T{i}") for i in range(6)]
+    reads: dict[str, int] = {}
+
+    def read_fn(ref):  # noqa: ANN001
+        reads[ref.url] = reads.get(ref.url, 0) + 1
+        return f"body of {ref.url}"
+
+    ev = _collect_scope_evidence("q", lambda q: refs, read_fn, max_pages=3, snippet_chars=1000)
+    assert len(reads) == 3  # stopped at the page budget
+    assert "body of https://e/0" in ev
+
+
+def test_collect_scope_evidence_skips_empty_and_dupes() -> None:
+    from research_engine.orchestrator import _collect_scope_evidence
+
+    refs = [
+        SimpleNamespace(url="https://a", title="A"),
+        SimpleNamespace(url="https://a", title="A"),  # duplicate url
+        SimpleNamespace(url="https://b", title="B"),  # empty read
+        SimpleNamespace(url="https://c", title="C"),
+    ]
+
+    def read_fn(ref):  # noqa: ANN001
+        return "" if ref.url == "https://b" else f"body {ref.url}"
+
+    ev = _collect_scope_evidence("q", lambda q: refs, read_fn, max_pages=5, snippet_chars=1000)
+    assert ev.count("body") == 2  # a and c; dupe + empty dropped
+    assert "https://b" not in ev
+
+
+def test_collect_scope_evidence_caps_snippet_chars() -> None:
+    from research_engine.orchestrator import _collect_scope_evidence
+
+    ref = SimpleNamespace(url="https://a", title="A")
+    ev = _collect_scope_evidence("q", lambda q: [ref], lambda r: "y" * 2000, max_pages=3, snippet_chars=50)
+    assert "y" * 50 in ev
+    assert "y" * 51 not in ev
+
+
+def _spy_build_rubric(monkeypatch, captured):  # noqa: ANN001
+    import research_engine.orchestrator as orch_mod
+
+    real = orch_mod.build_rubric
+
+    def spy(query, provider, model=None, evidence=""):  # noqa: ANN001
+        captured["evidence"] = evidence
+        return real(query, provider, model, evidence=evidence)
+
+    monkeypatch.setattr(orch_mod, "build_rubric", spy)
+
+
+def test_scoping_pass_disabled_by_default_no_grounding(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", "1")  # rubric on, scoping off
+    captured: dict[str, str] = {}
+    _spy_build_rubric(monkeypatch, captured)
+    _orch("react")._react_plan("how wealthiest governments invest")
+    assert captured["evidence"] == ""  # blind scope preserved (A path)
+
+
+def test_scoping_pass_grounds_rubric_when_enabled(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", "1")
+    monkeypatch.setenv("RESEARCH_ENGINE_SCOPING_PASS", "1")
+    captured: dict[str, str] = {}
+    _spy_build_rubric(monkeypatch, captured)
+    _orch("react")._react_plan("how wealthiest governments invest")
+    assert captured["evidence"]  # non-empty — scope grounded in the fetched page (B path)
+    assert "population" in captured["evidence"].lower()
+
+
+# --- R2: verified checklist critic wiring --------------------------------------
+
+
+def _spy_critique(monkeypatch, called):  # noqa: ANN001
+    import research_engine.orchestrator as orch_mod
+
+    def spy(rubric, provider, model=None):  # noqa: ANN001
+        called["n"] += 1
+        return rubric
+
+    monkeypatch.setattr(orch_mod, "critique_rubric", spy)
+
+
+def test_rubric_critic_disabled_by_default(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", "1")  # critic flag off
+    called = {"n": 0}
+    _spy_critique(monkeypatch, called)
+    _orch("react")._react_plan("how wealthiest governments invest")
+    assert called["n"] == 0
+
+
+def test_rubric_critic_runs_when_enabled(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", "1")
+    monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_CRITIC", "1")
+    called = {"n": 0}
+    _spy_critique(monkeypatch, called)
+    _orch("react")._react_plan("how wealthiest governments invest")
+    assert called["n"] == 1
+
+
 class _RecordingProvider(_DispatchProvider):
     """Record the model each reasoning step was called with."""
 

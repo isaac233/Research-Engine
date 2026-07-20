@@ -1,4 +1,65 @@
-# HANDOFF — 2026-07-18
+# HANDOFF — 2026-07-20
+
+## 🎯 2026-07-20 — VAGUE-QUERY WEAKNESS (task 53) DIAGNOSED TO ROOT + R1/R2 BUILT (evidence-grounded + verified scope); UNCOMMITTED
+
+**Session = online research → root-cause → build.** Research docs: `docs/plan/finish_line_research_v9.md`
+(findings/sources) + `docs/plan/finish_line_execution_v9.md` (granular checklist plan + progress log =
+the handoff source of truth).
+
+**ROOT CAUSE (crystallized).** Task 53 ("how the world's wealthiest governments invest") is an
+UNDERSPECIFIED query — the engine must construct the cohort. The judge's #1 comprehensiveness criterion
+IS "Definition and Scope of 'Wealthiest Governments'". Our `planning/rubric.py::build_rubric` resolved
+that scope in ONE blind, static, unverified LLM call (`orchestrator.py` `_react_plan`, before any
+evidence) → cohort drift (per-capita-PPP/Macao) → IF .339 vs task-52's .432 (worst dim). Same failure
+mode as every prior negative (W2/W4 blind grid, blind anchored-outline). SOTA fix (5 primaries:
+RhinoInsight 2511.18743 inference-time 50.92 · DuMate 2606.07299 #1 58.03 · AgentCPM-Report 2602.06540
+8B-local 50.11/Insight 52.64 · Co-ReAct 2605.23590 · AgenticLU 2502.15920) converges: make scope
+EVIDENCE-GROUNDED + VERIFIED + ITERATIVE; the two strongest need NO training. Leaderboard reframe: an
+open 8B (AgentCPM-Report) already beats Claude-research 45.0 + OpenAI-DR 46.45 → beating Opus-class on
+research is reachable on our 16 GB rig; the gap is scaffold, not model.
+
+**BUILT this session (env-gated, default-OFF, byte-identical default path; 680 unit green (665 base + 15
+new); mypy + ruff clean; UNCOMMITTED on `feat/deepresearch-bench`):**
+1. **R1 evidence-grounded scope** — `rubric.py`: `build_rubric(query, provider, model, evidence="")` +
+   `_USER_GROUNDED` template (self-clarification + resolve-from-evidence + explicit inclusions/exclusions)
+   + `_EVIDENCE_MAX_CHARS`(4000). `orchestrator.py`: `_collect_scope_evidence()` (bounded pre-plan
+   search→read ≤N unique non-empty pages, reuses in-scope `search_fn`/`read_fn` so cache/URL/PDF/403 are
+   inherited) + `_scoping_pass_enabled()` + `_scoping_pages()`(def 4) + `_SCOPE_SNIPPET_CHARS`(1000),
+   wired before `build_rubric`. Flags: `RESEARCH_ENGINE_SCOPING_PASS`, `RESEARCH_ENGINE_SCOPING_PAGES`.
+2. **R2 verified checklist critic** — `rubric.py`: `critique_rubric()` (tightens cohort, explicit
+   inclusions/exclusions, per-section acceptance criteria; degrades to input, no-op on trivial).
+   `orchestrator.py`: `_rubric_critic_enabled()` + one wiring line after `build_rubric`. Flag:
+   `RESEARCH_ENGINE_RUBRIC_CRITIC`. Composes on R1.
+
+**A/B MATRIX (single-variable — the master switch `RUBRIC_SCAFFOLD` decides *whether* a rubric is built;
+the new flags decide *how good* the scope is):**
+| Config | Flags | Meaning |
+|---|---|---|
+| Default | (none) | TRIVIAL rubric, byte-identical baseline |
+| A | `RUBRIC_SCAFFOLD=1` | today's blind one-shot scope |
+| B | `RUBRIC_SCAFFOLD=1 SCOPING_PASS=1` | R1: scope grounded in evidence |
+| C | `RUBRIC_SCAFFOLD=1 SCOPING_PASS=1 RUBRIC_CRITIC=1` | R1+R2 |
+
+### ⏭️ NEXT SESSION — START HERE
+1. **R0 live falsifier (the cheapest experiment):** task 53 ONLY, config **B vs A**, under
+   `RESEARCH_ENGINE_RETRIEVAL_CACHE=1`, winning env + `CDP_FALLBACK=1`, kimi judge (OUTSIDE a Claude
+   session per MITM, or local judge for directional). Pre-run: archive `engine.jsonl`/`scores.jsonl` +
+   purge serp rows in `data/cache.db`; attach `bench/watchdog.py` via Monitor. **Target: IF .339→.40+,
+   no per-capita-PPP opening, RACE 32.7→36+.** If IF moves, the v9 thesis holds → then measure C, then N=3.
+2. **Prove the CLASS, not the instance:** add a 2nd underspecified-cohort English bench task; B-vs-A there too.
+3. **Then R4 WARP** (draft⟷deepen, the Insight 0.39-weight lever) + R3 (bounded ephemeral gap-loop) +
+   R5 backbone bet (pull `openbmb/AgentCPM-Report-GGUF`, or WebWeaver-on-Qwen3-30B / already-pulled
+   Tongyi-DR-30B as the AGENT). Full checklists in `finish_line_execution_v9.md`.
+4. **Commit gate:** R1/R2 are UNCOMMITTED, default-off, safe. Propose:
+   `feat(scope): evidence-grounded rubric scope (R1) + verified checklist (R2), env-gated default-off`.
+   Do NOT push without user ask; no `--no-verify`.
+
+**Files touched:** `src/research_engine/planning/rubric.py`, `src/research_engine/orchestrator.py`,
+`tests/unit/planning/test_rubric.py` (+10 tests... 5 R1 evidence + 3 R2 critic), `tests/unit/test_orchestrator_react.py`
+(+7 tests: 3 `_collect_scope_evidence` + 2 scoping-wiring + 2 critic-wiring), `docs/plan/finish_line_research_v9.md`
+(new), `docs/plan/finish_line_execution_v9.md` (new).
+
+---
 
 ## 🎯 2026-07-18 — TASK-53 FACT CRATER = OUR HARNESS (measured: 25% → 70.3% under official-parity scoring); P0 parity + P1 rubric + P2 wayback BUILT+COMMITTED
 
