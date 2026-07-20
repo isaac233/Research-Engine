@@ -17,7 +17,15 @@ class _ScoringProvider:
         self.scores = scores
         self.calls: list[dict[str, str]] = []
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+    def complete(
+        self,
+        messages,
+        model=None,
+        temperature=0.0,
+        max_tokens=None,
+        format=None,
+        request_timeout=None,
+    ):  # noqa: ANN001
         blob = " ".join(m.content for m in messages)
         self.calls.append({"model": model, "content": blob})
         scores_json = [
@@ -66,7 +74,15 @@ def test_rank_spans_preserves_original_order_on_garbage_reply() -> None:
     class _GarbageProvider:
         name = "fake"
 
-        def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+        def complete(
+            self,
+            messages,
+            model=None,
+            temperature=0.0,
+            max_tokens=None,
+            format=None,
+            request_timeout=None,
+        ):  # noqa: ANN001
             return "not json"
 
         def ping(self):
@@ -89,7 +105,15 @@ def test_rank_spans_preserves_original_order_on_provider_exception() -> None:
     class _ExplodingProvider:
         name = "fake"
 
-        def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+        def complete(
+            self,
+            messages,
+            model=None,
+            temperature=0.0,
+            max_tokens=None,
+            format=None,
+            request_timeout=None,
+        ):  # noqa: ANN001
             raise RuntimeError("boom")
 
         def ping(self):
@@ -104,7 +128,10 @@ def test_rank_spans_preserves_original_order_on_provider_exception() -> None:
 
 
 def test_rank_spans_caps_at_max_spans() -> None:
-    spans = [EvidenceSpan(id=f"e{i}", text=f"text {i}", url=f"http://{i}", title="T", verifiable=True) for i in range(5)]
+    spans = [
+        EvidenceSpan(id=f"e{i}", text=f"text {i}", url=f"http://{i}", title="T", verifiable=True)
+        for i in range(5)
+    ]
     # Score e4 highest but max_spans=3 -> e4 stays in tail.
     provider = _ScoringProvider(
         [

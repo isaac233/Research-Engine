@@ -104,6 +104,7 @@ _REACT_MAX_SECONDS = 600
 
 def _react_budget() -> tuple[int, int, float]:
     """(max_pages, per_objective_pages, max_seconds) from env, else the defaults."""
+
     def _int(name: str, default: int) -> int:
         try:
             return max(1, int(os.environ.get(name, "")))
@@ -124,6 +125,7 @@ def _writer_length() -> tuple[int, int]:
     is 1/5 scale. Raising these lets the section writer reach reference length when the
     evidence supports it. Defaults preserve current behavior (8 sentences, 1200 tokens).
     """
+
     def _int(name: str, default: int) -> int:
         try:
             return max(1, int(os.environ.get(name, "")))
@@ -697,8 +699,7 @@ class Orchestrator(OrchestratorInstrumentation):
             )
             raise
         _progress(
-            f"stage END   {stage.value} "
-            f"[{(datetime.now(UTC) - stage_start).total_seconds():.0f}s]"
+            f"stage END   {stage.value} [{(datetime.now(UTC) - stage_start).total_seconds():.0f}s]"
         )
         self.event_bus.emit(
             campaign.id,
@@ -743,14 +744,10 @@ class Orchestrator(OrchestratorInstrumentation):
     def status_snapshot(self, campaign_id: str) -> dict[str, Any]:
         """Return a concise status snapshot for a campaign."""
         campaign = self._require_campaign(campaign_id)
-        progress_percent, remaining_stages = self.progress_tracker.progress_and_remaining(
-            campaign
-        )
+        progress_percent, remaining_stages = self.progress_tracker.progress_and_remaining(campaign)
         eta_seconds: int | None = None
         if self.estimator is not None:
-            eta_seconds, _ = self.estimator.predict_remaining(
-                campaign, self.progress_tracker
-            )
+            eta_seconds, _ = self.estimator.predict_remaining(campaign, self.progress_tracker)
         alerts = self.telemetry_analyzer.check(campaign_id, self.store)
         snapshot: dict[str, Any] = {
             "campaign_id": campaign.id,
@@ -815,7 +812,12 @@ class Orchestrator(OrchestratorInstrumentation):
         )
         plan_dict: dict[str, Any] = {
             "queries": [
-                {"source": q.source, "query": q.query, "rationale": q.rationale, "priority": q.priority}
+                {
+                    "source": q.source,
+                    "query": q.query,
+                    "rationale": q.rationale,
+                    "priority": q.priority,
+                }
                 for q in plan.queries
             ],
             "keywords": plan.keywords,
@@ -862,8 +864,7 @@ class Orchestrator(OrchestratorInstrumentation):
             canonical_papers = [g.canonical.to_dict() for g in discovery_result.deduped_groups]
             resolved_map = {r.paper_key: r for r in discovery_result.resolved}
             self.store.update_campaign(
-                campaign.with_meta("canonical_papers", canonical_papers)
-                .with_meta(
+                campaign.with_meta("canonical_papers", canonical_papers).with_meta(
                     "resolved_map",
                     {
                         k: {
@@ -885,7 +886,9 @@ class Orchestrator(OrchestratorInstrumentation):
                         api_endpoint=sr.query,
                         response_status=status_code,
                         response_summary=str(sr.error or f"{len(sr.papers)} papers")[:500],
-                        outcome=AgentActionOutcome.ERROR if sr.error else AgentActionOutcome.SUCCESS,
+                        outcome=AgentActionOutcome.ERROR
+                        if sr.error
+                        else AgentActionOutcome.SUCCESS,
                         reason=sr.error or "",
                         source_name=sr.source,
                         audit_level="normal",
@@ -965,8 +968,7 @@ class Orchestrator(OrchestratorInstrumentation):
         }
         if yielded_zero:
             result["skipped"] = (
-                f"0 of {len(scorecards)} sources passed criteria "
-                f"'{self.ranker.criteria.name}'"
+                f"0 of {len(scorecards)} sources passed criteria '{self.ranker.criteria.name}'"
             )
         if yielded_offtopic:
             result["offtopic"] = (
@@ -1251,9 +1253,7 @@ class Orchestrator(OrchestratorInstrumentation):
                 return report, brief, proposer.propose(report)
             # Unverified claims must not reach the deliverable (grounding gate).
             source_dicts = unique_insight_filter(
-                drop_failed_claims(
-                    [extracted_source_to_dict(s) for s in sources], verifications
-                )
+                drop_failed_claims([extracted_source_to_dict(s) for s in sources], verifications)
             )
             if getattr(self, "writer_mode", "synth") == "attribute_first":
                 # Phase 1.0 spike: attribute-first writing — each sentence is
@@ -1333,7 +1333,9 @@ class Orchestrator(OrchestratorInstrumentation):
         except Exception as exc:  # noqa: BLE001 — 403/blocked/timeout; recovery lanes if enabled
             if not _cdp_fallback_enabled() and not _wayback_fallback_enabled():
                 raise
-            _react_dbg(f"_fetch_page_text: raw failed {url[:80]!r} {type(exc).__name__}; recovering")
+            _react_dbg(
+                f"_fetch_page_text: raw failed {url[:80]!r} {type(exc).__name__}; recovering"
+            )
             text = self._cdp_fetch_page_text(url) if _cdp_fallback_enabled() else ""
             if not text and _wayback_fallback_enabled():
                 text = self._wayback_fetch_page_text(url)
@@ -1450,7 +1452,9 @@ class Orchestrator(OrchestratorInstrumentation):
             ranked_sections = []
             for section in outline.sections:
                 section_spans = [
-                    s for s in (result.evidence_bank.get(e) for e in section.evidence_ids) if s is not None
+                    s
+                    for s in (result.evidence_bank.get(e) for e in section.evidence_ids)
+                    if s is not None
                 ]
                 ranked = rank_spans(
                     section_spans,
@@ -1580,12 +1584,16 @@ class Orchestrator(OrchestratorInstrumentation):
                     cached = retrieval_cache.get_serp(sub_query)
                     if cached is not None:
                         papers = cached
-                        _react_dbg(f"search_fn: serp REPLAY q={sub_query[:60]!r} papers={len(papers)}")
+                        _react_dbg(
+                            f"search_fn: serp REPLAY q={sub_query[:60]!r} papers={len(papers)}"
+                        )
                     else:
                         found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
                         papers = list(found.papers) if found.ok else []
                         retrieval_cache.put_serp(sub_query, papers)
-                        _react_dbg(f"search_fn: serp record q={sub_query[:60]!r} papers={len(papers)}")
+                        _react_dbg(
+                            f"search_fn: serp record q={sub_query[:60]!r} papers={len(papers)}"
+                        )
                 else:
                     found = registry.search("serp", sub_query, limit=_REACT_PER_QUERY)
                     papers = list(found.papers) if found.ok else []
@@ -1717,8 +1725,12 @@ class Orchestrator(OrchestratorInstrumentation):
             objectives_fn=_objectives,
             search_fn=search_fn,
             read_fn=read_fn,
-            summarize_fn=lambda q, obj, text: summarize_page(q, obj, text, provider, reasoning_model),
-            refine_fn=lambda q, obj, digest: refine_query(q, obj, digest, provider, reasoning_model),
+            summarize_fn=lambda q, obj, text: summarize_page(
+                q, obj, text, provider, reasoning_model
+            ),
+            refine_fn=lambda q, obj, digest: refine_query(
+                q, obj, digest, provider, reasoning_model
+            ),
             outline_fn=lambda q, bank: OutlineBuilder(
                 provider, reasoning_model, task_anchored=_react_anchored_outline()
             ).build(bank, q),
@@ -1764,21 +1776,24 @@ class Orchestrator(OrchestratorInstrumentation):
     ) -> Campaign:
         """Return a campaign updated with evaluation metadata."""
         return (
-            campaign.with_meta("evaluation_report", {
-                "total_claims": report.total_claims,
-                "total_sources": report.total_sources,
-                "challenged_count": report.challenged_count,
-                "high_severity_count": report.high_severity_count,
-                "verified_count": report.verified_count,
-                "failed_verification_count": report.failed_verification_count,
-                "citation_count": report.citation_count,
-                "coverage_score": report.coverage_score,
-                "quality_score": report.quality_score,
-                "precision": report.precision,
-                "recall": report.recall,
-                "f1_score": report.f1_score,
-                "meta": report.meta,
-            })
+            campaign.with_meta(
+                "evaluation_report",
+                {
+                    "total_claims": report.total_claims,
+                    "total_sources": report.total_sources,
+                    "challenged_count": report.challenged_count,
+                    "high_severity_count": report.high_severity_count,
+                    "verified_count": report.verified_count,
+                    "failed_verification_count": report.failed_verification_count,
+                    "citation_count": report.citation_count,
+                    "coverage_score": report.coverage_score,
+                    "quality_score": report.quality_score,
+                    "precision": report.precision,
+                    "recall": report.recall,
+                    "f1_score": report.f1_score,
+                    "meta": report.meta,
+                },
+            )
             .with_meta("insight_brief", brief)
             .with_meta("improvement_proposals", proposals)
         )
@@ -1831,6 +1846,7 @@ class Orchestrator(OrchestratorInstrumentation):
 
     def _dict_to_challenge(self, data: dict[str, Any]) -> Any:
         from research_engine.adversarial.challenge import Challenge
+
         return Challenge(
             claim_index=data.get("claim_index"),
             source_id=data.get("source_id"),
@@ -1844,6 +1860,7 @@ class Orchestrator(OrchestratorInstrumentation):
 
     def _dict_to_verification(self, data: dict[str, Any]) -> Any:
         from research_engine.adversarial.challenge import VerificationResult
+
         return VerificationResult(
             claim_index=data.get("claim_index"),
             source_id=data.get("source_id"),
@@ -1867,11 +1884,14 @@ class Orchestrator(OrchestratorInstrumentation):
         updated = (
             campaign.with_meta("finalized_at", now)
             .with_meta("cleanup_ok", cleanup.ok)
-            .with_meta("cleanup_receipt", {
-                "vacuumed_db": cleanup.vacuumed_db,
-                "error": cleanup.error,
-                "meta": cleanup.meta,
-            })
+            .with_meta(
+                "cleanup_receipt",
+                {
+                    "vacuumed_db": cleanup.vacuumed_db,
+                    "error": cleanup.error,
+                    "meta": cleanup.meta,
+                },
+            )
         )
         self.store.update_campaign(updated)
         return {

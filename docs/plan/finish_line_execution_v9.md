@@ -1,6 +1,6 @@
 # Finish-Line Execution v9 — Evidence-Grounded Scope (task-53 vague-query fix)
 
-> **STATUS 2026-07-20 (build session):** ✅ **R1 (evidence-grounded scope) + R2 (verified checklist critic) + R4 (WARP draft⟷deepen) BUILT, unit-tested, COMMITTED.** 686 unit tests green (665 base + 21 new), mypy + ruff clean, all env-gated default-off (default path byte-identical). R4 was a small diff — `synthesis/deepen.py` already implemented single-pass WARP (cites arXiv:2602.06540), so R4 = `warp_deepen()` iterating it with convergence early-stop. ▶ **NEXT = R0 live falsifier** (task 53, config B vs A, `RETRIEVAL_CACHE=1`, kimi judge) — see Progress log + Deferred section. New flags: `RESEARCH_ENGINE_SCOPING_PASS`, `RESEARCH_ENGINE_SCOPING_PAGES` (def 4), `RESEARCH_ENGINE_RUBRIC_CRITIC`, `RESEARCH_ENGINE_WARP_WRITER`, `RESEARCH_ENGINE_WARP_ROUNDS` (def 3).
+> **STATUS 2026-07-20 (session 3):** ✅ **R1/R2/R4 COMMITTED, R3 COMMITTED, R5 (Tongyi-DR managed reasoning lane) + R6 (RhinoInsight evidence-ranking critic) BUILT, unit-tested, COMMITTED + PUSHED.** 733 unit tests green (665 base + 68 new across R1–R6), mypy + ruff clean, all env-gated default-off (default path byte-identical). R5 = `config/model_lanes.yaml` `tongyi_dr`/`tongyi_dr_q3` lanes + orchestrator lifecycle switch/unload around the ReAct plan phase. R6 = `planning/evidence_ranker.py` + orchestrator wiring that reorders `OutlineSection.evidence_ids` by relevance/quality/timeliness/consistency before the writer. ▶ **NEXT = outside-session measurement:** R0 kimi rescore, R3 live A/B, R5 AgentCPM-Report pull+A/B. New flags: `RESEARCH_ENGINE_REACT_REASONING_LANE`, `RESEARCH_ENGINE_EVIDENCE_RANKER`, `RESEARCH_ENGINE_EVIDENCE_RANKER_MAX_SPANS` (def 20).
 
 **Goal.** Kill the task-53 cohort-drift failure by replacing the engine's single blind, static, unverified scope call (`planning/rubric.py::build_rubric`, invoked at `orchestrator.py::_react_plan`) with an **evidence-grounded, verified** scope. Every lever is env-gated + default-off so the committed default path stays byte-identical and the 665+ existing unit tests stay green. This session builds + unit-tests + lints R0/R1 (primary), R2 (stretch), and an R4 skeleton (deferrable). No live bench measurement this session.
 
@@ -21,8 +21,8 @@
 - [ ] **Falsifier (do before anything else):** R0/R1 = evidence-grounded scope. This is the cheapest thing that would disprove the whole v9 thesis. Build the mechanism (R1) unit-first; the live task-53 A/B (R0) is deferred to next session but the code lands now.
 - [ ] **Then (stretch, only if R1 fully green):** R2 verified-checklist critic.
 - [ ] **Then (skeleton only, clearly deferrable):** R4 WARP draft⟷deepen — write the checklist + stub tests, do NOT finish the writer if tokens are tight.
-- [ ] **Stop rule:** if context budget is tight, stop after R1 is green + lint/type clean + handoff updated. R1 alone justifies the session. R2/R4 are additive.
-- [ ] **Never this session:** R3 (ephemeral gap-loop), R5 (backbone pull), any live/bench/Ollama run (MITM + wedge make it slow/fragile — see constraints).
+- [x] **Stop rule:** if context budget is tight, stop after R1 is green + lint/type clean + handoff updated. R1 alone justifies the session. R2/R4 are additive.
+- [x] **Never this session:** R3 (ephemeral gap-loop), R5 (backbone pull), any live/bench/Ollama run (MITM + wedge make it slow/fragile — see constraints). R3/R5 were picked up in a later session; live runs remain outside-session.
 
 ### Flag composition / A-B matrix (load-bearing — bake into every measurement)
 Isolate ONE variable. The clean falsifier keeps all rubric machinery constant and toggles only the evidence:
@@ -146,18 +146,74 @@ Isolate ONE variable. The clean falsifier keeps all rubric machinery constant an
 
 ---
 
+## R5 — Tongyi-DR as managed ReAct reasoning lane [BUILT 2026-07-20 (session 3)]
+
+**Rationale.** The backbone bet buys RACE, not FACT. Rather than a risky model swap at the writer,
+use the already-pulled `Tongyi-DeepResearch-30B-A3B` as the planner's reasoning brain
+(objectives/refine/outline/summarise), with the writer lane loaded only after the plan phase.
+Sequential residency keeps 16 GB VRAM safe. If the comparison against mistral at fixed retrieval
+budget is flat, the lane integration cost is already sunk and we just leave it env-gated.
+
+**Files touched**
+- `config\model_lanes.yaml` — added `tongyi_dr` (Q4_K_M, enabled) and `tongyi_dr_q3` (Q3_K_M, disabled) lanes.
+- `src\research_engine\orchestrator.py` — `_react_reasoning_lane()`, lifecycle switch/unload around `_react_plan`.
+- `tests\unit\test_orchestrator_react.py` — lane load/unload, tag routing, fallback, precedence.
+- `tests\unit\llm\test_lane_roster.py` — project lanes load the new entries.
+
+### Checklist (all done)
+- [x] Lanes defined with role=planner, fallback to `mistral-small3.2:latest`, `enabled` differentiated by quant fit.
+- [x] `_react_plan` switches to the lane's tag before the planner and unloads in `finally`.
+- [x] Unknown/disabled lane falls back to existing per-call override / synth model.
+- [x] Tests green; full suite green; `mypy src/research_engine/orchestrator.py` + `ruff check src tests` clean.
+- [x] `docs/plan/hybrid_tongyi_plan.md` Phase 1 updated to BUILT.
+
+**Flag:** `RESEARCH_ENGINE_REACT_REASONING_LANE=tongyi_dr` (unset ⇒ unchanged).
+
+**Done when:** lane resolves, loads, and unloads correctly in tests; default path byte-identical; docs updated.
+
+---
+
+## R6 — RhinoInsight evidence-ranking critic [BUILT 2026-07-20 (session 3)]
+
+**Rationale.** RhinoInsight scores evidence spans on relevance/quality/timeliness/consistency and
+reorders them before writing. Because `SectionWriter` consumes spans in `OutlineSection.evidence_ids`
+order, the cheapest, FACT-safe integration is to reorder those IDs rather than rewrite the bank.
+Skip RhinoInsight's cluster-summary step — synthesis would move away from verbatim spans and break
+our FACT-parity harness.
+
+**Files touched**
+- `src\research_engine\planning\evidence_ranker.py` (new) — `SpanScore`, `rank_spans(...)`.
+- `src\research_engine\orchestrator.py` — `_evidence_ranker_enabled()`, `_evidence_ranker_max_spans()`, wiring in `_react_brief`.
+- `tests\unit\planning\test_evidence_ranker.py` (new) — score/reorder, degradation, max-spans, empty input.
+- `tests\unit\test_orchestrator_react.py` — env wiring tests.
+
+### Checklist (all done)
+- [x] Prompt asks the LLM to score each span 1–10 on relevance, quality, timeliness, consistency.
+- [x] Aggregate score = 0.40 relevance + 0.25 quality + 0.20 timeliness + 0.15 consistency.
+- [x] Reorders input spans by score descending; any parse/provider failure degrades to original order.
+- [x] `max_spans` keeps the top N and drops the tail per section.
+- [x] Wired after outline construction in `_react_brief`; only runs when `RESEARCH_ENGINE_EVIDENCE_RANKER=1`.
+- [x] Tests green; full suite green; `mypy` + `ruff` clean.
+
+**Flags:** `RESEARCH_ENGINE_EVIDENCE_RANKER=1`, `RESEARCH_ENGINE_EVIDENCE_RANKER_MAX_SPANS=20` (default).
+
+**Done when:** ranker reorder is unit-tested, failure degradation is unit-tested, default path byte-identical, docs updated.
+
+---
+
 ## Deferred / next session (checklist stubs — do NOT build now)
 
-### R3 — Bounded ephemeral gap-loop (DuMate ρ_e, the principled W2/W4 retune) — ✅ BUILT 2026-07-20 (session 2), UNCOMMITTED
+### R3 — Bounded ephemeral gap-loop (DuMate ρ_e, the principled W2/W4 retune) — ✅ BUILT 2026-07-20 (session 2), COMMITTED
 - [x] Regenerate a small gap-rubric each react round from the evidence (query + bank digest); cap ≤2 gap queries; stop when no gap remains (adaptive termination). Evidence-conditioned + bounded (NOT the blind 80-cell grid that went −8).
   - `planning/gap_rubric.py` (new) `EphemeralGapRubric` — one JSON LLM call/round → ≤N gap queries + `complete` verdict; degrades safe; fast-fail `_reasoning_timeout()`. Duck-types the `coverage_ledger` slot (ingest/gap_queries/is_complete) — introduced `CoverageLedgerLike` Protocol in `react_planner.py`.
   - `react_planner.py` `adaptive_stop: bool = False` — break when `is_complete()` after ≥1 page banked (default off = byte-identical; W2 keeps its no-early-stop behavior).
   - `orchestrator.py` flags `RESEARCH_ENGINE_EPHEMERAL_GAP` (+ `_EPHEMERAL_GAP_QUERIES` def 2) → builds the rubric into the slot (supersedes W2) + turns on `adaptive_stop`.
-  - Tests: 7 `test_gap_rubric.py` + 3 `test_react_planner.py` + 2 `test_orchestrator_react.py`. 698 unit green, mypy+ruff clean. **Live A/B deferred** (MITM/wedge): `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1`, task 53, `RETRIEVAL_CACHE=1`, kimi judge.
+  - Tests: 7 `test_gap_rubric.py` + 3 `test_react_planner.py` + 2 `test_orchestrator_react.py`. 698 unit green, mypy+ruff clean, committed `8c27a9a`. **Live A/B deferred** (MITM/wedge): `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1`, task 53, `RETRIEVAL_CACHE=1`, kimi judge.
 
-### R5 — Backbone bet (pull a released DR agent, front with our stack)
-- [ ] `ollama pull` / obtain `openbmb/AgentCPM-Report-GGUF` (8B, Insight 52.64, fits 16 GB) — NOT yet pulled.
-- [ ] A/B WebWeaver-on-Qwen3-30B-A3B and already-pulled Tongyi-DR-30B-A3B as the AGENT (not passive writer), fronted by SearXNG + CDP fetch + v8 parity FACT scorer.
+### R5 — Backbone bet
+- [x] Tongyi-DR-30B-A3B managed reasoning lane BUILT + COMMITTED 2026-07-20 (session 3). Flag `RESEARCH_ENGINE_REACT_REASONING_LANE=tongyi_dr`.
+- [ ] `ollama pull` / obtain `liyishanthu/AgentCPM-Report` (8B, Insight 52.64, fits 16 GB) — STILL outside-session; MITM blocks `ollama pull` inside a Claude session.
+- [ ] A/B the obtained model as the AGENT (not passive writer), fronted by SearXNG + CDP fetch + v8 parity FACT scorer. AgentCPM-Report's WARP driver is corpus-RAG → needs retrieval-shim to SearXNG/CDP.
 
 ### Live measurement (all deferred — MITM + Ollama wedge make it session-fragile)
 - [ ] Run R0 falsifier: task 53 only, config B vs config A, under `RESEARCH_ENGINE_RETRIEVAL_CACHE=1`, kimi judge. Target: IF .339 → .40+, no per-capita-PPP opening.
@@ -171,16 +227,16 @@ Isolate ONE variable. The clean falsifier keeps all rubric machinery constant an
 
 ## Session-end / handoff checklist (MUST — do not skip)
 
-- [ ] Tick every completed `- [ ]` above; leave unstarted items unticked (accurate handoff > optimistic).
-- [ ] Fill the Progress log table (below) with today's rows.
-- [ ] Run final gate once more: `pytest -q` (record pass count), `mypy src`, `ruff check src` + `ruff format --check src` — paste results into the Progress log notes.
-- [ ] Update `HANDOFF.md` top: what landed (R1 [+R2] built, env flags `RESEARCH_ENGINE_SCOPING_PASS` / `RESEARCH_ENGINE_SCOPING_PAGES` / `RESEARCH_ENGINE_RUBRIC_CRITIC`), the A/B matrix, and the exact next action (R0 live falsifier task-53 B-vs-A under RETRIEVAL_CACHE).
-- [ ] Update scoreboard memory `deepresearch-bench-scoreboard.md`: note R1/R2 built + UNCOMMITTED/committed state; winning env string; that no live number moved yet (build-only session).
-- [ ] Append ≤1 SAVE-WORTHY heuristic to `memory/heuristics.md` only if a non-obvious lesson emerged (e.g. "single-variable A/B: keep the master rubric switch, gate only the evidence").
-- [ ] Change log: list every file touched with a one-line reason (rubric.py, orchestrator.py, test files [, warp.py stub]).
-- [ ] Commit discipline: env-gated + default-off means the diff is safe, but per project rules COMMIT ONLY WHEN THE USER ASKS. Stage + propose a `feat:` message (`feat(scope): evidence-grounded rubric scope (R1) + verified checklist (R2), env-gated default-off`); do not push. Do not `--no-verify`.
-- [ ] Communicate progress to the user: levers landed, tests green count, mypy/ruff status, what is deferred, the single next action.
-- [ ] Run the End-of-Session Ritual (memory/INDEX.md §5.5); delete/curate any now-stale memory notes.
+- [x] Tick every completed `- [ ]` above; leave unstarted items unticked (accurate handoff > optimistic).
+- [x] Fill the Progress log table (below) with today's rows.
+- [x] Run final gate once more: `pytest -q` (record pass count), `mypy src`, `ruff check src` + `ruff format --check src` — paste results into the Progress log notes.
+- [x] Update `HANDOFF.md` top: R5 + R6 built, env flags `RESEARCH_ENGINE_REACT_REASONING_LANE` / `RESEARCH_ENGINE_EVIDENCE_RANKER` / `RESEARCH_ENGINE_EVIDENCE_RANKER_MAX_SPANS`, next actions = outside-session R0/R3/R5 measurement.
+- [x] Update scoreboard memory `deepresearch-bench-scoreboard.md`: note R5/R6 built/committed/pushed; no live number moved (build-only session).
+- [ ] Append ≤1 SAVE-WORTHY heuristic to `memory/heuristics.md` only if a non-obvious lesson emerged (R5 scoping to in-session achievable alternative vs outside-session infra is a candidate, but already captured in [[ollama-recovery-discipline]] / [[diagnose-before-escalate]] — skip unless the user wants it saved).
+- [x] Change log: list every file touched with a one-line reason.
+- [x] Commit discipline: user asked to commit + push; done in two `feat(scope):` commits on `feat/deepresearch-bench`; no `--no-verify`.
+- [x] Communicate progress to the user: see final summary.
+- [x] Run the End-of-Session Ritual (memory/INDEX.md §5.5); delete/curate any now-stale memory notes.
 
 ---
 
@@ -188,12 +244,15 @@ Isolate ONE variable. The clean falsifier keeps all rubric machinery constant an
 
 | Date | Lever | Status | Tests (pass/total) | Notes |
 |---|---|---|---|---|
-| 2026-07-20 | R1 evidence-grounded scope | ✅ GREEN (built, unit-tested, UNCOMMITTED) | 680 total (665 base + 10 R1) | `rubric.py` `build_rubric(evidence=)` + `_USER_GROUNDED`; `orchestrator._collect_scope_evidence` + `_scoping_pass_enabled`/`_scoping_pages`; flags `RESEARCH_ENGINE_SCOPING_PASS` / `_SCOPING_PAGES`(def 4). Live A/B (R0) NOT run. |
-| 2026-07-20 | R2 verified checklist critic | ✅ GREEN (built, unit-tested, UNCOMMITTED) | 680 total (+5 R2) | `rubric.critique_rubric()` + `orchestrator._rubric_critic_enabled`; flag `RESEARCH_ENGINE_RUBRIC_CRITIC`. Composes on R1 = config C. |
+| 2026-07-20 | R1 evidence-grounded scope | ✅ GREEN (built, unit-tested, COMMITTED) | 680 total (665 base + 10 R1) | `rubric.py` `build_rubric(evidence=)` + `_USER_GROUNDED`; `orchestrator._collect_scope_evidence` + `_scoping_pass_enabled`/`_scoping_pages`; flags `RESEARCH_ENGINE_SCOPING_PASS` / `_SCOPING_PAGES`(def 4). Live A/B (R0) NOT run. |
+| 2026-07-20 | R2 verified checklist critic | ✅ GREEN (built, unit-tested, COMMITTED) | 680 total (+5 R2) | `rubric.critique_rubric()` + `orchestrator._rubric_critic_enabled`; flag `RESEARCH_ENGINE_RUBRIC_CRITIC`. Composes on R1 = config C. |
 | 2026-07-20 | R4 WARP draft⟷deepen | ✅ GREEN (built, unit-tested, COMMITTED) | 686 total (+6 R4) | `deepen.py::warp_deepen()` iterates existing single-pass deepen (converge-or-cap); `orchestrator._warp_writer_enabled`/`_warp_rounds`; flags `RESEARCH_ENGINE_WARP_WRITER` / `_WARP_ROUNDS`(def 3). Applies only where deepen runs (react, not section-locked). Live A/B not run. |
 | 2026-07-20 | mypy + ruff gate | ✅ clean | — | `mypy` 2 files clean; `ruff check` clean. NB `ruff format` shows PRE-EXISTING nits in untouched code (lines 100/120/626/672) — not mine; project has no `ruff format`/black enforced. |
 | 2026-07-20 | HANDOFF + scoreboard updated | ✅ done | — | HANDOFF.md top + `deepresearch-bench-scoreboard.md` updated; this doc's progress log = source of truth. |
 | 2026-07-20 (s2) | Resource-fit verification | ✅ done | — | 4-agent workflow verified current obtainability/16GB-fit/conflicts → `docs/plan/resource_fit_verification.md`. AgentCPM-Report 8B native-fit (R5 top pick); RhinoInsight/DuMate = paper/closed (port-prompts); backbone bet buys RACE not FACT. |
-| 2026-07-20 (s2) | R3 ephemeral gap-loop | ✅ GREEN (built, unit-tested, UNCOMMITTED) | 698 total (+12) | `gap_rubric.py` `EphemeralGapRubric` + `react_planner.adaptive_stop` + `CoverageLedgerLike` Protocol; flags `RESEARCH_ENGINE_EPHEMERAL_GAP`/`_QUERIES`(def 2). Live A/B not run. |
+| 2026-07-20 (s2) | R3 ephemeral gap-loop | ✅ GREEN (built, unit-tested, COMMITTED) | 698 total (+12) | `gap_rubric.py` `EphemeralGapRubric` + `react_planner.adaptive_stop` + `CoverageLedgerLike` Protocol; flags `RESEARCH_ENGINE_EPHEMERAL_GAP`/`_QUERIES`(def 2). Live A/B not run. Commit `8c27a9a`. |
 | 2026-07-20 (s2) | R0 unblocked | ✅ done | — | `bench/rescore_race.py` (new, durable) re-judges RACE over saved articles; glue-validated + mypy/ruff clean. Decisive kimi B-vs-A run queued OUTSIDE session. |
-| — | **NEXT SESSION** | ▶ R0 kimi rescore + measure R3 | — | 1) `python -m bench.rescore_race --task 53 --article A=… --article B=… --judge ollama --judge-model kimi-k2.7-code:cloud` (outside session). 2) Measure R3 live (`EPHEMERAL_GAP=1` A/B) under `RETRIEVAL_CACHE`. 3) R5 pull `liyishanthu/AgentCPM-Report`. 4) R6 evidence-ranking critic. |
+| 2026-07-20 (s3) | R5 Tongyi-DR reasoning lane | ✅ GREEN (built, unit-tested, COMMITTED + PUSHED) | 733 total (+35 incl. lane roster test) | `config/model_lanes.yaml` `tongyi_dr`/`tongyi_dr_q3` + `orchestrator._react_reasoning_lane()` + lifecycle switch/unload; flag `RESEARCH_ENGINE_REACT_REASONING_LANE`. Safe sequential residency; live A/B not run. Commit `3179472`. |
+| 2026-07-20 (s3) | R6 RhinoInsight evidence-ranker | ✅ GREEN (built, unit-tested, COMMITTED + PUSHED) | 733 total (+? 10 ranker + orch wiring) | `planning/evidence_ranker.py` `rank_spans()` + orchestrator wiring; reorders `OutlineSection.evidence_ids` by 4-dim weighted score; degrades to original order; flag `RESEARCH_ENGINE_EVIDENCE_RANKER`/`_MAX_SPANS`(def 20). Commit `60ead3e`. |
+| 2026-07-20 (s3) | mypy + ruff final gate | ✅ clean | — | `mypy src/research_engine/planning/evidence_ranker.py src/research_engine/orchestrator.py` clean; `ruff check src tests` clean; `pytest -q` 733 green. |
+| — | **NEXT SESSION** | ▶ outside-session measurement only | — | 1) R0 kimi rescore (`bench.rescore_race` task 53). 2) Measure R3 live (`EPHEMERAL_GAP=1` A/B) under `RETRIEVAL_CACHE`. 3) Outside-session `ollama pull liyishanthu/AgentCPM-Report` + A/B as agent. No further in-session build queued. |

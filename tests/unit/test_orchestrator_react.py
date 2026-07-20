@@ -81,7 +81,15 @@ class _DispatchProvider:
 
     name = "fake"
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+    def complete(
+        self,
+        messages,
+        model=None,
+        temperature=0.0,
+        max_tokens=None,
+        format=None,
+        request_timeout=None,
+    ):  # noqa: ANN001
         blob = " ".join(m.content for m in messages).lower()
         if "information objectives" in blob:
             return '{"objectives": [{"objective": "how big is the aging cohort", "query": "japan aging population"}]}'
@@ -110,7 +118,11 @@ class _FakeDiscovery:
             search_results=[],
             deduped_groups=[DuplicateGroup(canonical=paper)],
             snowball_papers=[],
-            resolved=[ResolveResult(paper_key=paper.key, url=paper.url, is_oa=True, source="serp", reason="")],
+            resolved=[
+                ResolveResult(
+                    paper_key=paper.key, url=paper.url, is_oa=True, source="serp", reason=""
+                )
+            ],
         )
 
 
@@ -237,7 +249,9 @@ def test_collect_scope_evidence_caps_snippet_chars() -> None:
     from research_engine.orchestrator import _collect_scope_evidence
 
     ref = SimpleNamespace(url="https://a", title="A")
-    ev = _collect_scope_evidence("q", lambda q: [ref], lambda r: "y" * 2000, max_pages=3, snippet_chars=50)
+    ev = _collect_scope_evidence(
+        "q", lambda q: [ref], lambda r: "y" * 2000, max_pages=3, snippet_chars=50
+    )
     assert "y" * 50 in ev
     assert "y" * 51 not in ev
 
@@ -378,7 +392,15 @@ class _RecordingProvider(_DispatchProvider):
     def __init__(self) -> None:
         self.models: dict[str, str] = {}
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+    def complete(
+        self,
+        messages,
+        model=None,
+        temperature=0.0,
+        max_tokens=None,
+        format=None,
+        request_timeout=None,
+    ):  # noqa: ANN001
         blob = " ".join(m.content for m in messages).lower()
         if "information objectives" in blob:
             self.models["objectives"] = model
@@ -397,7 +419,8 @@ def test_reasoning_model_env_routes_reasoning_steps(monkeypatch) -> None:  # noq
     provider = _RecordingProvider()
     store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
     orch = Orchestrator(
-        store, EventBus(store),
+        store,
+        EventBus(store),
         browser=_FakeBrowser(),  # type: ignore[arg-type]
         discovery=_FakeDiscovery(),  # type: ignore[arg-type]
         ranker=_FakeRanker(),  # type: ignore[arg-type]
@@ -416,7 +439,8 @@ def test_reasoning_model_defaults_to_synth_model_when_unset(monkeypatch) -> None
     provider = _RecordingProvider()
     store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
     orch = Orchestrator(
-        store, EventBus(store),
+        store,
+        EventBus(store),
         browser=_FakeBrowser(),  # type: ignore[arg-type]
         discovery=_FakeDiscovery(),  # type: ignore[arg-type]
         ranker=_FakeRanker(),  # type: ignore[arg-type]
@@ -452,8 +476,12 @@ class _FakeCDP:
     def act(self, action):  # noqa: ANN001
         self.calls.append(action.url)
         return BrowserResult(
-            ok=self.ok, action=action.action, url=action.url,
-            status=200 if self.ok else 403, content=self.html, error=self.error,
+            ok=self.ok,
+            action=action.action,
+            url=action.url,
+            status=200 if self.ok else 403,
+            content=self.html,
+            error=self.error,
         )
 
     def close(self) -> None:
@@ -514,7 +542,15 @@ import json as _json  # noqa: E402
 class _RubricProvider(_DispatchProvider):
     """Serves a rubric for the rubric prompt; everything else as _DispatchProvider."""
 
-    def complete(self, messages, model=None, temperature=0.0, max_tokens=None, format=None, request_timeout=None):  # noqa: ANN001
+    def complete(
+        self,
+        messages,
+        model=None,
+        temperature=0.0,
+        max_tokens=None,
+        format=None,
+        request_timeout=None,
+    ):  # noqa: ANN001
         blob = " ".join(m.content for m in messages).lower()
         if "rubric-plan" in blob:
             return _json.dumps(
@@ -532,7 +568,8 @@ def test_rubric_sections_become_objectives_when_enabled(monkeypatch) -> None:  #
     monkeypatch.setenv("RESEARCH_ENGINE_RUBRIC_SCAFFOLD", "1")
     store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
     orch = Orchestrator(
-        store, EventBus(store),
+        store,
+        EventBus(store),
         browser=_FakeBrowser(),  # type: ignore[arg-type]
         discovery=_FakeDiscovery(),  # type: ignore[arg-type]
         ranker=_FakeRanker(),  # type: ignore[arg-type]
@@ -649,9 +686,7 @@ def test_default_write_calls_deepen(monkeypatch) -> None:  # noqa: ANN001
 # --- R5: managed Tongyi-DR reasoning backbone --------------------------------
 
 
-def test_react_plan_loads_reasoning_lane_and_unloads_after_run(
-    monkeypatch, tmp_path: Path
-) -> None:  # noqa: ANN001
+def test_react_plan_loads_reasoning_lane_and_unloads_after_run(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr")
     lifecycle = _FakeLifecycle()
     orch = _orch_with_lanes(tmp_path, lifecycle=lifecycle)
@@ -662,9 +697,7 @@ def test_react_plan_loads_reasoning_lane_and_unloads_after_run(
     assert lifecycle.current is None
 
 
-def test_reasoning_lane_routes_reasoning_steps_to_lane_tag(
-    monkeypatch, tmp_path: Path
-) -> None:  # noqa: ANN001
+def test_reasoning_lane_routes_reasoning_steps_to_lane_tag(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr")
     provider = _RecordingProvider()
     lifecycle = _FakeLifecycle()
@@ -676,9 +709,7 @@ def test_reasoning_lane_routes_reasoning_steps_to_lane_tag(
     assert provider.models.get("outline") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
 
 
-def test_disabled_reasoning_lane_falls_back_to_synth_model(
-    monkeypatch, tmp_path: Path
-) -> None:  # noqa: ANN001
+def test_disabled_reasoning_lane_falls_back_to_synth_model(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr_q3")
     provider = _RecordingProvider()
     lifecycle = _FakeLifecycle()
@@ -688,9 +719,7 @@ def test_disabled_reasoning_lane_falls_back_to_synth_model(
     assert lifecycle.switched == []
 
 
-def test_unknown_reasoning_lane_falls_back_to_synth_model(
-    monkeypatch, tmp_path: Path
-) -> None:  # noqa: ANN001
+def test_unknown_reasoning_lane_falls_back_to_synth_model(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "no_such_lane")
     provider = _RecordingProvider()
     lifecycle = _FakeLifecycle()
@@ -700,9 +729,7 @@ def test_unknown_reasoning_lane_falls_back_to_synth_model(
     assert lifecycle.switched == []
 
 
-def test_reasoning_lane_overrides_reasoning_model_env(
-    monkeypatch, tmp_path: Path
-) -> None:  # noqa: ANN001
+def test_reasoning_lane_overrides_reasoning_model_env(monkeypatch, tmp_path: Path) -> None:  # noqa: ANN001
     monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_MODEL", "env-override")
     monkeypatch.setenv("RESEARCH_ENGINE_REACT_REASONING_LANE", "tongyi_dr")
     provider = _RecordingProvider()
@@ -760,11 +787,11 @@ def test_evidence_ranker_reorders_section_evidence_when_enabled(monkeypatch) -> 
     ]
     bank = EvidenceBank(spans)
     outline = Outline(
-        sections=(
-            OutlineSection(title="Aging", intent=" demographics", evidence_ids=("e1", "e2")),
-        )
+        sections=(OutlineSection(title="Aging", intent=" demographics", evidence_ids=("e1", "e2")),)
     )
-    fake_result = SimpleNamespace(evidence_bank=bank, outline=outline, pages_read=2, iterations=1, pages=[])
+    fake_result = SimpleNamespace(
+        evidence_bank=bank, outline=outline, pages_read=2, iterations=1, pages=[]
+    )
     monkeypatch.setattr(orch, "_react_plan", lambda q: fake_result)
     orch._react_brief("aging topic in japan")
     assert captured_outlines

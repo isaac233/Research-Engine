@@ -1,40 +1,49 @@
 # HANDOFF — 2026-07-20
 
-## 🎯 2026-07-20 (SESSION 2) — SOTA RESOURCE-FIT VERIFIED (current web evidence) + R3 EPHEMERAL GAP-LOOP BUILT + R0 UNBLOCKED (durable `bench/rescore_race.py`)
+## 🎯 2026-07-20 (SESSION 3) — R5 MANAGED TONGYI-DR REASONING LANE BUILT + R6 RHINOINSIGHT EVIDENCE-RANKING CRITIC BUILT + COMMITTED/PUSHED
 
-**Session = verify the SOTA resources are actually obtainable/runnable on our rig (user ask #1) → build the
-next lever (R3) → unblock R0.** New docs: `docs/plan/resource_fit_verification.md` (the verification matrix).
+**Session = complete the remaining in-session buildable items from HANDOFF.** R5 was scoped to the achievable
+in-session alternative (already-pulled `Tongyi-DeepResearch-30B-A3B` as a first-class managed reasoning
+backbone) because the quoted out-of-session options (`ollama pull liyishanthu/AgentCPM-Report`, port
+WebWeaver scaffold) need infrastructure outside the Claude session. R6 = the last net-new v9 lever.
+Both are env-gated default-off; all previous levers (R1/R2/R4 + R3 + `rescore_race.py`) are already
+committed. **Result: 733 unit tests green, mypy + ruff clean, branch `feat/deepresearch-bench` pushed to origin.**
 
-### 1) RESOURCE-FIT VERIFICATION (4-agent parallel workflow, current July-2026 web evidence — supersedes the v9 desk read)
-Full matrix + obtain commands in `docs/plan/resource_fit_verification.md`. Headlines:
-- **AgentCPM-Report 8B** — fully released (code+GGUF+Ollama+prompts, Apache-2.0 base). **Q4 GGUF 4.97 GB / 64K ctx = NATIVE fit** (best of all). Obtain (OUTSIDE session, MITM): `ollama pull liyishanthu/AgentCPM-Report`. We already have R4 (WARP prompt loop). R5 = run the RL-trained *agent*: needs their WARP driver + a shim mapping its corpus-RAG tool-call → our SearXNG+CDP. Bench 50.11 was measured on THEIR corpus → transfer risk.
-- **RhinoInsight** — **paper only, no official code/prompts** (3rd-party Claude skills only). We already have R1/R2 checklist **+ the core of Evidence-Audit** (verbatim `EvidenceBank` spans bound to `Outline` nodes). Only net-new lever = **R6 evidence-ranking critic** (rerank spans by quality/timeliness/consistency pre-write). SKIP its cluster-summary step (breaks our verbatim-FACT thesis).
-- **DuMate** (#1, 58.03) — **closed hosted Baidu** (CC BY-NC-ND). R1 coarse-to-fine + persistent rubric = ALREADY-HAVE. **R3 ephemeral gap-loop + adaptive stop = PORT-PROMPTS** — built this session (below).
-- **Backbones** — code Apache-2.0 but **SFT/GRPO checkpoints NOT released**. Tongyi-30B Q3 14 GB native (already pulled) / Q4 offload; **WebWeaver as-shipped does NOT fit** (dual concurrent models, "4×80G"); Co-ReAct needs 2 GPUs. R5-alt = port WebWeaver's dual-agent *scaffold* onto Tongyi + SearXNG/CDP.
-- **⚠️ LOAD-BEARING FINDING: the backbone bet buys RACE, not FACT.** WebWeaver off-the-shelf = RACE 46.77 (> our 40.67 bar) but **FACT 25%**; the SFT that lifts FACT→85.9% is unreleased. FACT stays on our v8 parity harness + MiniCheck cite-gate whatever backbone we run. Do NOT expect a model swap to fix citation accuracy.
+### 1) R5 BUILT — `Tongyi-DeepResearch-30B-A3B` as managed ReAct planner reasoning lane
+- `config/model_lanes.yaml` adds `tongyi_dr` (Q4_K_M, enabled, 18 GB est, offload) and `tongyi_dr_q3`
+  (Q3_K_M, disabled) lanes with role=planner.
+- `orchestrator.py`: `_react_reasoning_lane()` resolves `RESEARCH_ENGINE_REACT_REASONING_LANE`; when set
+  and enabled, `_react_plan` calls `lifecycle.switch(lane)` before planning and `lifecycle.unload(...)`
+  in `finally`, keeping only one model resident at a time. Falls back silently to the existing
+  `RESEARCH_ENGINE_REACT_REASONING_MODEL` per-call override (or the synth model) when unset/disabled/unknown.
+- Tests: lane load/unload, tag routing, disabled/unknown fallback, lane precedence over the older env var.
+- **Flag:** `RESEARCH_ENGINE_REACT_REASONING_LANE=tongyi_dr` (unset ⇒ unchanged single-model behavior).
+- Note: prior Phase 0.2 spike weakened the naive thesis; this lane integration is the safe, low-cost way
+  to run the comparison when retrieval-breadth is fixed. See `docs/plan/hybrid_tongyi_plan.md`.
 
-### 2) R3 BUILT — ephemeral gap-loop + adaptive stop (DuMate ρ^e), env-gated default-off, TDD
-**698 unit green (686 base + 12 new: 7 gap_rubric + 3 react_planner + 2 orchestrator); mypy + ruff clean; default path byte-identical; UNCOMMITTED.**
-- `planning/gap_rubric.py` (new): `EphemeralGapRubric` — one JSON LLM call/round reads the bank vs the query → ≤N gap queries + a "no gap left" `complete` verdict; degrades to no-gaps/not-complete on any failure; fast-fail via `_reasoning_timeout()`. **Duck-types the existing `coverage_ledger` slot** (ingest/gap_queries/is_complete) so it drops in with no new planner param.
-- `planning/react_planner.py`: added `adaptive_stop: bool = False` — when on, the loop breaks as soon as the ledger `is_complete()` (after ≥1 page banked). Introduced a `CoverageLedgerLike` Protocol so both the term-overlap `CoverageLedger` (W2) and `EphemeralGapRubric` (R3) satisfy the slot.
-- `orchestrator.py`: env `RESEARCH_ENGINE_EPHEMERAL_GAP=1` (+ `_EPHEMERAL_GAP_QUERIES`, def 2) → builds `EphemeralGapRubric` into the ledger slot (supersedes W2) + turns on `adaptive_stop`.
-- **A/B:** `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1` (single variable = the gap-loop). Fires only after core objectives banked; ≤2 gap queries/round — the principled retune of the net-negative blind W2/W4 (evidence-CONDITIONED, bounded, verified-stop).
+### 2) R6 BUILT — RhinoInsight evidence-ranking critic (pre-write span rerank)
+- `planning/evidence_ranker.py` (new): `SpanScore` + `rank_spans(...)`. One JSON-schema constrained LLM
+  call scores each section's banked spans on relevance (0.40), quality (0.25), timeliness (0.20), and
+  consistency (0.15), then reorders `OutlineSection.evidence_ids` by aggregate score. Degrades to the
+  original order on any parse/provider failure; caps to `max_spans` (head kept, tail pruned).
+- `orchestrator.py`: env helpers `_evidence_ranker_enabled()` (`RESEARCH_ENGINE_EVIDENCE_RANKER=1`) and
+  `_evidence_ranker_max_spans()` (`RESEARCH_ENGINE_EVIDENCE_RANKER_MAX_SPANS`, def 20). Wired in
+  `_react_brief` after outline construction, before the writer.
+- **Intentionally SKIP** RhinoInsight's cluster-summary step — it would synthesize away from verbatim
+  spans and break the FACT-parity thesis.
+- Tests: reorder by score, garbage/provider exception degradation, max-spans cap, empty input.
 
-### 3) R0 UNBLOCKED — `bench/rescore_race.py` (new, durable; replaces the vanished scratchpad script)
-Mirrors `rescore_fact.py` but re-judges RACE; reuses the tested `RaceScorer`/`_load_maps`/`_load_tasks`. Glue-validated (task-53 prompt/criteria/reference/articles all resolve); ruff+mypy clean. **DECISIVE R0 STEP (run OUTSIDE a Claude session — MITM blocks kimi cloud in-session):**
-```
-PYTHONPATH=src python -m bench.rescore_race --task 53 \
-  --article A=bench/out/r0_article_A.md --article B=bench/out/r0_article_B.md \
-  --judge ollama --judge-model kimi-k2.7-code:cloud
-```
-It prints per-article RACE + the B−A overall/IF delta (target: B>A, IF≥0.40). No engine re-run needed (34 min saved). The mistral R0 was degenerate (A=B to 16 decimals, 0.3202); kimi settles it.
+### 3) COMMIT/PUSH STATE
+- R5 commit `3179472` (`feat(scope): R5 Tongyi-DR managed reasoning backbone for react planner, env-gated default-off`).
+- R6 commit `60ead3e` (`feat(scope): RhinoInsight evidence-ranking critic (R6), env-gated default-off`).
+- Both pushed to `origin/feat/deepresearch-bench`.
+- All new code default-off; default path byte-identical; no live bench measurement in-session (MITM/Ollama wedge).
 
-### ⏭️ NEXT SESSION — START HERE
-1. **R0 (outside session):** run the `rescore_race.py` command above with the kimi judge → the real B-vs-A verdict for R1 grounded scope. If B>A on IF, R1 confirmed; escalate to a 2nd vague task (prove the class).
-2. **Measure R3 live** (once R0 method proven): winning env + `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1`, task 53, `RETRIEVAL_CACHE=1`, kimi judge. Watch it doesn't dilute retrieval (the W2/W4 failure) — it shouldn't (≤2 gaps, evidence-conditioned, adaptive stop).
-3. **R5 backbone (outside session):** `ollama pull liyishanthu/AgentCPM-Report` (native fit) — then A/B it as the agent behind our SearXNG+CDP+parity-FACT (needs the retrieval-shim; see resource_fit doc §required_modifications). Remember: buys RACE, not FACT.
-4. **R6 (optional, small):** RhinoInsight evidence-ranking critic (pre-write span rerank by quality/timeliness/consistency).
-5. **Commit:** R3 + `rescore_race.py` are UNCOMMITTED (green, default-off). Propose `feat(scope): ephemeral gap-loop + adaptive stop (R3) + RACE rescorer, env-gated default-off`. Commit only on user ask; no `--no-verify`.
+### ⏭️ NEXT SESSION — START HERE (outside-session measurement first, no more in-session build unless ordered)
+1. **R0 (outside session):** `PYTHONPATH=src python -m bench.rescore_race --task 53 --article A=bench/out/r0_article_A.md --article B=bench/out/r0_article_B.md --judge ollama --judge-model kimi-k2.7-code:cloud` → real B-vs-A verdict for R1 grounded scope. If B>A on IF, R1 confirmed; then prove the class with a 2nd vague-cohort task.
+2. **Measure R3 live** (once R0 method proven): winning env + `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1`, task 53, `RETRIEVAL_CACHE=1`, kimi judge. Watch it doesn't dilute retrieval (the W2/W4 failure).
+3. **R5 backbone (outside session):** `ollama pull liyishanthu/AgentCPM-Report` (native fit) — then A/B it as the agent behind SearXNG+CDP+parity-FACT (needs retrieval-shim; see `resource_fit_verification.md`). Remember: backbone bet buys RACE, not FACT.
+4. **No further in-session build queued.** The v9/R3/R5/R6 scaffold set is complete; remaining work is measurement, agent pull, or a user-picked new direction.
 
 ---
 
