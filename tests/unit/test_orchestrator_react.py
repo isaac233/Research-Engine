@@ -229,6 +229,39 @@ def test_rubric_critic_runs_when_enabled(monkeypatch) -> None:  # noqa: ANN001
     assert called["n"] == 1
 
 
+# --- R4: WARP draft<->deepen writer wiring -------------------------------------
+
+
+def _spy_deepeners(monkeypatch, called):  # noqa: ANN001
+    import research_engine.orchestrator as orch_mod
+
+    def warp(*a, **k):  # noqa: ANN002, ANN003
+        called["warp"] += 1
+        return "deepened draft"
+
+    def deepen(*a, **k):  # noqa: ANN002, ANN003
+        called["deepen"] += 1
+        return "deepened draft"
+
+    monkeypatch.setattr(orch_mod, "warp_deepen", warp)
+    monkeypatch.setattr(orch_mod, "deepen_report", deepen)
+
+
+def test_react_brief_uses_deepen_by_default(monkeypatch) -> None:  # noqa: ANN001
+    called = {"warp": 0, "deepen": 0}
+    _spy_deepeners(monkeypatch, called)
+    _orch("react")._react_brief("aging topic in japan")
+    assert called["deepen"] == 1 and called["warp"] == 0
+
+
+def test_react_brief_uses_warp_when_enabled(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_WARP_WRITER", "1")
+    called = {"warp": 0, "deepen": 0}
+    _spy_deepeners(monkeypatch, called)
+    _orch("react")._react_brief("aging topic in japan")
+    assert called["warp"] == 1 and called["deepen"] == 0
+
+
 class _RecordingProvider(_DispatchProvider):
     """Record the model each reasoning step was called with."""
 

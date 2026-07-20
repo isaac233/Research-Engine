@@ -21,6 +21,7 @@ from research_engine.synthesis.attribute_writer import _strip_foreign_cites
 
 _MAX_EXPAND = 2  # deepen at most this many sections per pass (bounded cost)
 _SPANS_PER = 5
+_WARP_ROUNDS = 3  # WARP draft<->deepen rounds; 1 == a single deepen pass (today's behavior)
 
 _DIAGNOSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -86,6 +87,31 @@ def deepen_report(
         para = _write_deepening(subq, picked, provider, model)
         if para:
             draft = _insert_after_section(draft, title, para)
+    return draft
+
+
+def warp_deepen(
+    draft: str,
+    bank: EvidenceBank,
+    query: str,
+    provider: LLMProvider,
+    model: str | None = None,
+    *,
+    rounds: int = _WARP_ROUNDS,
+    max_expand: int = _MAX_EXPAND,
+) -> str:
+    """WARP draft<->deepen loop (R4, arXiv:2602.06540): re-diagnose the UPDATED draft each
+    round and deepen its now-shallowest sections, stopping on convergence (a round changes
+    nothing → the logical chain is complete) or the round cap. One round is exactly
+    ``deepen_report``; iterating reaches the ~4-8 Expand actions AgentCPM-Report shows drive
+    Insight (our 0.39-weight dim), versus the <=2 of a single pass. FACT is preserved by
+    construction — every added sentence still cites a verbatim bank span.
+    """
+    for _ in range(max(1, rounds)):
+        deeper = deepen_report(draft, bank, query, provider, model, max_expand=max_expand)
+        if deeper == draft:
+            break  # no shallow section left to expand
+        draft = deeper
     return draft
 
 

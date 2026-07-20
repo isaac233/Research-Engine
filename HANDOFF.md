@@ -1,6 +1,6 @@
 # HANDOFF — 2026-07-20
 
-## 🎯 2026-07-20 — VAGUE-QUERY WEAKNESS (task 53) DIAGNOSED TO ROOT + R1/R2 BUILT (evidence-grounded + verified scope); UNCOMMITTED
+## 🎯 2026-07-20 — VAGUE-QUERY WEAKNESS (task 53) DIAGNOSED TO ROOT + R1/R2/R4 BUILT + COMMITTED (evidence-grounded + verified scope, WARP writer)
 
 **Session = online research → root-cause → build.** Research docs: `docs/plan/finish_line_research_v9.md`
 (findings/sources) + `docs/plan/finish_line_execution_v9.md` (granular checklist plan + progress log =
@@ -18,8 +18,8 @@ EVIDENCE-GROUNDED + VERIFIED + ITERATIVE; the two strongest need NO training. Le
 open 8B (AgentCPM-Report) already beats Claude-research 45.0 + OpenAI-DR 46.45 → beating Opus-class on
 research is reachable on our 16 GB rig; the gap is scaffold, not model.
 
-**BUILT this session (env-gated, default-OFF, byte-identical default path; 680 unit green (665 base + 15
-new); mypy + ruff clean; UNCOMMITTED on `feat/deepresearch-bench`):**
+**BUILT this session (env-gated, default-OFF, byte-identical default path; 686 unit green (665 base + 21
+new); mypy + ruff clean; COMMITTED on `feat/deepresearch-bench` — `a667b35` R1/R2, R4 follow-up commit):**
 1. **R1 evidence-grounded scope** — `rubric.py`: `build_rubric(query, provider, model, evidence="")` +
    `_USER_GROUNDED` template (self-clarification + resolve-from-evidence + explicit inclusions/exclusions)
    + `_EVIDENCE_MAX_CHARS`(4000). `orchestrator.py`: `_collect_scope_evidence()` (bounded pre-plan
@@ -30,6 +30,13 @@ new); mypy + ruff clean; UNCOMMITTED on `feat/deepresearch-bench`):**
    inclusions/exclusions, per-section acceptance criteria; degrades to input, no-op on trivial).
    `orchestrator.py`: `_rubric_critic_enabled()` + one wiring line after `build_rubric`. Flag:
    `RESEARCH_ENGINE_RUBRIC_CRITIC`. Composes on R1.
+3. **R4 WARP draft⟷deepen** — `synthesis/deepen.py` ALREADY implemented single-pass WARP (diagnose
+   shallowest section → deepen it; cites arXiv:2602.06540), so R4 = `warp_deepen()` that ITERATES it,
+   re-diagnosing the updated draft each round, stopping on convergence or the round cap (reaches the ~4-8
+   Expand rounds that drive Insight, vs ≤2 for one pass). `orchestrator.py`: `_warp_writer_enabled()` +
+   `_warp_rounds()`(def 3), branched at the react deepen call (applies only where deepen runs — not
+   section-locked). Flags: `RESEARCH_ENGINE_WARP_WRITER`, `RESEARCH_ENGINE_WARP_ROUNDS`. FACT-safe (every
+   added sentence still cites a bank span). Targets Insight (0.39 weight) + Comprehensiveness.
 
 **A/B MATRIX (single-variable — the master switch `RUBRIC_SCAFFOLD` decides *whether* a rubric is built;
 the new flags decide *how good* the scope is):**
@@ -50,14 +57,15 @@ the new flags decide *how good* the scope is):**
 3. **Then R4 WARP** (draft⟷deepen, the Insight 0.39-weight lever) + R3 (bounded ephemeral gap-loop) +
    R5 backbone bet (pull `openbmb/AgentCPM-Report-GGUF`, or WebWeaver-on-Qwen3-30B / already-pulled
    Tongyi-DR-30B as the AGENT). Full checklists in `finish_line_execution_v9.md`.
-4. **Commit gate:** R1/R2 are UNCOMMITTED, default-off, safe. Propose:
-   `feat(scope): evidence-grounded rubric scope (R1) + verified checklist (R2), env-gated default-off`.
-   Do NOT push without user ask; no `--no-verify`.
+4. **Commit state:** R1/R2 COMMITTED (`a667b35`), R4 in a follow-up commit. Default-off + green.
+   NOT pushed (push only on user ask; no `--no-verify`).
 
-**Files touched:** `src/research_engine/planning/rubric.py`, `src/research_engine/orchestrator.py`,
-`tests/unit/planning/test_rubric.py` (+10 tests... 5 R1 evidence + 3 R2 critic), `tests/unit/test_orchestrator_react.py`
-(+7 tests: 3 `_collect_scope_evidence` + 2 scoping-wiring + 2 critic-wiring), `docs/plan/finish_line_research_v9.md`
-(new), `docs/plan/finish_line_execution_v9.md` (new).
+**Files touched:** `src/research_engine/planning/rubric.py` (R1 `build_rubric(evidence=)`+`_USER_GROUNDED`;
+R2 `critique_rubric`), `src/research_engine/orchestrator.py` (all wiring + helpers),
+`src/research_engine/synthesis/deepen.py` (R4 `warp_deepen`), `tests/unit/planning/test_rubric.py`
+(+8: 5 R1 + 3 R2), `tests/unit/test_orchestrator_react.py` (+9: 3 collect + 2 scoping + 2 critic + 2 warp),
+`tests/unit/synthesis/test_warp.py` (new, 4), `docs/plan/finish_line_research_v9.md` (new),
+`docs/plan/finish_line_execution_v9.md` (new).
 
 ---
 

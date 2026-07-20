@@ -71,7 +71,7 @@ from research_engine.storage.agent_history import (
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
-from research_engine.synthesis.deepen import deepen_report
+from research_engine.synthesis.deepen import deepen_report, warp_deepen
 from research_engine.synthesis.minicheck import build_check_fn
 from research_engine.synthesis.section_writer import SectionWriter
 from research_engine.synthesis.synthesizer import (
@@ -349,6 +349,25 @@ def _section_locked_write_enabled() -> bool:
     spans). Env-gated; default off keeps the full outline + deepen path byte-identical.
     """
     return bool(os.environ.get("RESEARCH_ENGINE_SECTION_LOCKED_WRITE"))
+
+
+def _warp_writer_enabled() -> bool:
+    """Replace the single deepen pass with the WARP draft<->deepen loop (R4) when set.
+
+    AgentCPM-Report's Insight gain comes from ~4-8 iterative Expand rounds; one deepen pass
+    does <=2. WARP re-diagnoses the UPDATED draft each round and deepens the now-shallowest
+    section, until convergence or the round cap. Applies only where deepen already runs
+    (react path, not section-locked). Env-gated; default off = the single deepen pass.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_WARP_WRITER"))
+
+
+def _warp_rounds() -> int:
+    """Max WARP draft<->deepen rounds (default 3); the loop also stops on convergence."""
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_WARP_ROUNDS", "")))
+    except ValueError:
+        return 3
 
 
 def _abstain_gate_spec() -> str:
@@ -1375,8 +1394,16 @@ class Orchestrator(OrchestratorInstrumentation):
             return ""
         if not locked:
             # deepen pulls the WHOLE bank (deepen.py: bank.spans()), which would re-introduce
-            # cross-section spans and defeat the lock — so section-locked runs skip it.
-            draft = str(deepen_report(draft, result.evidence_bank, query, provider, model))
+            # cross-section spans and defeat the lock — so section-locked runs skip it. R4
+            # WARP iterates deepen (re-diagnose the updated draft each round) for more Insight.
+            if _warp_writer_enabled():
+                draft = str(
+                    warp_deepen(
+                        draft, result.evidence_bank, query, provider, model, rounds=_warp_rounds()
+                    )
+                )
+            else:
+                draft = str(deepen_report(draft, result.evidence_bank, query, provider, model))
         # W1 attribute-or-abstain: drop [eN] markers whose cited sentence a grounded
         # fact-checker (MiniCheck) can't support against the span's own page. Default-off
         # (spec == "") → this block is skipped and the draft is returned byte-identical.
