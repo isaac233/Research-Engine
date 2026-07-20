@@ -48,11 +48,18 @@ the new flags decide *how good* the scope is):**
 | C | `RUBRIC_SCAFFOLD=1 SCOPING_PASS=1 RUBRIC_CRITIC=1` | R1+R2 |
 
 ### ⏭️ NEXT SESSION — START HERE
-1. **R0 live falsifier (the cheapest experiment):** task 53 ONLY, config **B vs A**, under
-   `RESEARCH_ENGINE_RETRIEVAL_CACHE=1`, winning env + `CDP_FALLBACK=1`, kimi judge (OUTSIDE a Claude
-   session per MITM, or local judge for directional). Pre-run: archive `engine.jsonl`/`scores.jsonl` +
-   purge serp rows in `data/cache.db`; attach `bench/watchdog.py` via Monitor. **Target: IF .339→.40+,
-   no per-capita-PPP opening, RACE 32.7→36+.** If IF moves, the v9 thesis holds → then measure C, then N=3.
+1. **R0 falsifier: RAN 2026-07-20 → INCONCLUSIVE ON NUMBERS (degenerate local judge); DECISIVE STEP =
+   kimi re-judge the saved articles.** Ran task 53 A(blind rubric) vs B(+SCOPING_PASS), winning env +
+   CDP + RETRIEVAL_CACHE, mistral-small3.2 judge, RACE-only, ~17min/config, clean. **mistral judge scored
+   A and B IDENTICAL to 16 decimals** (overall 0.320 / comp 0.363 / insight 0.279 / IF 0.333 / read 0.313)
+   despite different articles (A 13.6k vs B 14.2k chars) — the known "mistral emits identical RACE grids"
+   degeneracy. **Mechanism POSITIVE:** both arms define the SWF cohort correctly (old per-capita-PPP drift
+   GONE — the committed P1 rubric scaffold alone fixes gross drift); B refines further (comparative title +
+   explicit inclusions/exclusions = R1's intent). **DO THIS: run `bench/rescore`-style RACE with the KIMI
+   judge on `bench/out/r0_article_A.md` vs `r0_article_B.md` OUTSIDE a Claude session** (MITM blocks kimi
+   in-session) — no 34-min engine re-run needed. Then, since config-A-with-rubric already ~fixes cohort
+   drift, run the SHARPER A/B for R1: **no-rubric vs grounded** (isolates evidence-grounding from the
+   scaffold). Scripts saved: scratchpad `r0_ab.py`/`r0_one.py`; artifacts `bench/out/r0_*`.
 2. **Prove the CLASS, not the instance:** add a 2nd underspecified-cohort English bench task; B-vs-A there too.
 3. **Then R4 WARP** (draft⟷deepen, the Insight 0.39-weight lever) + R3 (bounded ephemeral gap-loop) +
    R5 backbone bet (pull `openbmb/AgentCPM-Report-GGUF`, or WebWeaver-on-Qwen3-30B / already-pulled
