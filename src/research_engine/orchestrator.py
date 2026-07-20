@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import sys
 from collections.abc import Callable
@@ -45,9 +46,11 @@ from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
 from research_engine.planning.coverage_ledger import CoverageLedger
+from research_engine.planning.evidence_ranker import rank_spans
 from research_engine.planning.gap_rubric import EphemeralGapRubric
 from research_engine.planning.grounding_brief import build_grounding_brief
 from research_engine.planning.handoff import HandoffDoc
+from research_engine.planning.outline import Outline
 from research_engine.planning.outline_builder import OutlineBuilder
 from research_engine.planning.react_planner import PlanResult, ReactPlanner, SourceRef
 from research_engine.planning.rubric import TRIVIAL as TRIVIAL_RUBRIC
@@ -390,6 +393,25 @@ def _warp_rounds() -> int:
         return max(1, int(os.environ.get("RESEARCH_ENGINE_WARP_ROUNDS", "")))
     except ValueError:
         return 3
+
+
+def _evidence_ranker_enabled() -> bool:
+    """Re-rank each section's evidence spans before the writer sees them (R6).
+
+    RhinoInsight arXiv:2511.18743 evidence-audit: score spans on relevance, source
+    quality, timeliness, and consistency, then order the writer's input so the
+    strongest evidence is consumed first. Env-gated; default off leaves the outline
+    evidence order byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_EVIDENCE_RANKER"))
+
+
+def _evidence_ranker_max_spans() -> int:
+    """Max spans scored per section by the evidence-ranking critic (default 20)."""
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_EVIDENCE_RANKER_MAX_SPANS", "")))
+    except ValueError:
+        return 20
 
 
 def _abstain_gate_spec() -> str:
@@ -1420,6 +1442,32 @@ class Orchestrator(OrchestratorInstrumentation):
         # construction. Default-off → the outline and deepen pass are unchanged.
         locked = _section_locked_write_enabled()
         outline = result.outline.partitioned() if locked else result.outline
+        # R6 evidence-ranking critic (RhinoInsight evidence-audit): reorder each
+        # section's evidence IDs so the writer consumes the strongest spans first.
+        # Default-off preserves the planner's original evidence order.
+        if _evidence_ranker_enabled():
+            max_spans = _evidence_ranker_max_spans()
+            ranked_sections = []
+            for section in outline.sections:
+                section_spans = [
+                    s for s in (result.evidence_bank.get(e) for e in section.evidence_ids) if s is not None
+                ]
+                ranked = rank_spans(
+                    section_spans,
+                    query,
+                    section.title,
+                    section.intent,
+                    provider,
+                    model,
+                    max_spans=max_spans,
+                )
+                new_ids = tuple(s.id for s in ranked)
+                ranked_sections.append(dataclasses.replace(section, evidence_ids=new_ids))
+            outline = Outline(sections=tuple(ranked_sections))
+            _react_dbg(
+                f"_react_brief: evidence_ranker applied sections={len(ranked_sections)} "
+                f"max_spans={max_spans}"
+            )
         draft = SectionWriter(
             provider,
             model,

@@ -10,6 +10,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from research_engine.discovery.schema import (
     DiscoveryResult,
@@ -19,7 +20,9 @@ from research_engine.discovery.schema import (
 )
 from research_engine.events import EventBus
 from research_engine.llm.lane_roster import LaneRoster
+from research_engine.memory.evidence_bank import EvidenceBank, EvidenceSpan
 from research_engine.orchestrator import Orchestrator
+from research_engine.planning.outline import Outline, OutlineSection
 from research_engine.state import CampaignStore
 
 _PAGE_HTML = b"<html><body><p>Japan's aging topic population is projected to shrink by 2050.</p></body></html>"
@@ -707,3 +710,80 @@ def test_reasoning_lane_overrides_reasoning_model_env(
     orch = _orch_with_lanes(tmp_path, provider=provider, lifecycle=lifecycle)
     orch._react_plan("aging topic in japan")
     assert provider.models.get("objectives") == "tongyi-deepresearch-30b-a3b:Q4_K_M"
+
+
+# --- R6: evidence-ranking critic (RhinoInsight evidence-audit) --------------
+
+
+def test_evidence_ranker_disabled_by_default_keeps_outline_order(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.delenv("RESEARCH_ENGINE_EVIDENCE_RANKER", raising=False)
+    calls: list[list[str]] = []
+
+    def fake_rank(spans, query, title, intent, provider, model=None, *, max_spans=20):  # noqa: ANN001
+        calls.append([s.id for s in spans])
+        return list(spans)
+
+    import research_engine.orchestrator as orch_mod
+
+    monkeypatch.setattr(orch_mod, "rank_spans", fake_rank)
+    orch = _orch("react")
+    orch._react_brief("aging topic in japan")
+    assert calls == []
+
+
+def test_evidence_ranker_reorders_section_evidence_when_enabled(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_EVIDENCE_RANKER", "1")
+
+    def fake_rank(spans, query, title, intent, provider, model=None, *, max_spans=20):  # noqa: ANN001
+        # Reverse order so the wiring result is observable.
+        return list(reversed(spans))
+
+    import research_engine.orchestrator as orch_mod
+
+    monkeypatch.setattr(orch_mod, "rank_spans", fake_rank)
+
+    captured_outlines: list[Any] = []
+    real_writer = orch_mod.SectionWriter
+
+    class _CaptureWriter(real_writer):  # type: ignore[misc]
+        def write(self, outline, bank, query):  # noqa: ANN001
+            captured_outlines.append(outline.to_dict())
+            return "captured"
+
+    monkeypatch.setattr(orch_mod, "SectionWriter", _CaptureWriter)
+
+    orch = _orch("react")
+    # Force _react_plan to return a 2-span outline so reordering is observable.
+    spans = [
+        EvidenceSpan(id="e1", text="first span", url="http://a", title="A", verifiable=True),
+        EvidenceSpan(id="e2", text="second span", url="http://b", title="B", verifiable=True),
+    ]
+    bank = EvidenceBank(spans)
+    outline = Outline(
+        sections=(
+            OutlineSection(title="Aging", intent=" demographics", evidence_ids=("e1", "e2")),
+        )
+    )
+    fake_result = SimpleNamespace(evidence_bank=bank, outline=outline, pages_read=2, iterations=1, pages=[])
+    monkeypatch.setattr(orch, "_react_plan", lambda q: fake_result)
+    orch._react_brief("aging topic in japan")
+    assert captured_outlines
+    section = captured_outlines[0]["sections"][0]
+    assert section["evidence_ids"] == ["e2", "e1"]
+
+
+def test_evidence_ranker_max_spans_env_is_wired(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setenv("RESEARCH_ENGINE_EVIDENCE_RANKER", "1")
+    monkeypatch.setenv("RESEARCH_ENGINE_EVIDENCE_RANKER_MAX_SPANS", "7")
+    seen_max_spans: list[int] = []
+
+    def fake_rank(spans, query, title, intent, provider, model=None, *, max_spans=20):  # noqa: ANN001
+        seen_max_spans.append(max_spans)
+        return list(spans)
+
+    import research_engine.orchestrator as orch_mod
+
+    monkeypatch.setattr(orch_mod, "rank_spans", fake_rank)
+    orch = _orch("react")
+    orch._react_brief("aging topic in japan")
+    assert seen_max_spans == [7] * len(seen_max_spans)
