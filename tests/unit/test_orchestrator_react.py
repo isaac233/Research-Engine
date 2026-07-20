@@ -262,6 +262,43 @@ def test_react_brief_uses_warp_when_enabled(monkeypatch) -> None:  # noqa: ANN00
     assert called["warp"] == 1 and called["deepen"] == 0
 
 
+# --- R3: ephemeral gap rubric wiring -------------------------------------------
+
+
+def _spy_react_planner(monkeypatch, captured):  # noqa: ANN001
+    import research_engine.orchestrator as orch_mod
+
+    real = orch_mod.ReactPlanner
+
+    def spy(**kwargs):  # noqa: ANN003
+        captured["adaptive_stop"] = kwargs.get("adaptive_stop")
+        captured["ledger"] = kwargs.get("coverage_ledger")
+        return real(**kwargs)
+
+    monkeypatch.setattr(orch_mod, "ReactPlanner", spy)
+
+
+def test_ephemeral_gap_disabled_by_default(monkeypatch) -> None:  # noqa: ANN001
+    from research_engine.planning.gap_rubric import EphemeralGapRubric
+
+    captured: dict = {}
+    _spy_react_planner(monkeypatch, captured)
+    _orch("react")._react_plan("how wealthiest governments invest")
+    assert captured["adaptive_stop"] is False
+    assert not isinstance(captured["ledger"], EphemeralGapRubric)
+
+
+def test_ephemeral_gap_wires_rubric_and_adaptive_stop(monkeypatch) -> None:  # noqa: ANN001
+    from research_engine.planning.gap_rubric import EphemeralGapRubric
+
+    monkeypatch.setenv("RESEARCH_ENGINE_EPHEMERAL_GAP", "1")
+    captured: dict = {}
+    _spy_react_planner(monkeypatch, captured)
+    _orch("react")._react_plan("how wealthiest governments invest")
+    assert captured["adaptive_stop"] is True
+    assert isinstance(captured["ledger"], EphemeralGapRubric)
+
+
 class _RecordingProvider(_DispatchProvider):
     """Record the model each reasoning step was called with."""
 

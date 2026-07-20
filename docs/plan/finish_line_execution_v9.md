@@ -148,8 +148,12 @@ Isolate ONE variable. The clean falsifier keeps all rubric machinery constant an
 
 ## Deferred / next session (checklist stubs — do NOT build now)
 
-### R3 — Bounded ephemeral gap-loop (DuMate ρ_e, the principled W2/W4 retune)
-- [ ] Regenerate a small gap-rubric each react round from `(outline, evidence digest)`; cap ≤2 gap queries; only fire AFTER core objectives are banked; stop when no gap remains (adaptive termination wired into `react_planner.run` `max_iters` loop). Reuse `coverage_ledger.py` scaffolding but evidence-conditioned + bounded (NOT the blind 80-cell grid that went −8).
+### R3 — Bounded ephemeral gap-loop (DuMate ρ_e, the principled W2/W4 retune) — ✅ BUILT 2026-07-20 (session 2), UNCOMMITTED
+- [x] Regenerate a small gap-rubric each react round from the evidence (query + bank digest); cap ≤2 gap queries; stop when no gap remains (adaptive termination). Evidence-conditioned + bounded (NOT the blind 80-cell grid that went −8).
+  - `planning/gap_rubric.py` (new) `EphemeralGapRubric` — one JSON LLM call/round → ≤N gap queries + `complete` verdict; degrades safe; fast-fail `_reasoning_timeout()`. Duck-types the `coverage_ledger` slot (ingest/gap_queries/is_complete) — introduced `CoverageLedgerLike` Protocol in `react_planner.py`.
+  - `react_planner.py` `adaptive_stop: bool = False` — break when `is_complete()` after ≥1 page banked (default off = byte-identical; W2 keeps its no-early-stop behavior).
+  - `orchestrator.py` flags `RESEARCH_ENGINE_EPHEMERAL_GAP` (+ `_EPHEMERAL_GAP_QUERIES` def 2) → builds the rubric into the slot (supersedes W2) + turns on `adaptive_stop`.
+  - Tests: 7 `test_gap_rubric.py` + 3 `test_react_planner.py` + 2 `test_orchestrator_react.py`. 698 unit green, mypy+ruff clean. **Live A/B deferred** (MITM/wedge): `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1`, task 53, `RETRIEVAL_CACHE=1`, kimi judge.
 
 ### R5 — Backbone bet (pull a released DR agent, front with our stack)
 - [ ] `ollama pull` / obtain `openbmb/AgentCPM-Report-GGUF` (8B, Insight 52.64, fits 16 GB) — NOT yet pulled.
@@ -189,4 +193,7 @@ Isolate ONE variable. The clean falsifier keeps all rubric machinery constant an
 | 2026-07-20 | R4 WARP draft⟷deepen | ✅ GREEN (built, unit-tested, COMMITTED) | 686 total (+6 R4) | `deepen.py::warp_deepen()` iterates existing single-pass deepen (converge-or-cap); `orchestrator._warp_writer_enabled`/`_warp_rounds`; flags `RESEARCH_ENGINE_WARP_WRITER` / `_WARP_ROUNDS`(def 3). Applies only where deepen runs (react, not section-locked). Live A/B not run. |
 | 2026-07-20 | mypy + ruff gate | ✅ clean | — | `mypy` 2 files clean; `ruff check` clean. NB `ruff format` shows PRE-EXISTING nits in untouched code (lines 100/120/626/672) — not mine; project has no `ruff format`/black enforced. |
 | 2026-07-20 | HANDOFF + scoreboard updated | ✅ done | — | HANDOFF.md top + `deepresearch-bench-scoreboard.md` updated; this doc's progress log = source of truth. |
-| — | **NEXT SESSION** | ▶ R0 live falsifier | — | task 53, config B vs A, `RETRIEVAL_CACHE=1`, kimi judge (outside Claude session per MITM). Target IF .339→.40+, no per-capita-PPP opening. Then C (A+R1+R2). Then R4. |
+| 2026-07-20 (s2) | Resource-fit verification | ✅ done | — | 4-agent workflow verified current obtainability/16GB-fit/conflicts → `docs/plan/resource_fit_verification.md`. AgentCPM-Report 8B native-fit (R5 top pick); RhinoInsight/DuMate = paper/closed (port-prompts); backbone bet buys RACE not FACT. |
+| 2026-07-20 (s2) | R3 ephemeral gap-loop | ✅ GREEN (built, unit-tested, UNCOMMITTED) | 698 total (+12) | `gap_rubric.py` `EphemeralGapRubric` + `react_planner.adaptive_stop` + `CoverageLedgerLike` Protocol; flags `RESEARCH_ENGINE_EPHEMERAL_GAP`/`_QUERIES`(def 2). Live A/B not run. |
+| 2026-07-20 (s2) | R0 unblocked | ✅ done | — | `bench/rescore_race.py` (new, durable) re-judges RACE over saved articles; glue-validated + mypy/ruff clean. Decisive kimi B-vs-A run queued OUTSIDE session. |
+| — | **NEXT SESSION** | ▶ R0 kimi rescore + measure R3 | — | 1) `python -m bench.rescore_race --task 53 --article A=… --article B=… --judge ollama --judge-model kimi-k2.7-code:cloud` (outside session). 2) Measure R3 live (`EPHEMERAL_GAP=1` A/B) under `RETRIEVAL_CACHE`. 3) R5 pull `liyishanthu/AgentCPM-Report`. 4) R6 evidence-ranking critic. |

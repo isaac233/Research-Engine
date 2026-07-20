@@ -11,7 +11,7 @@ def _text(url: str) -> str:
     return f"This verbatim sentence from {url} about the topic has enough length to bank as evidence."
 
 
-def _fakes(objectives, refs_by_query, *, outline=None, ledger=None):
+def _fakes(objectives, refs_by_query, *, outline=None, ledger=None, adaptive_stop=False):
     """Build a planner over in-memory fakes; return (planner, log)."""
     log: dict = {"refine_digests": [], "reads": [], "summaries": []}
 
@@ -50,15 +50,21 @@ def _fakes(objectives, refs_by_query, *, outline=None, ledger=None):
         max_pages=40,
         per_objective_pages=4,
         coverage_ledger=ledger,
+        adaptive_stop=adaptive_stop,
     )
     return planner, log
 
 
 class _FakeLedger:
-    """Duck-typed coverage ledger: emits its gap queries once, then goes quiet."""
+    """Duck-typed coverage ledger: emits its gap queries once, then goes quiet.
 
-    def __init__(self, gap_queries: list[str]) -> None:
+    ``complete_after`` (rounds) controls the adaptive-stop signal: is_complete() is True
+    once ``ingest`` has been called that many times (None = never complete, the default).
+    """
+
+    def __init__(self, gap_queries: list[str], complete_after: int | None = None) -> None:
         self._gaps = gap_queries
+        self._complete_after = complete_after
         self.ingest_calls = 0
 
     def ingest(self, _bank) -> None:
@@ -68,7 +74,7 @@ class _FakeLedger:
         return self._gaps[:n] if self.ingest_calls == 1 else []
 
     def is_complete(self) -> bool:
-        return False
+        return self._complete_after is not None and self.ingest_calls >= self._complete_after
 
 
 def test_ledger_none_leaves_run_unchanged() -> None:
@@ -91,6 +97,47 @@ def test_ledger_gap_query_becomes_a_searched_objective() -> None:
     result = planner.run("the topic")
     assert ledger.ingest_calls >= 1  # bank ingested each productive round
     assert "https://gap.com" in log["reads"]  # the gap query drove a real read
+    assert result.pages_read == 2
+
+
+def test_adaptive_stop_halts_when_ledger_reports_complete() -> None:
+    # R3: once the ledger reports no outstanding gap, the loop stops — later objectives
+    # are skipped even though they had fetchable evidence.
+    refs = {
+        "q:obj1": [SourceRef("https://a.com", "A")],
+        "q:obj2": [SourceRef("https://b.com", "B")],
+        "q:obj3": [SourceRef("https://c.com", "C")],
+    }
+    ledger = _FakeLedger([], complete_after=1)  # complete after the first productive round
+    planner, log = _fakes(["obj1", "obj2", "obj3"], refs, ledger=ledger, adaptive_stop=True)
+    result = planner.run("the topic")
+    assert result.pages_read == 1  # stopped after banking obj1
+    assert log["reads"] == ["https://a.com"]
+
+
+def test_adaptive_stop_off_processes_all_objectives() -> None:
+    # Default off: the same would-be-complete ledger never halts the loop (byte-identical
+    # to today, so the W2 term-overlap ledger keeps its old no-early-stop behavior).
+    refs = {
+        "q:obj1": [SourceRef("https://a.com", "A")],
+        "q:obj2": [SourceRef("https://b.com", "B")],
+        "q:obj3": [SourceRef("https://c.com", "C")],
+    }
+    ledger = _FakeLedger([], complete_after=1)
+    planner, _ = _fakes(["obj1", "obj2", "obj3"], refs, ledger=ledger, adaptive_stop=False)
+    result = planner.run("the topic")
+    assert result.pages_read == 3
+
+
+def test_adaptive_stop_runs_to_end_while_gaps_remain() -> None:
+    # is_complete() never True → adaptive stop never fires; the loop runs the full plan.
+    refs = {
+        "q:obj1": [SourceRef("https://a.com", "A")],
+        "q:obj2": [SourceRef("https://b.com", "B")],
+    }
+    ledger = _FakeLedger([], complete_after=None)
+    planner, _ = _fakes(["obj1", "obj2"], refs, ledger=ledger, adaptive_stop=True)
+    result = planner.run("the topic")
     assert result.pages_read == 2
 
 

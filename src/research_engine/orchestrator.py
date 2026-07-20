@@ -45,6 +45,7 @@ from research_engine.monitoring.progress import StageProgressTracker
 from research_engine.monitoring.telemetry import TelemetryAnalyzer, TelemetryEmitter
 from research_engine.orchestrator_instrumentation import OrchestratorInstrumentation
 from research_engine.planning.coverage_ledger import CoverageLedger
+from research_engine.planning.gap_rubric import EphemeralGapRubric
 from research_engine.planning.grounding_brief import build_grounding_brief
 from research_engine.planning.handoff import HandoffDoc
 from research_engine.planning.outline_builder import OutlineBuilder
@@ -337,6 +338,27 @@ def _coverage_ledger_enabled() -> bool:
     retrieval unchanged.
     """
     return bool(os.environ.get("RESEARCH_ENGINE_COVERAGE_LEDGER"))
+
+
+def _ephemeral_gap_enabled() -> bool:
+    """Drive gap retrieval + adaptive stop from an LLM ephemeral rubric (R3) when set.
+
+    DuMate ρ^e (arXiv:2606.07299): each round a model reads the banked evidence vs the
+    question, emits <=N concrete gap queries, and signals when no gap remains (→ the loop
+    stops early). This is the evidence-conditioned form of the W2 term-overlap ledger and
+    fills the same planner slot; when on it also turns on the planner's adaptive stop.
+    Supersedes `_coverage_ledger_enabled` (both target the coverage-ledger slot). Env-gated;
+    default off leaves the react loop byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_EPHEMERAL_GAP"))
+
+
+def _ephemeral_gap_queries() -> int:
+    """Max gap queries the ephemeral rubric emits per round (R3, default 2, bounded>=1)."""
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_EPHEMERAL_GAP_QUERIES", "")))
+    except ValueError:
+        return 2
 
 
 def _section_locked_write_enabled() -> bool:
@@ -1592,7 +1614,7 @@ class Orchestrator(OrchestratorInstrumentation):
             if _grounding_brief_enabled()
             else None
         )
-        coverage_ledger = None
+        coverage_ledger: CoverageLedger | EphemeralGapRubric | None = None
         if (
             _coverage_ledger_enabled()
             and brief is not None
@@ -1604,6 +1626,16 @@ class Orchestrator(OrchestratorInstrumentation):
                 f"coverage_ledger: entities={len(brief.entities)} "
                 f"subqs={len(brief.section_criteria)}"
             )
+        # R3 ephemeral gap rubric (DuMate ρ^e): an LLM reads the bank each round → <=N gap
+        # queries + a no-gap-left stop signal. Fills the same ledger slot (supersedes W2's
+        # term-overlap grid) and turns on the planner's adaptive stop. Default off = the
+        # loop is unchanged.
+        adaptive_stop = _ephemeral_gap_enabled()
+        if adaptive_stop:
+            coverage_ledger = EphemeralGapRubric(
+                query, provider, reasoning_model, max_queries=_ephemeral_gap_queries()
+            )
+            _react_dbg(f"ephemeral_gap: max_queries={_ephemeral_gap_queries()}")
         planner = ReactPlanner(
             objectives_fn=_objectives,
             search_fn=search_fn,
@@ -1618,6 +1650,7 @@ class Orchestrator(OrchestratorInstrumentation):
             per_objective_searches=_react_per_objective_searches(),
             seeded_outline=_react_seeded_outline(),
             coverage_ledger=coverage_ledger,
+            adaptive_stop=adaptive_stop,
             max_seconds=max_seconds,
         )
         try:

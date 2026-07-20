@@ -1,5 +1,43 @@
 # HANDOFF — 2026-07-20
 
+## 🎯 2026-07-20 (SESSION 2) — SOTA RESOURCE-FIT VERIFIED (current web evidence) + R3 EPHEMERAL GAP-LOOP BUILT + R0 UNBLOCKED (durable `bench/rescore_race.py`)
+
+**Session = verify the SOTA resources are actually obtainable/runnable on our rig (user ask #1) → build the
+next lever (R3) → unblock R0.** New docs: `docs/plan/resource_fit_verification.md` (the verification matrix).
+
+### 1) RESOURCE-FIT VERIFICATION (4-agent parallel workflow, current July-2026 web evidence — supersedes the v9 desk read)
+Full matrix + obtain commands in `docs/plan/resource_fit_verification.md`. Headlines:
+- **AgentCPM-Report 8B** — fully released (code+GGUF+Ollama+prompts, Apache-2.0 base). **Q4 GGUF 4.97 GB / 64K ctx = NATIVE fit** (best of all). Obtain (OUTSIDE session, MITM): `ollama pull liyishanthu/AgentCPM-Report`. We already have R4 (WARP prompt loop). R5 = run the RL-trained *agent*: needs their WARP driver + a shim mapping its corpus-RAG tool-call → our SearXNG+CDP. Bench 50.11 was measured on THEIR corpus → transfer risk.
+- **RhinoInsight** — **paper only, no official code/prompts** (3rd-party Claude skills only). We already have R1/R2 checklist **+ the core of Evidence-Audit** (verbatim `EvidenceBank` spans bound to `Outline` nodes). Only net-new lever = **R6 evidence-ranking critic** (rerank spans by quality/timeliness/consistency pre-write). SKIP its cluster-summary step (breaks our verbatim-FACT thesis).
+- **DuMate** (#1, 58.03) — **closed hosted Baidu** (CC BY-NC-ND). R1 coarse-to-fine + persistent rubric = ALREADY-HAVE. **R3 ephemeral gap-loop + adaptive stop = PORT-PROMPTS** — built this session (below).
+- **Backbones** — code Apache-2.0 but **SFT/GRPO checkpoints NOT released**. Tongyi-30B Q3 14 GB native (already pulled) / Q4 offload; **WebWeaver as-shipped does NOT fit** (dual concurrent models, "4×80G"); Co-ReAct needs 2 GPUs. R5-alt = port WebWeaver's dual-agent *scaffold* onto Tongyi + SearXNG/CDP.
+- **⚠️ LOAD-BEARING FINDING: the backbone bet buys RACE, not FACT.** WebWeaver off-the-shelf = RACE 46.77 (> our 40.67 bar) but **FACT 25%**; the SFT that lifts FACT→85.9% is unreleased. FACT stays on our v8 parity harness + MiniCheck cite-gate whatever backbone we run. Do NOT expect a model swap to fix citation accuracy.
+
+### 2) R3 BUILT — ephemeral gap-loop + adaptive stop (DuMate ρ^e), env-gated default-off, TDD
+**698 unit green (686 base + 12 new: 7 gap_rubric + 3 react_planner + 2 orchestrator); mypy + ruff clean; default path byte-identical; UNCOMMITTED.**
+- `planning/gap_rubric.py` (new): `EphemeralGapRubric` — one JSON LLM call/round reads the bank vs the query → ≤N gap queries + a "no gap left" `complete` verdict; degrades to no-gaps/not-complete on any failure; fast-fail via `_reasoning_timeout()`. **Duck-types the existing `coverage_ledger` slot** (ingest/gap_queries/is_complete) so it drops in with no new planner param.
+- `planning/react_planner.py`: added `adaptive_stop: bool = False` — when on, the loop breaks as soon as the ledger `is_complete()` (after ≥1 page banked). Introduced a `CoverageLedgerLike` Protocol so both the term-overlap `CoverageLedger` (W2) and `EphemeralGapRubric` (R3) satisfy the slot.
+- `orchestrator.py`: env `RESEARCH_ENGINE_EPHEMERAL_GAP=1` (+ `_EPHEMERAL_GAP_QUERIES`, def 2) → builds `EphemeralGapRubric` into the ledger slot (supersedes W2) + turns on `adaptive_stop`.
+- **A/B:** `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1` (single variable = the gap-loop). Fires only after core objectives banked; ≤2 gap queries/round — the principled retune of the net-negative blind W2/W4 (evidence-CONDITIONED, bounded, verified-stop).
+
+### 3) R0 UNBLOCKED — `bench/rescore_race.py` (new, durable; replaces the vanished scratchpad script)
+Mirrors `rescore_fact.py` but re-judges RACE; reuses the tested `RaceScorer`/`_load_maps`/`_load_tasks`. Glue-validated (task-53 prompt/criteria/reference/articles all resolve); ruff+mypy clean. **DECISIVE R0 STEP (run OUTSIDE a Claude session — MITM blocks kimi cloud in-session):**
+```
+PYTHONPATH=src python -m bench.rescore_race --task 53 \
+  --article A=bench/out/r0_article_A.md --article B=bench/out/r0_article_B.md \
+  --judge ollama --judge-model kimi-k2.7-code:cloud
+```
+It prints per-article RACE + the B−A overall/IF delta (target: B>A, IF≥0.40). No engine re-run needed (34 min saved). The mistral R0 was degenerate (A=B to 16 decimals, 0.3202); kimi settles it.
+
+### ⏭️ NEXT SESSION — START HERE
+1. **R0 (outside session):** run the `rescore_race.py` command above with the kimi judge → the real B-vs-A verdict for R1 grounded scope. If B>A on IF, R1 confirmed; escalate to a 2nd vague task (prove the class).
+2. **Measure R3 live** (once R0 method proven): winning env + `RUBRIC_SCAFFOLD=1 EPHEMERAL_GAP=1` vs `RUBRIC_SCAFFOLD=1`, task 53, `RETRIEVAL_CACHE=1`, kimi judge. Watch it doesn't dilute retrieval (the W2/W4 failure) — it shouldn't (≤2 gaps, evidence-conditioned, adaptive stop).
+3. **R5 backbone (outside session):** `ollama pull liyishanthu/AgentCPM-Report` (native fit) — then A/B it as the agent behind our SearXNG+CDP+parity-FACT (needs the retrieval-shim; see resource_fit doc §required_modifications). Remember: buys RACE, not FACT.
+4. **R6 (optional, small):** RhinoInsight evidence-ranking critic (pre-write span rerank by quality/timeliness/consistency).
+5. **Commit:** R3 + `rescore_race.py` are UNCOMMITTED (green, default-off). Propose `feat(scope): ephemeral gap-loop + adaptive stop (R3) + RACE rescorer, env-gated default-off`. Commit only on user ask; no `--no-verify`.
+
+---
+
 ## 🎯 2026-07-20 — VAGUE-QUERY WEAKNESS (task 53) DIAGNOSED TO ROOT + R1/R2/R4 BUILT + COMMITTED (evidence-grounded + verified scope, WARP writer)
 
 **Session = online research → root-cause → build.** Research docs: `docs/plan/finish_line_research_v9.md`
