@@ -148,3 +148,16 @@ per config, judge ×N. (2) V3 (real +1385-char change, flat RACE) = wash and V7 
 −4.9) = negative both stand — those levers changed the article. (3) The evidence-DEPTH hypothesis
 is **untested**; to test it, run V8 + higher writer cap on the RICH-evidence **task-57 frozen
 cache** where the flags bind. The "writer is the ceiling" conclusion rests on V1/V3/V7, not V8.
+
+### v10.3 depth hypothesis TESTED + REJECTED (task 57, rich evidence)
+
+Ran V1 + `MAX_PAGE_SPANS=48` + `WRITER_MAX_SENTENCES=28`/`TOKENS=3600` on the task-57 frozen
+cache (rich multi-entity evidence → the caps bind, unlike span-poor task 53; serp fully
+replayed, ~13/34 pages drifted live). Result: **RACE 33.28 / 26.4k chars vs V1-alone 37.82 /
+30.3k chars — depth REJECTED.** More banked spans + a higher writer cap make the local writer
+*compress* (shorter, worse), not expand toward the 83k reference. The lever that helps is V1's
+wider **context per cited span** (exposure), not the *count* of spans: on task 57, V1 alone lifted
+baseline 35.20→37.82 and length 21k→30k, while adding depth on top regressed both. This closes the
+v10 sweep: only V1 exposure + the react+scope+WARP `vague` stack are net-positive; notes (V3),
+structure (V7), and depth (V8/depth-stack) all fail to beat V1-alone on this writer. The remaining
+~3-6 RACE gap to 40.67 is the writer's ceiling → a trained DR-model agent is the next real lever.
