@@ -120,6 +120,19 @@ def _react_budget() -> tuple[int, int, float]:
     )
 
 
+def _react_max_iters() -> int:
+    """ReAct objective/iteration cap (env ``RESEARCH_ENGINE_REACT_MAX_ITERS``, def 8).
+
+    Each iteration processes one objective. Entity-wise rubrics (V7) can emit ~9-13
+    entity objectives, so the default 8 would drop later entities; raise this when
+    measuring V7 so every entity gets a retrieval pass. Default 8 = unchanged.
+    """
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_REACT_MAX_ITERS", "")))
+    except ValueError:
+        return 8
+
+
 def _writer_length() -> tuple[int, int]:
     """(max_sentences_per_section, max_tokens_per_section) from env, else defaults.
 
@@ -1793,6 +1806,7 @@ class Orchestrator(OrchestratorInstrumentation):
                 provider, reasoning_model, task_anchored=_react_anchored_outline()
             ).build(bank, q),
             max_pages=max_pages,
+            max_iters=_react_max_iters(),
             per_objective_pages=per_objective,
             per_objective_searches=_react_per_objective_searches(),
             seeded_outline=_react_seeded_outline(),
