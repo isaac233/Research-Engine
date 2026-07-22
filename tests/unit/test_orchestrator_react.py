@@ -261,9 +261,10 @@ def _spy_build_rubric(monkeypatch, captured):  # noqa: ANN001
 
     real = orch_mod.build_rubric
 
-    def spy(query, provider, model=None, evidence=""):  # noqa: ANN001
+    def spy(query, provider, model=None, evidence="", entity_wise=False):  # noqa: ANN001
         captured["evidence"] = evidence
-        return real(query, provider, model, evidence=evidence)
+        captured["entity_wise"] = entity_wise
+        return real(query, provider, model, evidence=evidence, entity_wise=entity_wise)
 
     monkeypatch.setattr(orch_mod, "build_rubric", spy)
 

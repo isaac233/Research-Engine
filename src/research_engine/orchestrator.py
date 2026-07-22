@@ -410,6 +410,19 @@ def _evidence_ranker_enabled() -> bool:
     return bool(os.environ.get("RESEARCH_ENGINE_EVIDENCE_RANKER"))
 
 
+def _entity_sections_enabled() -> bool:
+    """Ask the rubric for one deep-dive section per named entity + a comparative
+    section (V7), for multi-entity questions.
+
+    The DeepResearch Bench reference reports for entity-set questions are structured
+    per-entity (measured: task 52 per-investor, task 57 per-firm) and those were our
+    strongest tasks; our thematic rubric lumps entities together, capping coverage and
+    length. The clause self-conditions (no named entity set ⇒ thematic as before).
+    Default off ⇒ rubric prompt byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_ENTITY_SECTIONS"))
+
+
 def _synthesis_notes_enabled() -> bool:
     """Append a cross-source analytical notes block before the abstain gate (V3).
 
@@ -1698,7 +1711,13 @@ class Orchestrator(OrchestratorInstrumentation):
         if scope_evidence:
             _react_dbg(f"scoping_pass: evidence_chars={len(scope_evidence)}")
         rubric = (
-            build_rubric(query, provider, reasoning_model, evidence=scope_evidence)
+            build_rubric(
+                query,
+                provider,
+                reasoning_model,
+                evidence=scope_evidence,
+                entity_wise=_entity_sections_enabled(),
+            )
             if _rubric_scaffold_enabled()
             else TRIVIAL_RUBRIC
         )

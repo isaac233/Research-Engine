@@ -88,6 +88,25 @@ _USER_GROUNDED = (
     'JSON: {{"title":"...","scope":"...","sections":["..."],"guidance":["..."]}}'
 )
 
+# V7 entity-wise structure (finish_line_research_v10): the DeepResearch Bench
+# reference reports for multi-entity questions are structured ONE DEEP-DIVE SECTION
+# PER ENTITY plus a comparative section (measured: task 52 Buffett/Munger/Duan =
+# per-investor sections; task 57 consulting firms = per-firm §4.1-4.8), and those
+# were our strongest tasks. Our thematic rubric lumps entities into generic
+# dimensions, capping comprehensiveness and length. This clause makes the rubric
+# emit per-entity sections when — and only when — the task names an entity set;
+# thematic tasks (e.g. "how the wealthiest governments invest" phrased abstractly)
+# are unaffected because the model finds no explicit set. Appended only when the
+# lever is on, so the default prompt is byte-identical.
+_ENTITY_CLAUSE = (
+    "\n\nENTITY-WISE STRUCTURE (important): if the task concerns a specific SET of "
+    "named entities — named people, companies, organizations, countries, or funds — "
+    "then the sections MUST include one dedicated deep-dive section named for EACH "
+    "such entity, plus one comparative-synthesis section contrasting them, rather "
+    "than only thematic sections. Name each deep-dive section after its entity. If "
+    "the task names no such entity set, keep the thematic sections described above."
+)
+
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
@@ -129,7 +148,11 @@ def _parse_json(text: str) -> dict[str, Any]:
 
 
 def build_rubric(
-    query: str, provider: LLMProvider, model: str | None = None, evidence: str = ""
+    query: str,
+    provider: LLMProvider,
+    model: str | None = None,
+    evidence: str = "",
+    entity_wise: bool = False,
 ) -> Rubric:
     """One JSON-constrained LLM call → a persistent rubric; degrades to TRIVIAL.
 
@@ -137,12 +160,17 @@ def build_rubric(
     resolved from that evidence instead of guessed blind — the R1 fix for underspecified
     queries. Empty ``evidence`` keeps the prompt byte-identical to the blind path, so the
     default behavior is unchanged.
+
+    ``entity_wise`` (V7) appends a clause asking for one deep-dive section per named
+    entity plus a comparative section, for multi-entity questions; False ⇒ byte-identical.
     """
     content = (
         _USER_GROUNDED.format(query=query, evidence=evidence[:_EVIDENCE_MAX_CHARS])
         if evidence.strip()
         else _USER.format(query=query)
     )
+    if entity_wise:
+        content += _ENTITY_CLAUSE
     messages = [
         Message(role="system", content=_SYSTEM),
         Message(role="user", content=content),

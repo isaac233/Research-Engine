@@ -43,6 +43,31 @@ def test_build_rubric_parses_fields() -> None:
     assert "Scope:" in r.digest() and "Quality criteria:" in r.digest()
 
 
+_VALID_REPLY = json.dumps(
+    {"title": "T", "scope": "S", "sections": ["A", "B"], "guidance": ["g1"]}
+)
+
+
+def test_build_rubric_entity_wise_appends_clause() -> None:
+    p = _Provider(_VALID_REPLY)
+    build_rubric("AI at McKinsey, BCG, Bain", p, entity_wise=True)
+    assert "ENTITY-WISE STRUCTURE" in p._last_user()
+
+
+def test_build_rubric_default_has_no_entity_clause() -> None:
+    p = _Provider(_VALID_REPLY)
+    build_rubric("AI at McKinsey, BCG, Bain", p)  # entity_wise defaults False
+    assert "ENTITY-WISE STRUCTURE" not in p._last_user()
+
+
+def test_build_rubric_entity_wise_composes_with_evidence() -> None:
+    p = _Provider(_VALID_REPLY)
+    build_rubric("q", p, evidence="Firms: McKinsey, BCG.", entity_wise=True)
+    user = p._last_user()
+    assert "Preliminary scoping evidence" in user  # grounded template used
+    assert "ENTITY-WISE STRUCTURE" in user  # and the entity clause appended
+
+
 def test_build_rubric_degrades_to_trivial_on_garbage() -> None:
     r = build_rubric("q", _Provider("not json at all"))
     assert r == TRIVIAL
