@@ -1,4 +1,190 @@
-# HANDOFF — 2026-07-20
+# HANDOFF — 2026-07-22
+
+## ⭐ START HERE (next session) — v10 measurement DONE: V1 banked (only win); V3/V7/V8 measured negative/wash; the LOCAL WRITER is the RACE ceiling
+
+**One-line state:** autonomous session committed the prior session's validated V1 win, promoted V1 into the `vague` preset, and built + measured 3 new gap-closing levers. **Result: V1 is the only win; V3 (cross-source notes) = wash, V7 (entity structure) = negative, V8 (more spans) = negative. Convergent evidence that the local writer (mistral-small3.2) is the RACE ceiling (~34-35); inference-time scaffold levers are tapped out.** 8 commits on `feat/deepresearch-bench` (NOT pushed). Infra UP (SearXNG :8080, Ollama, bridge :11444).
+
+**Measured this session (kimi judge via bridge; task-53 cells = frozen-cache single-variable):**
+| lever | test | result | verdict |
+|---|---|---|---|
+| **V1 spanwin** | task-57 class-proof (baseline 35.20 → +V1) | RACE **37.82** (+2.6, every dim up, insight +5.9) | ✅ V1 RACE **generalizes** — class-proven, PROMOTED into `vague` |
+| V3 notes | task-53 frozen **N=3** (V1 vs V1+V3) | ΔRACE **+0.33**, insight +0.25, read −2.0 | ⚠️ WASH — insight is writer-ceiling-bound, not scaffold-bound |
+| V7 entity | task-57 N=1 (thematic+V1 37.82 vs entity+V1) | RACE **32.90** (−4.9); only 5/13 firms, no comparative | ❌ NEGATIVE — structure without evidence-depth fragments |
+| V8 spans32 | task-53 frozen **N=3** (V1@20 vs V8@32) | ΔRACE **−1.12**, article shorter (19.2k vs 21.8k) | ❌ NEGATIVE — writer output-capped; extra spans dilute |
+| depthstack | V8 + writer cap 28/3600, task-53 frozen N=2 | see below / [update on read] | tests the raw-length hypothesis |
+
+**THE load-bearing finding:** insight (our worst dim, 0.39 wt) does NOT move with a pre-write synthesis pass (V3), per-entity restructuring (V7), or more/bigger evidence (V8). Reading the actual article prose shows it is **already analytical and cross-source** ("the consulting pyramid is starting to crack", drawn implications) — so the ceiling is the **local writer's analytical capacity**, not the scaffold. Diagnostic: task-57 engine = 21k chars / 7 thematic sections vs reference 83k / 13 per-entity sections; the gold's depth is a *consequence* of a stronger writer + far more evidence, which V7/V8 cannot fake. **The remaining ~5-6 RACE gap to the 40.67 bar is a MODEL problem, not a scaffold problem.**
+
+**Commits (feat/deepresearch-bench, NOT pushed — push only on user ask; all default-off, byte-identical default path, 746 unit green, ruff+mypy clean):**
+`a38b6fe` V1 spans · `78bcc9c` vague profile + V3b tables · `9e43cd6` bench A/B harness + OLLAMA_HOST + Tongyi tags · `0734ca2` V3 notes (opt-in, wash) · `30d9144` V7 entity rubric (opt-in, negative) · `d1d3ab2` env REACT_MAX_ITERS · `c786433` V8 spans-per-page (default-off, negative) · `5d10cfa` promote V1 into vague profile.
+
+**NEXT SESSION — the honest fork:**
+1. **Do NOT build more inference-time RACE scaffolds expecting >35.** The evidence is now convergent across two sessions (v7 W1-W5, v9 R1-R6, v10 V1-V8): only V1 (exposure) and the react+scope+WARP stack (the `vague` profile) are net-positive; everything else washes or hurts on this writer.
+2. **The real bet = a TRAINED deep-research model as the AGENT** (not a passive writer/reasoning-lane — that was R5, measured worst). Needs a retrieval-shim (SearXNG/CDP) + agent-loop port. Tongyi-DR-30B pulled (Q4 offload); AgentCPM-Report 8B GGUF = native fit. Buys RACE not FACT (keep parity-FACT + MiniCheck). Big, uncertain build. See `docs/plan/resource_fit_verification.md`, [[trained-deepresearch-models]], [[finish-line-webweaver]].
+3. **Staying on the local writer = accept ~35 ceiling.** V1 is banked into `vague`; that is the deliverable. `RESEARCH_ENGINE_PROFILE=vague` now = react + grounded scope (R1/R2) + WARP (R4) + V1 exposure.
+4. **Instrument debt:** FACT re-fetches cited URLs LIVE, so repeated same-task A/B runs rate-limit the hosts → FACT numbers get noisy (lean on RACE for verdicts). Build the FACT-fetch record/replay cache (flagged since v8) before the next FACT-heavy campaign.
+
+**Resume:** infra up. `data/cache.db` holds frozen task-53 B0 + task-57 pages (**DO NOT purge**). Scripts: `run_v3_campaign.sh`, `run_v7_probe.sh`, `run_v8_campaign.sh`, `run_depthstack.sh`, `summarize_campaign.py`. Artifacts in `bench/out/campaign/`.
+
+---
+
+## 2026-07-21 (superseded START HERE) — v10 lever build in progress; V1 WON, decision pending
+
+**One-line state:** built + validated **V1 sentence-window spans (clean win)**, built **V3b tables (wash)**, deferred **V2**; all UNCOMMITTED on `feat/deepresearch-bench`. A decision on how to proceed was posed to the user and NOT yet answered.
+
+**What's validated (frozen-cache single-variable A/B, task 53, kimi judge):**
+| cell | RACE | comp | insight | IF | read | FACT | verdict |
+|---|---|---|---|---|---|---|---|
+| B0 vague | 32.44 | 32.15 | 30.41 | 36.88 | 33.21 | 76.7% | baseline |
+| **V1 spanwin** | **34.24** | 34.48 | 32.22 | 38.14 | 34.62 | **82.1%** | ✅ clean win, every dim up |
+| V3b tables | 34.12 | 33.75 | 32.36 | 36.55 | **36.47** | 79.3% | ⚠️ wash (read +1.85 only) |
+
+**THE decision to make first (was asked, unanswered):** how to proceed —
+1. **Bank V1 + commit** (recommended): add `SPAN_WINDOW_SENTENCES=2`/`_CHARS=1024` to `_PROFILES["vague"]` (`config.py`), update `tests/unit/test_config_profiles.py`, commit V1+V3b env-gated. Fastest, banks the real win.
+2. **N≥3 on writing levers** (V4 rephrase, V3a checklist): ~45 min/lever to beat writer noise.
+3. **Class-proof V1 first**: 2nd underspecified task, N≥3, vague vs vague+SPAN_WINDOW.
+
+**THE load-bearing finding of this session (read before any more A/Bs):** `KEEP_CACHE=1` freezes RETRIEVAL but NOT GENERATION. The synth writer (mistral via Ollama, temp=0) is **not bit-deterministic** — run-to-run RACE varies ~±1-2 and article length swings ~±3k chars. So **writing-side levers (V3b/V4/V3a/V5) are NOT trustworthy at N=1** — a small effect is swamped. V1 read clean ONLY because its effect (FACT +5.4, mechanistic exposure) was large. Rule: retrieval-side or large/mechanistic levers → N=1 frozen-cache OK; writing-side/small levers → need N≥3. See [[deepresearch-bench-scoreboard]].
+
+**Resume commands (infra: SearXNG :8080, Ollama, bridge :11444 — all were UP):**
+- Confirm bridge: `OLLAMA_HOST=http://localhost:11444 PYTHONPATH=src python -c "from bench.judge import build_judge; from research_engine.llm.provider import Message; print(build_judge('ollama','kimi-k2.7-code:cloud').complete([Message(role='user',content='say OK')],model='kimi-k2.7-code:cloud'))"`
+- Re-run a lever cell (frozen B0 pages): `KEEP_CACHE=1 bash scripts/run_task53_ab.sh <cell>` where cell ∈ {vague, v1_spanwin, v3b_tables} (+ add v4/v3a cells). Attach `bench/watchdog.py` via Monitor.
+- **⚠️ DO NOT purge `data/cache.db` replay tables** — they hold B0's frozen pages (serp 9 / page 34). Purging kills the single-variable isolation. `run_task53_ab.sh` only purges when `KEEP_CACHE` is unset.
+
+**UNCOMMITTED this session (all default-off, byte-identical default path, 732 unit green, ruff+mypy clean):**
+- `src/research_engine/config.py` — `apply_profile()` + `_PROFILES["vague"]` (from earlier: the winning-stack preset).
+- `src/research_engine/memory/evidence_bank.py` — **V1** sentence-window banking (env `RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES`/`_SPAN_WINDOW_CHARS`).
+- `src/research_engine/synthesis/comparison_table.py` (new) + `orchestrator.py` wiring — **V3b** span-cited tables (env `RESEARCH_ENGINE_COMPARISON_TABLES`).
+- `orchestrator.py` — also calls `apply_profile()` in `__init__`.
+- Tests: `test_config_profiles.py` (new), `test_evidence_bank.py` (+6 V1), `test_comparison_table.py` (new, 7).
+- `scripts/run_task53_ab.sh` — `KEEP_CACHE` guard + cells vague/v1_spanwin/v3b_tables; `scripts/run_task53_full.py`.
+- `bench/judge.py` + `config/model_lanes.yaml` — pre-existing bridge tweaks (`OLLAMA_HOST` pass-through, Tongyi HF tags).
+- Docs: `docs/plan/finish_line_research_v10.md` (new).
+
+**Levers NOT built:** V2 coverage rerank (deferred — inert under frozen cache/under-budget), V3a checklist writing, V4 rephrase, V5 adversarial. Mechanics for all in `finish_line_research_v10.md` §Implementation mechanics; planner's 8-phase plan captured in the same session (V3a/V4/V5 are writing-side → N≥3).
+
+---
+
+## 🎯 2026-07-21 (LATEST) — v10 SOTA RESEARCH: per-dimension attack plan to close the Claude-3.7 gap (`docs/plan/finish_line_research_v10.md`)
+
+Online sweep (firecrawl paper full-text reads), filtered to inference-time / no-training / 16 GB-portable, mapped per RACE dim with arXiv ablation evidence + exact code delta. **Top net-new levers (all env-gated, NOT built yet):**
+- **V1 context-window spans (FACT + insight, #1 cheapest):** `memory/evidence_bank.py` banks SINGLE SENTENCES (`_query_ranked`, `_MAX_PAGE_SPANS=20`). On-Device-4B (arXiv:2607.12257, our exact regime) proves per-source *exposure* bounds faithfulness (400→1500 chars = 0.45→0.58). Bank ~600–1200-char windows instead → near-free FACT lift; writer already passes full `s.text`.
+- **V2 coverage rerank (comprehensiveness):** LANCER (arXiv:2601.22008) zero-shot — score fetched pages' answerability per objective, greedy-cover-select before banking. SELECTION not expansion → avoids the W2/R3 dilution that went negative.
+- **V3 cross-source notes + comparison tables (insight, our worst dim):** FS-Researcher (2602.01566) evidence-notes ablation = +7.95 insight; DeepSurvey comparison tables (task 53 had 0 tables). Pre-write pass, cites span ids → FACT-safe.
+- **V4 post-hoc readability rephrase; V5 adversarial synthesis via existing DevilAgent; V6 audit clean build→write split.**
+- **Confirmed already-good (don't re-recommend):** section-wise writing + carry-context (`section_writer.py`); writer injects full span text (no truncation).
+- **Do NOT re-open:** new gap-query loops (W2/W4/R3 all diluted), self-critique for FACT (small models can't self-correct — keep MiniCheck), R5/R6 on vague tasks.
+Suggested build order: V1 → V2 → V3, single-variable A/B each via `scripts/run_task53_ab.sh` under `RETRIEVAL_CACHE`. See doc for per-lever code deltas + sources.
+
+**PROGRESS (planner 8-phase plan in flight):**
+- **Phase 0 done:** `run_task53_ab.sh` gained `KEEP_CACHE=1` (frozen-cache single-variable isolation). B0 = `vague` (32.44/76.7%), pages frozen in `data/cache.db`.
+- **✅ Phase 1 / V1 sentence-window spans VALIDATED (clean win):** `evidence_bank.py` banks ±K-neighbor windows (env `RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES`/`_SPAN_WINDOW_CHARS`, default 0=off). A/B frozen-cache: **RACE 32.44→34.24, FACT 76.7→82.1%, every dim up** (comp +2.33, insight +1.81, IF +1.26, read +1.41; 21.8k chars/8 sec). 725 unit green, ruff+mypy clean. Cell `v1_spanwin`. UNCOMMITTED.
+- **Next:** V2 coverage rerank → V3a checklist → V3b tables → V4 rephrase → V5 adversarial; then Phase 7 promote validated levers into `_PROFILES["vague"]` after class-proof + additivity.
+
+---
+
+## 🎯 2026-07-21 (LATER) — A/B LEARNING SHIPPED: `vague` env profile (one switch = the winning `warp` stack)
+
+**Answers the preserved question "what did we learn from the task-53 A/B matrix that we can use to improve
+this system?"** The matrix (cache-isolated, N=1, Kimi judge) said, unambiguously and with a coherent
+mechanistic story that matches prior sessions:
+- **`warp` cell is the winner** — RACE **34.32** / FACT **80.0%** / 42 spans / 8 sections = react path +
+  evidence-grounded scope (R1 scoping + R2 critic) + WARP writer (R4, 3 rounds). Top RACE, near-top FACT.
+- **R3 ephemeral gap** craters FACT (57.6%), **R5 Tongyi-DR lane** is the worst cell (RACE 22.07, banks
+  only 15 spans), **R6 ranker** is FACT-first but caps coverage (pages 23→18, sections 8→6). **`stacked`
+  is anti-additive** (RACE 30.93 < warp; FACT 41.7%). → the lesson is *which* levers compose, not "more."
+
+**BUILT — `RESEARCH_ENGINE_PROFILE=vague` (named env preset).** `config.py::apply_profile()` +
+`_PROFILES["vague"]`; called first in `Orchestrator.__init__` so it runs before every env-gated lever read
+(both CLI and bench route through it). `setdefault` semantics → explicit env always wins, default path
+byte-identical when unset. One switch expands to the `warp` cell's quality/fetchability flags (react +
+seeded outline + per-objective searches + writer caps + CDP/PDF/wayback + RUBRIC_SCAFFOLD/SCOPING_PASS/
+RUBRIC_CRITIC/WARP_WRITER/WARP_ROUNDS=3). **Deliberately excludes R3/R5/R6** (the data said they hurt this
+class) and machine infra (SERP endpoint, replay cache, workers — left to the runtime).
+- Tests: `tests/unit/test_config_profiles.py` (6) — sets winning flags, excludes hurtful levers, explicit
+  env wins, unset/unknown no-op, name normalization. **719 unit green, ruff + mypy clean.**
+- Dogfood: `scripts/run_task53_ab.sh` gains a `vague` cell (just `RESEARCH_ENGINE_PROFILE=vague`) that
+  should reproduce `warp`.
+
+**✅ VALIDATED (2026-07-21, live, kimi judge via bridge, fresh cache):** the `vague` cell (one switch =
+`RESEARCH_ENGINE_PROFILE=vague`) scored **RACE 32.44 / FACT 76.7%** — comp 32.15, insight 30.41, **IF 36.88**,
+read 33.21; 17,098 chars / 7 sections. This lands in the `warp` neighborhood (34.32/80.0%; Δ1.88 RACE, inside
+the ±11 N=1 band) and **+5.84 RACE over baseline** (26.60). Notably **IF is now the strongest dim (36.88)** —
+IF was task 53's crater (the vague-cohort scope failure), and evidence-grounded scope (R1/R2) is exactly what
+lifts it. The profile reproduces the winning stack via one switch. Run completed clean under Monitor watchdog
+(engine 8.5 min, no stall).
+
+**Honest caveat: still N=1.** Task 53 has ±11 RACE variance historically; fresh cache means retrieval differs
+run-to-run. The profile is opt-in and does NOT flip any code default. **Remaining validation:** prove the
+CLASS — N≥3 on a 2nd underspecified-cohort English task, `PROFILE=vague` vs `baseline`, before trusting the
+verdict beyond task 53. Files: `src/research_engine/config.py`, `src/research_engine/orchestrator.py`,
+`tests/unit/test_config_profiles.py`, `scripts/run_task53_ab.sh`. UNCOMMITTED.
+
+---
+
+## 🎯 2026-07-21 — Kimi cloud judge UNBLOCKED via global Ollama bridge; R0 task-53 rescore measured; full v9 task-53 run COMPLETED
+
+**Session = finish unfinished work from prior session.** The prior session left Kimi listed as "blocked" and had not retested task 53 with the new v9 capabilities. Root cause of the block: Norton Web/Mail Shield MITM CA (Basic Constraints not marked critical) breaks Go/Python TLS to `ollama.com`. Built and globally installed a Python bridge (`~/.claude/tools/ollama_cloud_bridge`) that exports the MITM root CA, builds a tolerant `ssl.SSLContext`, signs Ollama Cloud requests with the local ed25519 key, and exposes `http://localhost:11444` as a local Ollama API. Verified end-to-end: `build_judge('ollama','kimi-k2.7-code:cloud')` → direct chat returned `BRIDGE_OK`. Patched `bench/judge.py` to honor `OLLAMA_HOST`.
+
+**R0 task-53 rescore (saved articles from 2026-07-20 mistral-degenerate run), Kimi via bridge:**
+- A (blind rubric) overall **0.3424**
+- B (+SCOPING_PASS) overall **0.2945**
+- Mechanism confirmed: both articles now correctly define the SWF cohort (old per-capita-PPP drift gone). The A>B on this particular saved pair is not a decisive verdict for R1 because the underlying run used a degenerate mistral instrument; incremental grounded-scope delta is subtle.
+
+**Full task-53 run COMPLETED** with all v9 levers + Kimi judge via bridge (`OLLAMA_HOST=http://localhost:11444`):
+`RESEARCH_ENGINE_CDP_FALLBACK=1 RESEARCH_ENGINE_RETRIEVAL_CACHE=1 RESEARCH_ENGINE_RUBRIC_SCAFFOLD=1 RESEARCH_ENGINE_SCOPING_PASS=1 RESEARCH_ENGINE_RUBRIC_CRITIC=1 RESEARCH_ENGINE_WARP_WRITER=1 RESEARCH_ENGINE_WARP_ROUNDS=3 RESEARCH_ENGINE_EPHEMERAL_GAP=1 RESEARCH_ENGINE_REACT_REASONING_LANE=tongyi_dr RESEARCH_ENGINE_EVIDENCE_RANKER=1 RESEARCH_ENGINE_WAYBACK_FALLBACK=1 RESEARCH_ENGINE_PDF_INGEST=1 python scripts/run_task53_full.py --judge ollama --judge-model kimi-k2.7-code:cloud --output bench/out`
+Watchdog (`bench/watchdog.py`) attached via Monitor.
+
+**Result — task 53 (Kimi judge, all v9 levers ON):**
+- Engine article: **23,378 chars**, 8 sections, 42 banked spans / 23 pages / 8 react iters / 11 search calls / 68 read calls.
+- **RACE overall: 30.06/100**
+  - comprehensiveness: 29.64/100
+  - insight: 27.85/100
+  - instruction_following: 34.05/100
+  - readability: 31.99/100
+- **FACT citation accuracy: 65.8%** (25 supported / 13 unsupported / 2 unknown out of 40 pairs; effective citations 25).
+
+**Read:** the all-lever v9 stack underperforms the simpler CDP-baseline (32.68 RACE on 2026-07-17) on this single task. The article shows WARP-round duplication and possible evidence-ranker over-pruning; combined with the known large N=1 variance on task 53, this is not a reliable class verdict. The honest next step is controlled, retrieval-cache-isolated A/Bs of R1/R2/R4/R6 (and R5 lane) rather than stacking all levers at once.
+
+### Task-53 A/B board (controlled, cache-isolated, Kimi judge via bridge)
+
+| # | Step | Status | Result (N=1) |
+|---|------|--------|--------------|
+| 1 | Kimi bridge unblocked + `OLLAMA_HOST` pass-through | ✅ done | `build_judge('ollama','kimi-k2.7-code:cloud')` → `BRIDGE_OK` |
+| 2 | R0 rescore (saved A/B articles) | ✅ done | A 0.3424 / B 0.2945 — inconclusive on numbers, mechanism positive |
+| 3 | Full v9 stacked task-53 run | ✅ done | RACE 30.06 / FACT 65.8% |
+| 4 | A/B harness `scripts/run_task53_ab.sh` | ✅ done | purges replay cache + archives per config |
+| 5 | `baseline` config (react winning env only) | ✅ done | **RACE 26.60 / FACT 78.8%** — 24 spans / 24 pages / 6 sections |
+| 6 | `scope` config (+R1 scoping +R2 rubric critic) | ✅ done | **RACE 29.21 / FACT 77.8%** — 32 spans / 24 pages / 8 sections |
+| 7 | `warp` config (+R4 WARP writer 3 rounds) | ✅ done | **RACE 34.32 / FACT 80.0%** — 42 spans / 23 pages / 8 sections |
+| 8 | `ranker` config (+R6 evidence ranker) | ✅ done | **RACE 31.34 / FACT 81.2%** — 31 spans / 18 pages / 6 sections |
+| 9 | `gap` config (+R3 ephemeral gap loop) | ✅ done | **RACE 29.88 / FACT 57.6%** — 30 spans / 24 pages / 7 sections |
+| 10 | `tongyi` config (+R5 Tongyi-DR reasoning lane) | ✅ done | **RACE 22.07 / FACT 54.5%** — 15 spans / 23 pages / 6 sections |
+| 11 | `stacked` config (all v9 levers) | ✅ done | **RACE 30.93 / FACT 41.7%** — 44 spans / 24 pages / 6 sections |
+| 12 | Synthesize A/B matrix → scoreboard + HANDOFF | ✅ done | see table + reads below |
+| 13 | Decide which lever(s) to keep/promote | ✅ done | keep R1/R2/R4/R6 as env-gated; deprioritize R3/R5 for vague-cohort task class |
+
+**Updated:** `memory/deepresearch-bench-scoreboard.md` and session memory with final numbers.
+
+### Next-session question (do not answer now)
+> What did we learn from the final task-53 A/B matrix that we can use to improve this system?
+>
+> The data is: baseline 26.60/78.8%, scope 29.21/77.8%, warp 34.32/80.0%, ranker 31.34/81.2%, gap 29.88/57.6%, tongyi 22.07/54.5%, stacked 30.93/41.7%.
+
+### Context the next session needs before answering
+- **What this matrix is:** controlled single-variable (or small-combo) A/B runs on DeepResearch Bench task 53, all isolated by purging `serp_replay_cache`/`page_replay_cache` in `data/cache.db` before each config, judge = `kimi-k2.7-code:cloud` via the Ollama bridge (`OLLAMA_HOST=http://localhost:11444`). `scripts/run_task53_ab.sh` produced each row. N=1 per cell.
+- **What the configs mean:** `baseline` = react winning env (`RESEARCH_ENGINE_CDP_FALLBACK=1`, `RESEARCH_ENGINE_RETRIEVAL_CACHE=1`, `RESEARCH_ENGINE_RUBRIC_SCAFFOLD=1`) and nothing else; `scope` = baseline + R1 scoping pass + R2 rubric critic; `warp` = scope + R4 WARP writer (3 rounds); `ranker` = scope + R6 evidence ranker; `gap` = scope + R3 ephemeral gap loop; `tongyi` = scope + R5 Tongyi-DR reasoning lane; `stacked` = all v9 levers ON.
+- **Key honest limitations:** (1) N=1, task 53 has historically shown ±11 RACE variance; (2) each row had its own isolated cache, so retrieval noise (which hosts happened to return content) differs across rows; (3) the `stacked` row was run with the same isolated harness and is the only truly comparable all-lever measurement; the earlier full-v9 run (RACE 30.06) reused a different cache state and is NOT directly comparable.
+- **Mechanistic observations already recorded:** `warp` banked the most spans (42) and sections (8); `ranker` improved FACT but pruned pages 23→18 and sections 8→6; `tongyi` produced 9 rubric sections but banked only 15 spans; `gap` diluted FACT; `stacked` was 44 spans / 41.7% FACT — WARP-like volume with much worse citation accuracy.
+- **What to DO with the question:** don't just describe the table — derive what to change next. Consider: which single lever(s) to promote as the new default combo; how to make `stacked` additive (R3/R5/ranker/WARP interaction debugging); whether R6 ranker should be FACT-only/configurable; whether to run N≥3 on a 2nd vague-cohort task before trusting the class verdict; and whether the Kimi-bridge measurement itself needs verification.
+
+### Files touched/created
+- `~/.claude/tools/ollama_cloud_bridge/*` + global `.pth` install (new)
+- `bench/judge.py` (`OLLAMA_HOST` pass-through)
+- `scripts/run_task53_full.py` (new helper for single-task engine + scoring)
+- `memory/ollama-cloud-bridge-tool.md`, `memory/sessions/2026-07-21-*.md`, `memory/MEMORY.md`, `memory/deepresearch-bench-scoreboard.md`
+
+---
 
 ## 🎯 2026-07-20 (SESSION 3) — R5 MANAGED TONGYI-DR REASONING LANE BUILT + R6 RHINOINSIGHT EVIDENCE-RANKING CRITIC BUILT + COMMITTED/PUSHED
 
