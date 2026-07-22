@@ -46,6 +46,11 @@ _PROFILES: dict[str, dict[str, str]] = {
         "RESEARCH_ENGINE_RUBRIC_CRITIC": "1",
         "RESEARCH_ENGINE_WARP_WRITER": "1",
         "RESEARCH_ENGINE_WARP_ROUNDS": "3",
+        # v10 V1 exposure lever — the one validated win: sentence-window spans lift
+        # FACT + RACE (task-53 frozen A/B +1.8 RACE/+5.4pt FACT; task-57 +2.6 RACE,
+        # class-proven). arXiv:2607.12257 exposure bound. Additive on the warp stack.
+        "RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES": "2",
+        "RESEARCH_ENGINE_SPAN_WINDOW_CHARS": "1024",
     },
 }
 

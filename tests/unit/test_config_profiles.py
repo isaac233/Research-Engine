@@ -18,6 +18,9 @@ _EXPECTED_ON = {
     "RESEARCH_ENGINE_RUBRIC_CRITIC": "1",
     "RESEARCH_ENGINE_WARP_WRITER": "1",
     "RESEARCH_ENGINE_WARP_ROUNDS": "3",
+    # V1 exposure lever (the validated win, promoted into the preset)
+    "RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES": "2",
+    "RESEARCH_ENGINE_SPAN_WINDOW_CHARS": "1024",
 }
 
 # Levers the A/B showed HURT the vague-cohort class — must NOT be set.
