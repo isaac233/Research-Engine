@@ -8,6 +8,7 @@ validation; ``anthropic`` is available for a premium judge.
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -30,7 +31,7 @@ def build_judge(kind: str = "gemini", model: str | None = None) -> LLMProvider:
         from research_engine.llm.ollama_client import OllamaClient
 
         return OllamaClient(
-            base_url="http://localhost:11434",
+            base_url=os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/"),
             default_model=model or _OLLAMA_JUDGE_DEFAULT,
             timeout=600.0,
         )

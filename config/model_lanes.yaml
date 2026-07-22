@@ -85,7 +85,7 @@ lanes:
 
   tongyi_dr:
     role: planner
-    tag: "tongyi-deepresearch-30b-a3b:Q4_K_M"
+    tag: "hf.co/mradermacher/Tongyi-DeepResearch-30B-A3B-GGUF:Q4_K_M"
     fallback: "mistral-small3.2:latest"
     est_vram_gb: 18
     fits_in_vram: false
@@ -95,7 +95,7 @@ lanes:
 
   tongyi_dr_q3:
     role: planner
-    tag: "tongyi-deepresearch-30b-a3b:Q3_K_M"
+    tag: "hf.co/mradermacher/Tongyi-DeepResearch-30B-A3B-GGUF:Q3_K_M"
     fallback: "mistral-small3.2:latest"
     est_vram_gb: 14
     fits_in_vram: false
