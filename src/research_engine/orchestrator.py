@@ -19,7 +19,7 @@ from research_engine.adversarial.devil import DevilAgent
 from research_engine.adversarial.verifier import Verifier
 from research_engine.browser.ai_browser import AIBrowser, BrowserAction, BrowserActionType
 from research_engine.cleanup.janitor import CleanupJanitor
-from research_engine.config import EngineConfig
+from research_engine.config import EngineConfig, apply_profile
 from research_engine.discovery.pipeline import DiscoveryPipeline
 from research_engine.discovery.query_decomposer import plan_objectives
 from research_engine.discovery.query_planner import QueryPlanner
@@ -75,6 +75,7 @@ from research_engine.storage.agent_history import (
 from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
+from research_engine.synthesis.comparison_table import build_comparison_tables
 from research_engine.synthesis.deepen import deepen_report, warp_deepen
 from research_engine.synthesis.minicheck import build_check_fn
 from research_engine.synthesis.section_writer import SectionWriter
@@ -408,6 +409,17 @@ def _evidence_ranker_enabled() -> bool:
     return bool(os.environ.get("RESEARCH_ENGINE_EVIDENCE_RANKER"))
 
 
+def _comparison_tables_enabled() -> bool:
+    """Append a span-cited comparison table before the abstain gate (V3b).
+
+    DeepSurvey arXiv:2605.29522: cross-entity comparison tables lift insight and
+    readability on quantitative questions. Every cell cites a banked span, so the
+    table is FACT-safe and still passes through the abstain gate. Default off ⇒ no
+    table appended, draft byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_COMPARISON_TABLES"))
+
+
 def _evidence_ranker_max_spans() -> int:
     """Max spans scored per section by the evidence-ranking critic (default 20)."""
     try:
@@ -514,6 +526,9 @@ class Orchestrator(OrchestratorInstrumentation):
         lifecycle: ModelLifecycleManager | None = None,
         lane_roster: LaneRoster | None = None,
     ) -> None:
+        # Expand RESEARCH_ENGINE_PROFILE (e.g. "vague") before any env-gated lever
+        # is read; setdefault means explicit env still wins. No-op when unset.
+        apply_profile()
         self.store = store
         self.event_bus = event_bus or EventBus(store)
         self.browser = browser
@@ -1496,6 +1511,12 @@ class Orchestrator(OrchestratorInstrumentation):
                 )
             else:
                 draft = str(deepen_report(draft, result.evidence_bank, query, provider, model))
+        # V3b: append a span-cited comparison table (its cites are vetted by the
+        # abstain gate below, same as body cites). Off ⇒ no change.
+        if _comparison_tables_enabled():
+            table = build_comparison_tables(result.evidence_bank, query, provider, model)
+            if table:
+                draft = draft + table
         # W1 attribute-or-abstain: drop [eN] markers whose cited sentence a grounded
         # fact-checker (MiniCheck) can't support against the span's own page. Default-off
         # (spec == "") → this block is skipped and the draft is returned byte-identical.
