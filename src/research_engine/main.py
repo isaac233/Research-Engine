@@ -52,6 +52,20 @@ def _lane_model(config: EngineConfig, lane: str, default: str) -> str:
         return default
 
 
+def _resolve_synth_model(config: EngineConfig) -> str:
+    """Deliverable-writer model tag.
+
+    ``RESEARCH_ENGINE_SYNTH_MODEL`` overrides it (e.g. a trained deep-research MoE
+    GGUF); every report-writing path reads ``self.synthesizer.model``, so this one
+    value swaps the whole writer. Unset => the ``synth_a`` lane (mistral) — the
+    byte-identical default path.
+    """
+    return os.environ.get(
+        "RESEARCH_ENGINE_SYNTH_MODEL",
+        _lane_model(config, "synth_a", "mistral-small3.2:latest"),
+    )
+
+
 def _try_provider(config: EngineConfig) -> LLMProvider | None:
     """Build the Ollama provider if reachable, else None (engine runs heuristic-only)."""
     try:
@@ -128,7 +142,7 @@ def _make_orchestrator(project_root: Path | None = None) -> Orchestrator:
             llm_scorer=build_llm_scorer(provider, model=_lane_model(config, "fast", "gemma4:12b"))
         )
         synthesizer: Synthesizer | None = Synthesizer(
-            provider, model=_lane_model(config, "synth_a", "mistral-small3.2:latest")
+            provider, model=_resolve_synth_model(config)
         )
         lifecycle, lane_roster = _build_lifecycle(config)
     else:

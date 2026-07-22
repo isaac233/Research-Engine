@@ -1490,6 +1490,16 @@ class Orchestrator(OrchestratorInstrumentation):
             f"pages={result.pages_read} sections={len(result.outline.sections)}"
         )
         provider, model = self.synthesizer.provider, self.synthesizer.model
+        # A RESEARCH_ENGINE_SYNTH_MODEL override tag has no lane, so Ollama loads it at
+        # its modelfile-default context (often 4096) — truncating WARP/span evidence and
+        # forcing a short, shallow report. RESEARCH_ENGINE_SYNTH_NUM_CTX loads the writer
+        # model at a chosen context first. Unset => no switch => byte-identical default.
+        _synth_ctx = os.environ.get("RESEARCH_ENGINE_SYNTH_NUM_CTX")
+        if _synth_ctx and model and self.lifecycle is not None:
+            try:
+                self.lifecycle.switch(model, num_ctx=int(_synth_ctx))
+            except Exception:  # noqa: BLE001 - never fail the write on a model-load hiccup
+                pass
         max_sentences, max_tokens = _writer_length()
         # W3 section-locked write (ADORE memory-locked synthesis): give each section a
         # DISJOINT admissible span set (partitioned outline) so a section can't cite a
