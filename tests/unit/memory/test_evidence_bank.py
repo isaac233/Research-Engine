@@ -219,3 +219,87 @@ def test_from_pages_never_live_fetches_a_pdf(monkeypatch) -> None:
 
     bank = EvidenceBank.from_pages([src], boom, query="sovereign fund")
     assert bank.spans() == []
+
+
+# --- V1: sentence-window spans (exposure lever, arXiv:2607.12257) -------------
+
+
+def _page_source(page: str, url: str = "https://a.org", title: str = "T") -> dict:
+    return {"title": title, "paper": {"url": url, "title": title, "abstract": page}, "claims": []}
+
+
+_WIN_PAGE = (
+    "The report opens with general background remarks. "  # off-query neighbor
+    "Norway's sovereign fund holds many trillion in assets. "  # query-matched
+    "A closing note mentions the weather that day."  # off-query neighbor
+)
+
+
+def test_span_window_off_is_single_sentence(monkeypatch) -> None:
+    # Default (flag unset) = today's behavior: one query-ranked sentence per span.
+    monkeypatch.delenv("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", raising=False)
+    bank = EvidenceBank.from_sources([_page_source(_WIN_PAGE)], query="sovereign fund assets")
+    assert [s.text for s in bank.spans()] == [
+        "Norway's sovereign fund holds many trillion in assets."
+    ]
+
+
+def test_span_window_expands_to_neighbors(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", "1")
+    bank = EvidenceBank.from_sources([_page_source(_WIN_PAGE)], query="sovereign fund assets")
+    texts = [s.text for s in bank.spans()]
+    assert len(texts) == 1
+    assert "background remarks" in texts[0]  # preceding neighbor pulled in
+    assert "weather that day" in texts[0]  # following neighbor pulled in
+    assert "sovereign fund" in texts[0]
+
+
+def test_span_window_is_verbatim_substring(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", "2")
+    bank = EvidenceBank.from_sources([_page_source(_WIN_PAGE)], query="sovereign fund")
+    for s in bank.spans():
+        assert s.text in _WIN_PAGE  # contiguous verbatim slice — FACT-safety invariant
+
+
+def test_span_window_merges_overlapping(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", "1")
+    page = (
+        "An opening unrelated remark about ships and sailing. "  # S0 off-query
+        "The fund holds vast assets under management. "  # S1 query-matched
+        "The fund allocates assets across global equities. "  # S2 query-matched (adjacent)
+        "A trailing unrelated remark about cats and dogs."  # S3 off-query
+    )
+    bank = EvidenceBank.from_sources([_page_source(page)], query="fund assets")
+    texts = [s.text for s in bank.spans()]
+    # S1 and S2 both selected; their ±1 windows overlap → merge into ONE span S0..S3.
+    assert len(texts) == 1
+    assert "opening unrelated remark" in texts[0]
+    assert "trailing unrelated remark" in texts[0]
+
+
+def test_span_window_char_cap(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", "3")
+    monkeypatch.setenv("RESEARCH_ENGINE_SPAN_WINDOW_CHARS", "60")
+    long_page = " ".join(
+        f"Sentence number {i} about the sovereign fund assets here." for i in range(10)
+    )
+    bank = EvidenceBank.from_sources([_page_source(long_page)], query="sovereign fund assets")
+    spans = bank.spans()
+    assert spans
+    for s in spans:
+        assert len(s.text) <= 60
+
+
+def test_span_window_applies_to_from_pages(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", "1")
+    src = {
+        "title": "T",
+        "paper": {"url": "https://a.org", "title": "T"},
+        "meta": {"page_text": _WIN_PAGE},
+        "claims": [],
+    }
+    bank = EvidenceBank.from_pages([src], lambda _u: "", query="sovereign fund assets")
+    texts = [s.text for s in bank.spans()]
+    assert len(texts) == 1
+    assert "weather that day" in texts[0]
+    assert texts[0] in _WIN_PAGE

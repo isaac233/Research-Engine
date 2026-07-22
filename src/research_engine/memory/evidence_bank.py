@@ -50,6 +50,87 @@ def _query_ranked(sentences: list[str], query_terms: set[str], limit: int) -> li
     return [s for _, _, s in sorted(top, key=lambda t: t[1])]
 
 
+# V1 sentence-window exposure lever (arXiv:2607.12257 "On-Device DR at 4B":
+# per-source EXPOSURE — chars of contiguous source shown to the writer — bounds
+# citation faithfulness; single-sentence spans are the low-exposure regime).
+# Default OFF (K=0) ⇒ byte-identical single-sentence banking.
+_DEFAULT_WINDOW_CAP = 1024
+
+
+def _span_window_sentences() -> int:
+    """Neighbor sentences to include on each side of a ranked sentence (0 = off)."""
+    try:
+        return max(0, int(os.environ.get("RESEARCH_ENGINE_SPAN_WINDOW_SENTENCES", "")))
+    except ValueError:
+        return 0
+
+
+def _span_window_chars() -> int:
+    """Char cap per windowed span (0 = use the default cap)."""
+    try:
+        return max(0, int(os.environ.get("RESEARCH_ENGINE_SPAN_WINDOW_CHARS", "")))
+    except ValueError:
+        return 0
+
+
+def _raw_sentences(text: str) -> list[tuple[int, int, str]]:
+    """Sentence (start, end, stripped) intervals over the raw text (same 25-400
+    char filter as ``_sentences`` so ranking parity holds), keeping offsets so a
+    window can be sliced back out verbatim."""
+    out: list[tuple[int, int, str]] = []
+    for m in _SENTENCE.finditer(text):
+        s = m.group().strip()
+        if 25 <= len(s) <= 400:
+            out.append((m.start(), m.end(), s))
+    return out
+
+
+def _query_ranked_idx(raw: list[tuple[int, int, str]], query_terms: set[str], limit: int) -> list[int]:
+    """Indices of the top query-ranked sentences (mirrors ``_query_ranked`` scoring)."""
+    if not query_terms:
+        return list(range(min(limit, len(raw))))
+    scored = [(len(_terms(s) & query_terms), i) for i, (_, _, s) in enumerate(raw)]
+    top = sorted((t for t in scored if t[0] > 0), key=lambda t: (-t[0], t[1]))[:limit]
+    return sorted(i for _, i in top)
+
+
+def _windows(
+    text: str, raw: list[tuple[int, int, str]], idxs: list[int], k: int, cap: int
+) -> list[str]:
+    """Contiguous verbatim windows: each ranked sentence expanded ±k neighbors,
+    overlapping/adjacent intervals merged, each capped at ``cap`` chars on a word
+    boundary. Document order preserved."""
+    intervals = [(raw[max(0, i - k)][0], raw[min(len(raw) - 1, i + k)][1]) for i in idxs]
+    intervals.sort()
+    merged: list[tuple[int, int]] = []
+    for start, end in intervals:
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    out: list[str] = []
+    for start, end in merged:
+        chunk = text[start:end].strip()
+        if len(chunk) > cap:
+            chunk = chunk[:cap].rsplit(" ", 1)[0].strip()
+        if chunk:
+            out.append(chunk)
+    return out
+
+
+def _ranked_texts(page_text: str, query_terms: set[str], limit: int) -> list[str]:
+    """Banked span texts for a page: query-ranked single sentences (default), or
+    contiguous windows around each ranked sentence when the exposure lever is on."""
+    k = _span_window_sentences()
+    if k <= 0:
+        return _query_ranked(_sentences(page_text), query_terms, limit)
+    raw = _raw_sentences(page_text)
+    if not raw:
+        return []
+    cap = _span_window_chars() or _DEFAULT_WINDOW_CAP
+    return _windows(page_text, raw, _query_ranked_idx(raw, query_terms, limit), k, cap)
+
+
 @dataclasses.dataclass(frozen=True, slots=True)
 class EvidenceSpan:
     """One verbatim span of source text with its citable URL."""
@@ -134,8 +215,8 @@ class EvidenceBank:
             for claim in source.get("claims", []) or []:
                 add(str(claim.get("evidence", "")).strip(), url, title, verifiable)
             page_text = str((source.get("paper") or {}).get("abstract", ""))
-            for sentence in _query_ranked(_sentences(page_text), query_terms, _MAX_PAGE_SPANS):
-                add(sentence, url, title, verifiable)
+            for span_text in _ranked_texts(page_text, query_terms, _MAX_PAGE_SPANS):
+                add(span_text, url, title, verifiable)
         return cls(spans)
 
     @classmethod
@@ -197,8 +278,8 @@ class EvidenceBank:
                     continue
                 fetched += 1
             title = str(source.get("title") or (source.get("paper") or {}).get("title") or "")
-            for sentence in _query_ranked(_sentences(page_text), query_terms, _MAX_PAGE_SPANS):
-                add(sentence, url, title)
+            for span_text in _ranked_texts(page_text, query_terms, _MAX_PAGE_SPANS):
+                add(span_text, url, title)
         return cls(spans)
 
     def spans(self) -> list[EvidenceSpan]:
