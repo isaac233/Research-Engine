@@ -303,3 +303,19 @@ def test_span_window_applies_to_from_pages(monkeypatch) -> None:
     assert len(texts) == 1
     assert "weather that day" in texts[0]
     assert texts[0] in _WIN_PAGE
+
+
+def test_max_page_spans_env_controls_bank_depth(monkeypatch) -> None:
+    # A page with 40 distinct query-matching sentences; the ranked bank is capped
+    # by RESEARCH_ENGINE_MAX_PAGE_SPANS (V8 evidence-depth lever).
+    abstract = " ".join(f"Fund holds {i} billion in assets and bonds." for i in range(40))
+    src = {"title": "T", "paper": {"url": "https://a.org/1", "title": "T", "abstract": abstract}, "claims": []}
+    query = "fund billion assets bonds"
+
+    monkeypatch.delenv("RESEARCH_ENGINE_MAX_PAGE_SPANS", raising=False)
+    default_bank = EvidenceBank.from_sources([src], query=query)
+    assert len(default_bank.spans()) == 20  # default cap
+
+    monkeypatch.setenv("RESEARCH_ENGINE_MAX_PAGE_SPANS", "32")
+    deep_bank = EvidenceBank.from_sources([src], query=query)
+    assert len(deep_bank.spans()) == 32  # env raises the cap

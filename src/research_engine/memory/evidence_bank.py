@@ -73,6 +73,20 @@ def _span_window_chars() -> int:
         return 0
 
 
+def _max_page_spans() -> int:
+    """V8 banking-depth lever: verbatim spans banked per source page.
+
+    Every page-bound span is verified-by-construction, so more spans = more evidence
+    for the writer (attacks the length/coverage gap: our brief is ~1/4 the reference).
+    Env ``RESEARCH_ENGINE_MAX_PAGE_SPANS`` (default 20 = byte-identical). Higher values
+    bank lower-relevance sentences too, so this trades coverage against precision.
+    """
+    try:
+        return max(1, int(os.environ.get("RESEARCH_ENGINE_MAX_PAGE_SPANS", "")))
+    except ValueError:
+        return _MAX_PAGE_SPANS
+
+
 def _raw_sentences(text: str) -> list[tuple[int, int, str]]:
     """Sentence (start, end, stripped) intervals over the raw text (same 25-400
     char filter as ``_sentences`` so ranking parity holds), keeping offsets so a
@@ -215,7 +229,7 @@ class EvidenceBank:
             for claim in source.get("claims", []) or []:
                 add(str(claim.get("evidence", "")).strip(), url, title, verifiable)
             page_text = str((source.get("paper") or {}).get("abstract", ""))
-            for span_text in _ranked_texts(page_text, query_terms, _MAX_PAGE_SPANS):
+            for span_text in _ranked_texts(page_text, query_terms, _max_page_spans()):
                 add(span_text, url, title, verifiable)
         return cls(spans)
 
@@ -278,7 +292,7 @@ class EvidenceBank:
                     continue
                 fetched += 1
             title = str(source.get("title") or (source.get("paper") or {}).get("title") or "")
-            for span_text in _ranked_texts(page_text, query_terms, _MAX_PAGE_SPANS):
+            for span_text in _ranked_texts(page_text, query_terms, _max_page_spans()):
                 add(span_text, url, title)
         return cls(spans)
 
