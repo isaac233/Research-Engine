@@ -25,8 +25,10 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
+from bench.fact_cache import FactFetchCache
 from bench.judge import extract_json
 from bench.prompts import FACT_EXTRACT_PROMPT, FACT_VALIDATE_PROMPT
 from research_engine.browser.ai_browser import BrowserAction, BrowserActionType
@@ -171,6 +173,37 @@ def default_fetcher(browser: RawHTTPBrowser | None = None) -> Callable[[str], st
     return fetch
 
 
+def _fact_cache_path() -> str:
+    return os.environ.get(
+        "RESEARCH_ENGINE_BENCH_FACT_CACHE_PATH",
+        str(Path(__file__).resolve().parents[1] / "data" / "cache.db"),
+    )
+
+
+def _maybe_cache_fetcher(base_fetch: Callable[[str], str]) -> Callable[[str], str]:
+    """Wrap the judge fetcher with a record/replay cache when
+    RESEARCH_ENGINE_BENCH_FACT_CACHE is set — each URL is fetched live at most once,
+    so repeated same-task scoring stops rate-limiting hosts. Failures are not cached.
+    Unset => the base fetcher unchanged (byte-identical default path).
+    """
+    if not os.environ.get("RESEARCH_ENGINE_BENCH_FACT_CACHE"):
+        return base_fetch
+    cache = FactFetchCache(_fact_cache_path())
+
+    def cached(url: str) -> str:
+        hit = cache.get(url)
+        if hit is not None:
+            return hit
+        content = base_fetch(url)
+        if content and not content.startswith(_SCRAPE_FAILED):
+            cache.put(url, content)
+        return content
+
+    # Preserve the underlying fetcher's close (CDP release); FactScorer.close finds it.
+    cached.close = getattr(base_fetch, "close", None) or (lambda: None)  # type: ignore[attr-defined]
+    return cached
+
+
 class FactScorer:
     """Score one article's citation trustworthiness (official-parity)."""
 
@@ -183,7 +216,7 @@ class FactScorer:
         retry_sleep: float = 1.0,
     ) -> None:
         self.judge = judge
-        self.fetch_url = fetch_url or default_fetcher()
+        self.fetch_url = _maybe_cache_fetcher(fetch_url or default_fetcher())
         self.judge_model = judge_model
         self.max_urls = max_urls
         self.retry_sleep = retry_sleep
