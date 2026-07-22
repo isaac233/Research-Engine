@@ -76,6 +76,7 @@ from research_engine.storage.artifacts import ArtifactManager
 from research_engine.storage.source_memory import SourceMemory
 from research_engine.synthesis.attribute_writer import AttributeFirstWriter
 from research_engine.synthesis.comparison_table import build_comparison_tables
+from research_engine.synthesis.cross_source_notes import build_synthesis_notes
 from research_engine.synthesis.deepen import deepen_report, warp_deepen
 from research_engine.synthesis.minicheck import build_check_fn
 from research_engine.synthesis.section_writer import SectionWriter
@@ -407,6 +408,17 @@ def _evidence_ranker_enabled() -> bool:
     evidence order byte-identical.
     """
     return bool(os.environ.get("RESEARCH_ENGINE_EVIDENCE_RANKER"))
+
+
+def _synthesis_notes_enabled() -> bool:
+    """Append a cross-source analytical notes block before the abstain gate (V3).
+
+    FS-Researcher arXiv:2602.01566: an evidence-notes pass that reasons across
+    sources lifts insight (+7.95 in their ablation), our worst RACE dim. The block
+    cites only real banked spans, so it is FACT-safe and still passes the abstain
+    gate. Default off ⇒ no block appended, draft byte-identical.
+    """
+    return bool(os.environ.get("RESEARCH_ENGINE_SYNTHESIS_NOTES"))
 
 
 def _comparison_tables_enabled() -> bool:
@@ -1511,6 +1523,12 @@ class Orchestrator(OrchestratorInstrumentation):
                 )
             else:
                 draft = str(deepen_report(draft, result.evidence_bank, query, provider, model))
+        # V3: append a cross-source analytical notes block (its cites are vetted by
+        # the abstain gate below, same as body cites). Off ⇒ no change.
+        if _synthesis_notes_enabled():
+            notes = build_synthesis_notes(result.evidence_bank, query, provider, model)
+            if notes:
+                draft = draft + notes
         # V3b: append a span-cited comparison table (its cites are vetted by the
         # abstain gate below, same as body cites). Off ⇒ no change.
         if _comparison_tables_enabled():
