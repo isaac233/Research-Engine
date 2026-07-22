@@ -131,3 +131,20 @@ deep-research model as the AGENT** (Tongyi-DR-30B / AgentCPM-Report 8B GGUF) dri
 loop with a SearXNG/CDP shim — not more inference-time scaffolding (R5's passive reasoning-lane swap was
 measured worst). Buys RACE not FACT; keep the parity-FACT harness + MiniCheck. See
 `docs/plan/resource_fit_verification.md`.
+
+### v10.2 CORRECTION (verified by diffing saved articles)
+
+The V8 / depth-stack rows above are **INCONCLUSIVE, not negative.** Diffing the saved
+articles showed the engine is **deterministic on the frozen cache** (temp=0): every config's
+3 reps are byte-identical, and `engine_t53_v8_r1.jsonl` is byte-identical to `engine_t53_v1_r1.jsonl`.
+So `MAX_PAGE_SPANS=32` (V8) and `WRITER_MAX_SENTENCES=28` (depth-stack) produced **no article
+change** — task-53's frozen pages are span-poor (<20 spans/page), so those caps never bind.
+The "RACE 34.65→33.53" was **kimi JUDGE noise on the identical article** (judge noise ≈ ±1 sd,
+≤2.5 range; e.g. V1's 3 reps 34.81/35.80/33.35 are one article judged three times).
+
+Corrected takeaways: (1) the run-to-run RACE variance is the JUDGE, not the writer — the prior
+"writer non-determinism → N≥3 engine runs" heuristic is wrong; correct protocol = 1 engine run
+per config, judge ×N. (2) V3 (real +1385-char change, flat RACE) = wash and V7 (real restructure,
+−4.9) = negative both stand — those levers changed the article. (3) The evidence-DEPTH hypothesis
+is **untested**; to test it, run V8 + higher writer cap on the RICH-evidence **task-57 frozen
+cache** where the flags bind. The "writer is the ceiling" conclusion rests on V1/V3/V7, not V8.
