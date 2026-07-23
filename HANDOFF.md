@@ -1,6 +1,32 @@
 # HANDOFF — 2026-07-22
 
-## ⭐ START HERE (next session) — v10 measurement: V1 banked (win); V3 wash, V7 negative; V8/depth INCONCLUSIVE (inert on thin evidence); writer is the ceiling
+## ⭐ START HERE (next session) — v11 BEST-OF-BOTH SHIPPED (RACE 37.91 / FACT ~92%, near BOTH bars, LIVE); v12 native loop BUILT + SHELVED
+
+**One-line state:** long session delivered the **best-of-both champion** and shipped a stack of durable infra; **all committed + PUSHED to `origin/feat/deepresearch-bench`** (HEAD `9f66f0f`). The passive trained-writer avenue is now EXHAUSTED (3 confirmations); the native-loop port (v12) is built + measured + shelved (first-cut underperforms).
+
+**🏆 CHAMPION (the deliverable): `RESEARCH_ENGINE_PROFILE=vague` + `RESEARCH_ENGINE_ABSTAIN_GATE=flan`, mistral writer, LIVE via the SERP shim = RACE 37.91 / FACT ~92%** on task 53. Near BOTH Claude-3.7 bars (RACE 40.67, FACT 93.7%) at once. RACE held vs no-gate (38.27), FACT +14.6pt from the MiniCheck abstain gate (drops unsupported cites, prose untouched). **Best-of-both is a POST-HOC FACT gate, NOT a writer swap.**
+
+**🔧 INFRA SHIPPED THIS SESSION (all committed + pushed):**
+- **`scripts/serp_shim.py`** (`2ac0618`) — SearXNG-compatible search endpoint on :8080 backed by the firecrawl key in `~/.claude.json` (ddgs fallback). **This unblocked LIVE retrieval → best live task-53 RACE EVER (38.27; prior live 19-32).** SearXNG/docker are NOT installed — this shim is the standing search backend.
+- **`scripts/dev_infra.py`** (`2ac0618`) — `check`/`up` for ollama/bridge/shim. **Use `python scripts/dev_infra.py up` to restart infra after the shutdown.**
+- **FACT record/replay cache** (`0aa9370`) — `RESEARCH_ENGINE_BENCH_FACT_CACHE=1`, each cited URL fetched live ≤once. Verified (faster re-runs) BUT residual kimi JUDGE noise remains (~5pt: same article re-judged 94.7% vs 89.7%) → clean FACT absolute still needs cache + judge×N.
+- **Writer/ctx overrides** (`7398235`): `RESEARCH_ENGINE_SYNTH_MODEL` (writer swap, `main._resolve_synth_model`) + `RESEARCH_ENGINE_SYNTH_NUM_CTX` (orchestrator — override tags have no lane → default 4096 truncates; load at chosen ctx). Env-gated, default-off.
+
+**🔬 v12 NATIVE-LOOP PORT — BUILT, MEASURED, SHELVED (`9f66f0f`):** `src/research_engine/synthesis/warp_agent.py` = AgentCPM-Report's WARP loop (Initialize/Search/Write/Expand/Terminate) driven natively, our shim+CDP as its Search tool, `\cite{bibkey}`→`[eN]`. `scripts/run_warp_task.py` runner. 5 tests, ruff+mypy clean, default-off. **Phase-1 measured (task 53 live): mechanics WORK (61 actions, 6 expands, 28 sections, 25 sources, 61.7k chars) BUT RACE 31.04 / FACT 32.4% < champion 37.91.** First cut SPRAWLS — Expand subsections are appended FLAT (28 top-level `##`) instead of NESTED; **the nesting fix (`warp_agent.WarpAgent.run`, the expand branch) is the one cheap untried lever** if revisited. Paper's RACE 50 (its UltraRAG+corpus+Gemini judge) does NOT transfer to live-web+kimi. Plan + phases: `docs/plan/finish_line_v12_native_loop.md`.
+
+**📉 THE LOAD-BEARING FINDING (3 confirmations): trained DR models slotted PASSIVELY underperform mistral.** All LIVE task 53: mistral-vague **38.27** > AgentCPM-writer **35.1**/38%FACT (long but ungrounded) > Tongyi-writer **33**/92%FACT (terse searcher) > AgentCPM native-loop first-cut **31**/32% (sprawls). Their advertised RACE 46-50 lives in their TRAINED native loop, which our scaffold bypasses AND which doesn't cheaply transfer. See [[heuristics]] 2026-07-22 (×3 new entries) + [[deepresearch-bench-scoreboard]].
+
+**NEXT SESSION — the honest options (champion is banked; these are optional pushes past it):**
+1. **Class-prove the champion** on tasks 51/52/57 (`PROFILE=vague ABSTAIN_GATE=flan`, FACT cache on, kimi judge) — cheapest; confirms 37.91/92% generalizes; may find a task already >40 RACE. ~1h.
+2. **Clean FACT absolute** — judge×N on top of the FACT cache (kimi judge noise ~5pt is the residual).
+3. **v12 native-loop nesting fix** — ONLY if revisiting the big bet: fix flat→nested Expand in `warp_agent`, re-measure; if it doesn't close most of the 7-RACE gap to champion, abandon.
+4. **Resume infra:** `python scripts/dev_infra.py up` (starts kimi bridge :11444 + serp shim :8080; Ollama tray must be running — `OLLAMA_NO_CLOUD=1` if it wedges). Then `python scripts/dev_infra.py check`.
+
+**Winning command (reproduce champion, live):** `OLLAMA_HOST=http://localhost:11444 RESEARCH_ENGINE_PROFILE=vague RESEARCH_ENGINE_ABSTAIN_GATE=flan RESEARCH_ENGINE_SERP_ENDPOINT='http://localhost:8080/search?q={query}&format=json' RESEARCH_ENGINE_BENCH_FACT_CACHE=1 RESEARCH_ENGINE_CDP_FALLBACK=1 RESEARCH_ENGINE_PDF_INGEST=1 RESEARCH_ENGINE_WAYBACK_FALLBACK=1 RESEARCH_ENGINE_MAX_WORKERS=1 python scripts/run_task53_full.py --judge ollama --judge-model kimi-k2.7-code:cloud` (run via PowerShell — Bash tool can't reach localhost).
+
+---
+
+## (SUPERSEDED 2026-07-22) v10 measurement: V1 banked (win); V3 wash, V7 negative; V8/depth INCONCLUSIVE (inert on thin evidence); writer is the ceiling
 
 **One-line state:** autonomous session committed the prior session's validated V1 win, promoted V1 into the `vague` preset, and built + measured 3 new levers. **Result: V1 = real win (banked into `vague`); V3 (notes) = wash; V7 (entity structure) = −4.9; depth (more spans + higher writer cap) = TESTED on rich task-57 and REJECTED (V1-alone 37.82 > V1+depth 33.28). Nothing beats V1-alone → the local writer (mistral-small3.2) is the RACE ceiling (~35-38); inference-time scaffold levers are exhausted.** 11 commits on `feat/deepresearch-bench`, **PUSHED to origin** (HEAD `d54336f`). Infra UP (SearXNG :8080, Ollama, bridge :11444).
 
