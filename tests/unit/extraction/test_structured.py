@@ -89,6 +89,8 @@ def test_fetch_html_content() -> None:
 
 
 def test_fetch_pdf_content_with_fake_converter() -> None:
+    from research_engine.extraction.pdf_converter import PDFConversionResult, PDFConverter
+
     paper = Paper(
         title="PDF Paper",
         source="test",
@@ -101,10 +103,8 @@ def test_fetch_pdf_content_with_fake_converter() -> None:
     def fetch_fn(url: str) -> bytes:
         return b"pdf bytes"
 
-    class FakeConverter:
+    class FakeConverter(PDFConverter):
         def convert_bytes(self, pdf_bytes: bytes, output_dir: Any = None) -> Any:
-            from research_engine.extraction.pdf_converter import PDFConversionResult
-
             return PDFConversionResult(
                 markdown="# PDF Paper\n\nWe found a result.",
                 ok=True,
@@ -134,21 +134,78 @@ def test_fetch_refuses_blocked_url() -> None:
     assert "blocked" in (source.error or "").lower()
 
 
-def test_fetch_refuses_non_oa_url() -> None:
+def test_fetch_refuses_non_oa_pdf() -> None:
+    # Paywall principle: a non-open-access full-text PDF is still refused.
     paper = Paper(
-        title="Non-OA Paper",
+        title="Non-OA PDF",
         source="test",
-        url="https://example.com/paywall",
+        pdf_url="https://example.com/paper.pdf",
         abstract="Fallback abstract.",
     )
 
     def fetch_fn(url: str) -> bytes:
-        return b"paywall html"
+        return b"paywalled pdf bytes"
 
     extractor = StructuredExtractor()
     source = extractor.extract(paper, is_oa=False, fetch_fn=fetch_fn)
     assert source.extraction_tool == "abstract"
-    assert "not open-access" in (source.error or "").lower()
+    assert "refused" in (source.error or "").lower()
+
+
+def test_fetch_refuses_non_oa_doi() -> None:
+    # A non-OA DOI landing (paywalled publisher) is refused.
+    paper = Paper(
+        title="Non-OA DOI",
+        source="test",
+        url="https://doi.org/10.1/paywalled",
+        abstract="Fallback abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        return b"<html>paywall</html>"
+
+    source = StructuredExtractor().extract(paper, is_oa=False, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "abstract"
+
+
+def test_fetch_allows_non_oa_public_html() -> None:
+    # Public HTML landing pages (news/gov/org) are freely readable and are what
+    # the FACT metric re-fetches, so extraction reads them even when not flagged
+    # open-access. Only non-OA full-text PDFs/DOIs stay refused.
+    paper = Paper(
+        title="Public Page",
+        source="serp",
+        url="https://who.int/news-room/fact-sheet",
+        abstract="Thin snippet.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        return b"<html><body><h1>Public Page</h1><p>Aging reaches 35% by 2040.</p></body></html>"
+
+    source = StructuredExtractor().extract(paper, is_oa=False, fetch_fn=fetch_fn)
+    assert source.extraction_tool == "markdownify"
+    assert "35%" in (source.meta.get("page_text") or "")
+
+
+def test_fetch_falls_back_to_landing_page_when_content_url_is_doi() -> None:
+    # Resolver hands a non-OA DOI as content_url; extraction refuses it but reads
+    # the HTML landing page (paper.url) instead of collapsing to abstract-only.
+    paper = Paper(
+        title="Landing",
+        source="crossref",
+        url="https://example.org/landing",
+        abstract="Fallback abstract.",
+    )
+
+    def fetch_fn(url: str) -> bytes:
+        assert url == "https://example.org/landing"  # DOI refused, landing fetched
+        return b"<html><body><p>Full readable landing content here.</p></body></html>"
+
+    source = StructuredExtractor().extract(
+        paper, content_url="https://doi.org/10.1/x", is_oa=False, fetch_fn=fetch_fn
+    )
+    assert source.extraction_tool == "markdownify"
+    assert "readable landing" in (source.meta.get("page_text") or "")
 
 
 def test_fetch_failure_falls_back_to_abstract() -> None:
@@ -167,3 +224,38 @@ def test_fetch_failure_falls_back_to_abstract() -> None:
     assert source.extraction_tool == "abstract"
     assert source.summary == "Fallback abstract."
     assert "fetch failed" in (source.error or "").lower()
+
+
+def test_prefers_quantitative_claims_when_present() -> None:
+    paper = Paper(title="Quantitative Filter", source="test")
+    content = (
+        "We observe that accuracy improves with larger models. "
+        "Latency is reduced by 30% after optimization."
+    )
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, content=content)
+    assert len(source.claims) == 1
+    assert "30%" in source.claims[0].claim
+    assert source.claims[0].confidence == "high"
+
+
+def test_keeps_qualitative_claims_when_no_quantitative_ones() -> None:
+    paper = Paper(title="Qualitative Only", source="test")
+    content = "Coverage score rewards sources, claims, and citations."
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, content=content)
+    assert len(source.claims) == 1
+    assert source.claims[0].confidence == "medium"
+
+
+def test_merges_adjacent_continuation_claims() -> None:
+    paper = Paper(title="Merged Claim", source="test")
+    content = (
+        "The new optimizer reduces memory usage. "
+        "It also improves throughput by 25%."
+    )
+    extractor = StructuredExtractor()
+    source = extractor.extract(paper, content=content)
+    assert len(source.claims) == 1
+    assert "memory usage" in source.claims[0].claim
+    assert "25%" in source.claims[0].claim

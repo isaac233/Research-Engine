@@ -10,8 +10,13 @@ from typing import Any
 from research_engine.browser.policy import URLPolicy
 from research_engine.discovery.schema import Paper
 from research_engine.extraction.citation import Citation, citations_to_dict, extract_citations
+from research_engine.extraction.llm_extractor import LLMSectionExtractor
 from research_engine.extraction.markdownify import markdownify
 from research_engine.extraction.pdf_converter import PDFConverter
+
+# Cap on the fetched page text kept for page-bound evidence mining (enough spans
+# for coverage without bloating campaign meta).
+_PAGE_TEXT_CAP = 8000
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +45,8 @@ class ExtractedSource:
     full_text_url: str | None
     is_oa: bool
     extraction_tool: str
+    conclusions: str = ""
+    replication_notes: str = ""
     error: str | None = None
     meta: dict[str, Any] = field(default_factory=dict)
 
@@ -51,9 +58,11 @@ class StructuredExtractor:
         self,
         pdf_converter: PDFConverter | None = None,
         url_policy: URLPolicy | None = None,
+        llm_extractor: LLMSectionExtractor | None = None,
     ) -> None:
         self.pdf_converter = pdf_converter or PDFConverter()
         self.url_policy = url_policy or URLPolicy()
+        self.llm_extractor = llm_extractor
 
     def extract(
         self,
@@ -81,12 +90,49 @@ class StructuredExtractor:
 
         title = paper.title
         summary = self._paragraph(text, 0) or paper.abstract or ""
-        methodology = self._section(text, ["method", "methodology", "approach"])
-        data_summary = self._section(text, ["data", "dataset", "materials", "corpus"])
-        results_summary = self._section(text, ["results", "findings", "evaluation"])
-
-        claims = self._extract_claims(text, paper.source_id)
         citations = extract_citations(text)
+        meta: dict[str, Any] = {"char_count": len(text), "citation_count": len(citations)}
+
+        # Only abstract text is available: do not fabricate a methods/data section.
+        abstract_only = tool == "abstract"
+        if abstract_only:
+            meta["degraded"] = "abstract_only"
+        else:
+            # Keep the fetched page text (bound to this source's URL) so downstream
+            # page-bound evidence can mine verbatim spans without re-fetching.
+            meta["page_text"] = text[:_PAGE_TEXT_CAP]
+
+        conclusions = ""
+        replication_notes = ""
+        used_llm = False
+        if self.llm_extractor is not None and text and not abstract_only:
+            llm = self.llm_extractor.extract_sections(title, paper.abstract or "", text)
+            if llm.methodology or llm.results_summary or llm.claims:
+                used_llm = True
+                methodology = llm.methodology
+                data_summary = llm.data_summary
+                results_summary = llm.results_summary
+                conclusions = llm.conclusions
+                replication_notes = llm.replication_notes
+                claims = [
+                    ExtractedClaim(
+                        claim=c.claim,
+                        evidence=c.evidence,
+                        confidence=c.confidence,
+                        source_id=paper.source_id,
+                    )
+                    for c in llm.claims
+                ]
+                tool = f"llm:{self.llm_extractor.model or 'default'}"
+                meta["llm"] = llm.meta
+
+        if not used_llm:
+            # Regex fallback (LLM unavailable, failed, or abstract-only).
+            methodology = self._section(text, ["method", "methodology", "approach"])
+            data_summary = self._section(text, ["data", "dataset", "materials", "corpus"])
+            results_summary = self._section(text, ["results", "findings", "evaluation"])
+            claims = self._extract_claims(text, paper.source_id)
+
         conflicts = self._detect_conflicts(claims, project_data, paper.source_id)
 
         return ExtractedSource(
@@ -102,8 +148,10 @@ class StructuredExtractor:
             full_text_url=content_url or paper.pdf_url or paper.url,
             is_oa=is_oa,
             extraction_tool=tool,
+            conclusions=conclusions,
+            replication_notes=replication_notes,
             error=error,
-            meta={"char_count": len(text), "citation_count": len(citations)},
+            meta=meta,
         )
 
     def _load_content(
@@ -113,45 +161,54 @@ class StructuredExtractor:
         is_oa: bool = False,
         fetch_fn: Callable[[str], bytes] | None = None,
     ) -> tuple[str, str, str | None]:
-        """Load text content for a paper. Returns (text, tool, error)."""
-        url = content_url or paper.pdf_url or paper.url
-        if url and fetch_fn is not None:
+        """Load text content for a paper. Returns (text, tool, error).
+
+        Tries readable URLs in order (resolved content_url, then the PDF, then the
+        HTML landing page) and returns the first that yields text. This matters
+        because the resolver often hands a non-OA ``doi.org`` content_url whose
+        landing is paywalled, while the source's ``paper.url`` is a public HTML
+        page (news/gov/org) that is freely readable — and is exactly what the FACT
+        metric re-fetches. Paywall principle preserved: a non-open-access
+        full-text **PDF or DOI** is still refused; only public HTML pages are read
+        when not flagged open-access.
+        """
+        if fetch_fn is None:
+            return (paper.abstract or "", "abstract", None)
+
+        candidates: list[str] = []
+        for candidate in (content_url, paper.pdf_url, paper.url):
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+
+        last_error: str | None = None
+        for url in candidates:
             allowed, reason = self.url_policy.allow(url, resolve_hosts=True)
             if not allowed:
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    f"URL blocked by policy: {reason}",
-                )
-            if not is_oa:
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    "URL is not open-access; fetch refused",
-                )
+                last_error = f"URL blocked by policy: {reason}"
+                continue
+            lu = url.lower()
+            is_pdf_url = lu.endswith(".pdf") or url == paper.pdf_url
+            is_doi = "doi.org" in lu
+            if not is_oa and (is_pdf_url or is_doi):
+                last_error = "non-open-access PDF/DOI; fetch refused"
+                continue
             try:
                 data = fetch_fn(url)
-            except Exception as exc:  # noqa: BLE001
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    f"Fetch failed: {exc}",
-                )
-            is_pdf_url = url.lower().endswith(".pdf") or url == paper.pdf_url
+            except Exception as exc:  # noqa: BLE001 — try the next candidate
+                last_error = f"Fetch failed: {exc}"
+                continue
             if is_pdf_url:
                 result = self.pdf_converter.convert_bytes(data)
                 if result.ok:
                     return (result.markdown, f"pdf:{result.tool}", None)
-                return (
-                    paper.abstract or "",
-                    "abstract",
-                    f"PDF conversion failed: {result.error}",
-                )
-            text = self._decode_text(data)
-            md = markdownify(text)
-            return (md.markdown, "markdownify", None)
+                last_error = f"PDF conversion failed: {result.error}"
+                continue
+            md = markdownify(self._decode_text(data))
+            if md.markdown.strip():
+                return (md.markdown, "markdownify", None)
+            last_error = "fetched page had no readable text"
 
-        return (paper.abstract or "", "abstract", None)
+        return (paper.abstract or "", "abstract", last_error)
 
     def _decode_text(self, data: bytes) -> str:
         """Decode fetched bytes to text, tolerating binary drift."""
@@ -187,21 +244,129 @@ class StructuredExtractor:
 
     def _extract_claims(self, text: str, source_id: str | None) -> list[ExtractedClaim]:
         """Naive claim extraction: look for sentences with strong result language."""
-        claims: list[ExtractedClaim] = []
-        markers = ["we find", "we found", "results show", "demonstrates", "indicates", "suggests"]
+        markers = [
+            "we find",
+            "we found",
+            "results show",
+            "demonstrates",
+            "indicated",
+            "indicates",
+            "suggests",
+            "improved",
+            "improves",
+            "reduced",
+            "reduces",
+            "increased",
+            "increases",
+            "decreased",
+            "decreases",
+            "rewards",
+            "penalizes",
+            "optimized",
+            "optimizes",
+            "enhanced",
+            "enhances",
+            "enables",
+            "supports",
+            "exceeds",
+            "exceeded",
+            "surpasses",
+            "surpassed",
+            "outperforms",
+            "outperformed",
+            "beats",
+            "achieves",
+            "achieved",
+            "yields",
+            "yielded",
+            "produces",
+            "produced",
+            "must",
+            "should",
+            "will",
+            "required",
+            "requirement",
+            "limitation",
+            "constraint",
+            "bottleneck",
+            "risk",
+            "decision",
+            "decided",
+            "chosen",
+            "trade-off",
+            "tradeoff",
+            "recommend",
+            "recommended",
+            "pattern",
+            "anti-pattern",
+        ]
         sentences = re.split(r"(?<=[.!?])\s+", text)
+        raw_claims: list[ExtractedClaim] = []
         for sentence in sentences:
             lower = sentence.lower()
             if any(marker in lower for marker in markers) and len(sentence.split()) >= 5:
-                claims.append(
+                raw_claims.append(
                     ExtractedClaim(
                         claim=sentence.strip(),
                         evidence=sentence.strip(),
-                        confidence="low",
+                        confidence=self._claim_confidence(sentence),
                         source_id=source_id,
                     )
                 )
-        return claims[:10]
+        merged = self._merge_adjacent_claims(raw_claims)
+        return self._filter_claims_by_confidence(merged)[:10]
+
+    _CONTINUATION_PREFIXES: tuple[str, ...] = (
+        "it ",
+        "this ",
+        "that ",
+        "also ",
+        "furthermore ",
+        "moreover ",
+        "additionally ",
+        "in addition ",
+        "consequently ",
+        "therefore ",
+        "thus ",
+        "as a result ",
+    )
+
+    def _merge_adjacent_claims(self, claims: list[ExtractedClaim]) -> list[ExtractedClaim]:
+        """Merge consecutive claim sentences that continue the same finding."""
+        if not claims:
+            return claims
+        merged: list[ExtractedClaim] = []
+        for claim in claims:
+            if merged and claim.claim.lower().startswith(self._CONTINUATION_PREFIXES):
+                prev = merged[-1]
+                merged[-1] = ExtractedClaim(
+                    claim=f"{prev.claim} {claim.claim}",
+                    evidence=f"{prev.evidence} {claim.evidence}",
+                    confidence="high" if prev.confidence == "high" or claim.confidence == "high" else prev.confidence,
+                    source_id=prev.source_id,
+                )
+            else:
+                merged.append(claim)
+        return merged
+
+    def _claim_confidence(self, sentence: str) -> str:
+        """Prefer quantitative claims; mark others as medium/low."""
+        has_number = bool(re.search(r"\d", sentence)) or "%" in sentence
+        if has_number:
+            return "high"
+        return "medium"
+
+    def _filter_claims_by_confidence(self, claims: list[ExtractedClaim]) -> list[ExtractedClaim]:
+        """When quantitative claims exist, drop weaker heuristic claims.
+
+        This raises precision by focusing on concrete, measurable findings when
+        they are present, without discarding all qualitative claims in a source.
+        """
+        if not claims:
+            return claims
+        if any(c.confidence == "high" for c in claims):
+            return [c for c in claims if c.confidence == "high"]
+        return claims
 
     def _detect_conflicts(
         self,
@@ -247,6 +412,8 @@ def extracted_source_to_dict(source: ExtractedSource) -> dict[str, Any]:
         "methodology": source.methodology,
         "data_summary": source.data_summary,
         "results_summary": source.results_summary,
+        "conclusions": source.conclusions,
+        "replication_notes": source.replication_notes,
         "claims": [
             {"claim": c.claim, "evidence": c.evidence, "confidence": c.confidence, "source_id": c.source_id}
             for c in source.claims
@@ -270,6 +437,8 @@ def extracted_source_from_dict(data: dict[str, Any]) -> ExtractedSource:
         methodology=data["methodology"],
         data_summary=data["data_summary"],
         results_summary=data["results_summary"],
+        conclusions=data.get("conclusions", ""),
+        replication_notes=data.get("replication_notes", ""),
         claims=[
             ExtractedClaim(
                 claim=c["claim"],

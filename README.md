@@ -5,8 +5,13 @@ research request from a main AI (Claude Code / Opus / Kimi) into a fully
 executed internet research campaign—delivering structured insights, evidence
 maps, and status updates while consuming minimal premium-AI tokens.
 
-> **Status:** v0.1.0 — Phases 0–10 complete. 230+ tests, 80%+ coverage, MCP/stdio
-> adapter, end-of-session PR automation, and Docker packaging included.
+> **Status:** `main` = v0.1.0. Active branch `feat/llm-fulltext-lanes` (PR #17)
+> makes the engine genuinely LLM-driven: local models read **full-text
+> methods/data/results** for replication-grade insight, routed across **7 model
+> lanes** by a quality/speed + source-volume slider (specify any two of
+> quality/time/volume and the third is derived), with sequential VRAM
+> load/unload and model/GPU telemetry. ~395 tests, mypy + ruff clean; verified
+> by a live end-to-end campaign. See `docs/architecture/model-lanes.md`.
 
 ## What it does
 
@@ -106,6 +111,7 @@ for a full step-by-step runbook.
 | Evaluation | Harness, reporter, improvement proposer, deep audit | [`docs/architecture/evaluation.md`](docs/architecture/evaluation.md) |
 | Monitoring | Progress %, ETA, calibration, anomaly detection | [`docs/architecture/monitoring.md`](docs/architecture/monitoring.md) |
 | Storage | SQLite state/cache, artifact manager, cleanup janitor | [`docs/architecture/storage.md`](docs/architecture/storage.md) |
+| Benchmark | DeepResearch Bench (RACE + FACT) scoreboard vs the published Opus/Gemini bar | [`docs/architecture/benchmark.md`](docs/architecture/benchmark.md) |
 
 ## Development
 
@@ -125,6 +131,24 @@ python scripts/end_session.py --message "feat: describe change"
 # Open a PR (dry-run by default)
 python scripts/github_pr.py --message "feat: describe change" --branch finish/feature
 ```
+
+## Benchmarking (does it beat Opus?)
+
+The engine scores itself on **DeepResearch Bench** — 100 PhD-level tasks graded by
+**RACE** (report quality vs a reference report) and **FACT** (citation accuracy) —
+so it can be compared head-to-head against the published Opus/Gemini leaderboard.
+
+```powershell
+# Smoke run: 3 English tasks, local Ollama judge (no external auth)
+research-engine bench --tasks 3 --judge ollama
+
+# Closest to official: Gemini judge (authenticate `gemini` once first)
+research-engine bench --tasks 100 --judge gemini
+```
+
+Writes `Research/benchmarks/<date>_scorecard.MD` with the engine's RACE/FACT next
+to the published bar and the weakest dimension to improve. See
+[`docs/architecture/benchmark.md`](docs/architecture/benchmark.md).
 
 ## Docker
 

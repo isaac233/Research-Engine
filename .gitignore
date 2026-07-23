@@ -19,6 +19,9 @@ config/secrets.yaml
 data/cache/
 data/sources/*/
 data/deliverables/*/
+data/self_research/
+data/*.json
+data/*.log
 *.duckdb
 *.duckdb.wal
 *.sqlite
@@ -39,6 +42,7 @@ bandit_report.json
 
 # Test coverage
 .coverage
+coverage.json
 htmlcov/
 
 # IDE
@@ -53,3 +57,16 @@ Thumbs.db
 # Router eval scratch
 .claude/router_eval/__pycache__/
 .claude/router_eval/*.pyc
+
+# Benchmark run outputs (vendored bench/data/ IS tracked)
+bench/out/
+
+# Engine runtime data (handoffs/state written during bench + campaigns)
+data/data/
+data/handoffs/
+
+# Distributed secrets — never commit
+API_KEYS.MD
+
+# MiniCheck (flan-t5-large) model cache — W1 abstain gate
+ckpts/

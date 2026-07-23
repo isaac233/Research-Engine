@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from research_engine.adversarial.challenge import Challenge, VerificationResult
 from research_engine.evaluation.harness import EvaluationReport
-from research_engine.extraction.structured import ExtractedSource
+from research_engine.extraction.structured import ExtractedSource, extracted_source_to_dict
+from research_engine.synthesis.synthesizer import render_references
 
 
 class Reporter:
@@ -35,15 +36,18 @@ class Reporter:
             f"- Verifications passed: **{report.verified_count}/{len(verifications)}**",
             f"- Coverage score: **{report.coverage_score:.2f}**",
             f"- Quality score: **{report.quality_score:.2f}**",
+            f"- Precision: **{report.precision:.2f}**",
+            f"- Recall: **{report.recall:.2f}**",
+            f"- F1 score: **{report.f1_score:.2f}**",
             "",
             "## Claims",
             "",
         ]
 
         claim_number = 1
-        for source in sources:
+        for source_index, source in enumerate(sources, 1):
             for claim in source.claims:
-                lines.append(f"{claim_number}. **{claim.claim}**")
+                lines.append(f"{claim_number}. **{claim.claim}** [{source_index}]")
                 lines.append(f"   - Evidence: {claim.evidence or 'none'}")
                 lines.append(f"   - Confidence: {claim.confidence}")
                 lines.append(f"   - Source: {source.title} ({source.full_text_url or 'no URL'})")
@@ -78,4 +82,5 @@ class Reporter:
             ]
         )
 
-        return "\n".join(lines).strip()
+        brief = "\n".join(lines).strip()
+        return brief + render_references([extracted_source_to_dict(s) for s in sources])

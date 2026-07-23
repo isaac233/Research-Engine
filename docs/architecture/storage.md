@@ -40,6 +40,10 @@ Campaign artifacts live under `Research/<campaign-slug>/`.
 Tags are split into `topic` and `information` kinds for precise filtering, and a
 contentless FTS5 index makes URLs, notes, hints, source types, information
 types, and topic tags searchable. Reliability scores (0–1) help rank results.
+`reliability_score` defaults to `None` on re-remember: a source with no fresh
+evidence keeps its learned score (new sources start at a neutral 0.5), so an
+incidental re-remember never destructively overwrites a learned score. Pass an
+explicit score to update it.
 
 ## Agent history
 

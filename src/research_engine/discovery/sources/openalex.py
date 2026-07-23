@@ -150,7 +150,7 @@ class OpenAlexAdapter(SourceAdapter):
             doi=doi,
             url=raw.get("id"),
             pdf_url=pdf_url,
-            abstract=raw.get("abstract", ""),
+            abstract=raw.get("abstract", "") or _rebuild_abstract(raw.get("abstract_inverted_index")),
             source=self.name,
             source_id=raw.get("id"),
             meta={
@@ -161,3 +161,15 @@ class OpenAlexAdapter(SourceAdapter):
 
     def health(self) -> dict[str, Any]:
         return {"ok": True, "source": self.name, "mailto": bool(self.mailto)}
+
+
+def _rebuild_abstract(inverted_index: Any) -> str:
+    """OpenAlex ships abstracts as {word: [positions]}; rebuild the plain text."""
+    if not isinstance(inverted_index, dict):
+        return ""
+    positions: list[tuple[int, str]] = []
+    for word, indexes in inverted_index.items():
+        if not isinstance(indexes, list):
+            continue
+        positions.extend((i, str(word)) for i in indexes if isinstance(i, int))
+    return " ".join(word for _, word in sorted(positions))

@@ -28,8 +28,22 @@ class URLPolicy:
     BLOCKED_SCHEMES = {"file", "ftp", "data", "javascript", "chrome", "about"}
     BLOCKED_HOSTS = {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
-    def __init__(self, allow_list: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        allow_list: list[str] | None = None,
+        trusted_origins: list[str] | None = None,
+    ) -> None:
         self.allow_list = {h.lower() for h in (allow_list or [])}
+        # Operator-configured endpoints (e.g. a local SearXNG instance) that
+        # bypass the localhost/port SSRF checks. Matched on exact
+        # (scheme, host, port) — never derived from untrusted content.
+        self._trusted_origins: set[tuple[str, str, int | None]] = set()
+        for origin in trusted_origins or []:
+            parsed = urlparse(origin)
+            if parsed.scheme in {"http", "https"} and parsed.hostname:
+                self._trusted_origins.add(
+                    (parsed.scheme, parsed.hostname.lower(), parsed.port)
+                )
 
     @staticmethod
     def _decode_host(host: str) -> str:
@@ -114,6 +128,15 @@ class URLPolicy:
             return False, f"host {host!r} does not resolve to any public IP"
         return True, ""
 
+    def is_trusted_origin(self, url: str) -> bool:
+        """True if the URL's (scheme, host, port) matches a trusted origin."""
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            return False
+        host = (parsed.hostname or "").lower()
+        return (parsed.scheme, host, parsed.port) in self._trusted_origins
+
     def allow(self, url: str, *, resolve_hosts: bool = False) -> tuple[bool, str]:
         """Return (allowed, reason)."""
         try:
@@ -131,6 +154,11 @@ class URLPolicy:
         host = self._decode_host((parsed.hostname or "").lower())
         if not host:
             return False, "missing host"
+
+        # Trusted origins (operator config, e.g. local SearXNG) bypass the
+        # localhost/port checks below — but never the scheme/credential checks.
+        if (parsed.scheme, host, parsed.port) in self._trusted_origins:
+            return True, "trusted origin"
 
         # Block non-ASCII / IDNA hostnames unless explicitly allow-listed.
         # This prevents homoglyph attacks (e.g., Cyrillic е vs Latin e).
@@ -171,4 +199,8 @@ class URLPolicy:
             "blocked_schemes": sorted(self.BLOCKED_SCHEMES),
             "blocked_hosts": sorted(self.BLOCKED_HOSTS),
             "allow_list": sorted(self.allow_list),
+            "trusted_origins": sorted(
+                f"{scheme}://{host}" + (f":{port}" if port is not None else "")
+                for scheme, host, port in self._trusted_origins
+            ),
         }

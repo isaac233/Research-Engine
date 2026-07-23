@@ -110,11 +110,21 @@ def safe_request(
         raise RuntimeError("Response exceeds maximum allowed size")
 
     body = _read_body_with_limit(response, max_body_size)
+    # `iter_bytes()` already decoded (decompressed) the body, so the original
+    # Content-Encoding/Content-Length headers no longer describe `body`. Drop
+    # them, or the consumer re-decompresses and fails ("incorrect header check").
+    safe_headers = httpx.Headers(
+        [
+            (k, v)
+            for k, v in response.headers.items()
+            if k.lower() not in ("content-encoding", "content-length")
+        ]
+    )
     # Always report the original hostname URL, never the pinned-IP URL.
     request = httpx.Request(method=method, url=str(original_url))
     return httpx.Response(
         status_code=response.status_code,
-        headers=response.headers,
+        headers=safe_headers,
         content=body,
         request=request,
     )

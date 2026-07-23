@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -257,6 +258,156 @@ def test_screen_and_extract_stages_run() -> None:
     assert extract_event is not None
     assert screen_event["payload"]["result"]["included_count"] == 1
     assert extract_event["payload"]["result"]["extracted_count"] == 1
+
+
+def _relevance_scorecard(paper: Paper, relevant: bool) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        paper=paper,
+        criterion_scores=[
+            SimpleNamespace(
+                criterion_name="relevance",
+                passed=relevant,
+                value=5.0 if relevant else 1.0,
+                score=1.0 if relevant else 0.0,
+                reason="stub",
+            )
+        ],
+        total_score=1.0 if relevant else 0.0,
+        included=relevant,
+        reason="stub",
+    )
+
+
+def _single_paper_discovery() -> DiscoveryPipeline:
+    class FakeDiscoveryPipeline(DiscoveryPipeline):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, query: str, context: str = "", max_sources: int = 50) -> DiscoveryResult:
+            return DiscoveryResult(
+                query=query,
+                plan={"queries": [], "keywords": []},
+                search_results=[],
+                deduped_groups=[
+                    DuplicateGroup(
+                        canonical=Paper(title="P1", source="fake", source_id="1", doi="10.1/1")
+                    ),
+                    DuplicateGroup(
+                        canonical=Paper(title="P2", source="fake", source_id="2", doi="10.1/2")
+                    ),
+                ],
+                snowball_papers=[],
+                resolved=[],
+            )
+
+    return FakeDiscoveryPipeline()
+
+
+def test_screen_mostly_offtopic_sets_honesty_flag() -> None:
+    """>=50% of candidates failing the relevance rubric must be flagged."""
+    from types import SimpleNamespace
+
+    class OffTopicRanker:
+        criteria = SimpleNamespace(name="default_academic")
+
+        def rank(self, papers: list[Paper], query: str = "") -> list[Any]:
+            return [_relevance_scorecard(p, relevant=False) for p in papers]
+
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store,
+        EventBus(store),
+        discovery=_single_paper_discovery(),
+        ranker=OffTopicRanker(),
+        extractor=StructuredExtractor(),
+    )
+    campaign = orch.start_campaign(ResearchRequest(query="offtopic test"))
+    final = orch.run_campaign(campaign.id)
+    assert final.meta.get("screening_yielded_offtopic") is True
+
+
+def test_screen_ontopic_does_not_set_offtopic_flag() -> None:
+    from types import SimpleNamespace
+
+    class OnTopicRanker:
+        criteria = SimpleNamespace(name="default_academic")
+
+        def rank(self, papers: list[Paper], query: str = "") -> list[Any]:
+            return [_relevance_scorecard(p, relevant=True) for p in papers]
+
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store,
+        EventBus(store),
+        discovery=_single_paper_discovery(),
+        ranker=OnTopicRanker(),
+        extractor=StructuredExtractor(),
+    )
+    campaign = orch.start_campaign(ResearchRequest(query="ontopic test"))
+    final = orch.run_campaign(campaign.id)
+    assert final.meta.get("screening_yielded_offtopic") is None
+
+
+def test_screen_zero_inclusion_is_flagged_not_silent() -> None:
+    """A non-empty candidate set that includes nothing must be made visible."""
+    from types import SimpleNamespace
+
+    class AllExcludingRanker:
+        criteria = SimpleNamespace(name="strict")
+
+        def rank(self, papers: list[Paper], query: str = "") -> list[SimpleNamespace]:
+            return [
+                SimpleNamespace(
+                    paper=p,
+                    criterion_scores=[],
+                    total_score=0.0,
+                    included=False,
+                    reason="excluded",
+                )
+                for p in papers
+            ]
+
+    class FakeDiscoveryPipeline(DiscoveryPipeline):
+        def __init__(self) -> None:
+            pass
+
+        def run(self, query: str, context: str = "", max_sources: int = 50) -> DiscoveryResult:
+            return DiscoveryResult(
+                query=query,
+                plan={"queries": [], "keywords": []},
+                search_results=[],
+                deduped_groups=[
+                    DuplicateGroup(
+                        canonical=Paper(title="Weak", source="fake", source_id="1", doi="10.1/1")
+                    )
+                ],
+                snowball_papers=[],
+                resolved=[],
+            )
+
+    store = CampaignStore(Path(tempfile.mkdtemp()) / "state.db")
+    orch = Orchestrator(
+        store,
+        EventBus(store),
+        discovery=FakeDiscoveryPipeline(),
+        ranker=AllExcludingRanker(),
+        extractor=StructuredExtractor(),
+    )
+    campaign = orch.start_campaign(ResearchRequest(query="zero inclusion test"))
+    final = orch.run_campaign(campaign.id)
+
+    assert final.status == CampaignStatus.COMPLETED
+    assert final.meta.get("screening_yielded_zero") is True
+    events = store.get_events(campaign.id, "stage_exit")
+    screen_event = next((e for e in events if e["payload"].get("stage") == "screen"), None)
+    assert screen_event is not None
+    assert "skipped" in screen_event["payload"]["result"]
+    # Downstream stages must report an honest skip, not "not yet implemented".
+    extract_event = next((e for e in events if e["payload"].get("stage") == "extract"), None)
+    assert extract_event is not None
+    assert "not yet implemented" not in extract_event["payload"]["result"].get("note", "")
 
 
 def test_adversarial_and_evaluate_stages_run() -> None:

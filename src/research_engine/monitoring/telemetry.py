@@ -47,6 +47,28 @@ class TelemetryEmitter:
         payload.update(self._sanitize(meta or {}))
         return self.event_bus.emit(campaign_id, "telemetry_campaign", payload)
 
+    MODEL_META_KEYS = {"event", "tag", "from_tag", "to_tag", "ok", "num_ctx", "stage"}
+
+    def model_event(self, campaign_id: str, event: str, meta: dict[str, Any] | None = None) -> int:
+        """Emit a model lifecycle/assignment event (load/unload/switch/assignment)."""
+        payload: dict[str, Any] = {
+            "event": event,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        payload.update(
+            {
+                k: v
+                for k, v in (meta or {}).items()
+                if k in self.MODEL_META_KEYS and isinstance(v, (str, int, float, bool))
+            }
+        )
+        return self.event_bus.emit(campaign_id, "telemetry_model", payload)
+
+    def gpu_snapshot(self, campaign_id: str, snapshot: dict[str, Any]) -> int:
+        """Emit a GPU/VRAM residency snapshot (already sanitized numeric data)."""
+        payload = {"timestamp": datetime.now(UTC).isoformat(), **snapshot}
+        return self.event_bus.emit(campaign_id, "telemetry_gpu", payload)
+
     def _sanitize(self, meta: dict[str, Any]) -> dict[str, Any]:
         """Strip unknown keys to keep telemetry free of PII/surprises."""
         return {
@@ -54,6 +76,21 @@ class TelemetryEmitter:
             for k, v in meta.items()
             if k in self.ALLOWED_META_KEYS and isinstance(v, (str, int, float, bool))
         }
+
+
+def lifecycle_telemetry_hook(
+    emitter: TelemetryEmitter, campaign_id: str
+) -> Any:
+    """Return an on_event(event, payload) hook that forwards to model_event.
+
+    Wire into ModelLifecycleManager(on_event=...) so model load/unload/switch
+    events land in the campaign's telemetry stream.
+    """
+
+    def _hook(event: str, payload: dict[str, Any]) -> None:
+        emitter.model_event(campaign_id, event, payload)
+
+    return _hook
 
 
 class TelemetryAnalyzer:

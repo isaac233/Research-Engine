@@ -18,6 +18,11 @@ from research_engine.screening.criteria import (
     default_academic_criteria,
 )
 
+# Below this many characters of abstract/snippet text a source is judged with
+# the criterion's snippet-calibrated rubric (SearXNG snippets run ~150 chars;
+# real academic abstracts almost always exceed this).
+SNIPPET_TEXT_CHARS = 300
+
 
 class LLMScorer(Protocol):
     """Callable that scores a paper against a rubric prompt and returns a float."""
@@ -145,17 +150,25 @@ class SourceRanker:
         query: str,
     ) -> CriterionScore:
         if self.llm_scorer is None:
+            # Offline / no-LLM environments must still screen on the other
+            # criteria; an unscoreable rubric passes unchecked rather than
+            # excluding everything via MUST.
             return CriterionScore(
                 criterion_name=criterion.name,
-                passed=False,
+                passed=True,
                 value=None,
                 score=None,
-                reason="No LLM scorer configured",
+                reason="No LLM scorer configured; rubric unchecked",
             )
+        prompt_template = criterion.prompt
+        if criterion.snippet_prompt and self._is_snippet_thin(paper):
+            prompt_template = criterion.snippet_prompt
         try:
-            score = self.llm_scorer(paper, criterion.prompt.format(query=query))
+            score = self.llm_scorer(paper, prompt_template.format(query=query))
+            # Pass/fail on the raw score; clamping below would floor every
+            # low score up to minimum_score and make the rubric unfailable.
+            passed = score >= criterion.minimum_score
             clamped = max(criterion.minimum_score, min(criterion.maximum_score, score))
-            passed = clamped >= criterion.minimum_score
             normalized = (
                 (clamped - criterion.minimum_score)
                 / (criterion.maximum_score - criterion.minimum_score)
@@ -167,7 +180,7 @@ class SourceRanker:
                 passed=passed,
                 value=clamped,
                 score=round(normalized, 4),
-                reason=f"LLM rubric score {clamped} vs minimum {criterion.minimum_score}",
+                reason=f"LLM rubric raw score {score} vs minimum {criterion.minimum_score}",
             )
         except Exception as exc:  # noqa: BLE001
             return CriterionScore(
@@ -178,6 +191,10 @@ class SourceRanker:
                 reason=f"LLM scoring failed: {exc}",
             )
 
+    def _is_snippet_thin(self, paper: Paper) -> bool:
+        """True when the paper's readable text is a short search snippet."""
+        return len((paper.abstract or "").strip()) < SNIPPET_TEXT_CHARS
+
     def _resolve_field(self, paper: Paper, field: str) -> Any:
         """Resolve a dot-path or meta key from a Paper."""
         if field.startswith("meta."):
@@ -185,6 +202,8 @@ class SourceRanker:
         value = getattr(paper, field, None)
         if value is None and field == "has_full_text":
             return paper.pdf_url is not None
+        if value is None and field == "is_readable":
+            return bool((paper.abstract or "").strip()) or paper.pdf_url is not None
         return value
 
     def _weight(self, criterion: BooleanCriterion | NumericCriterion | LLMRubricCriterion) -> float:
@@ -213,11 +232,11 @@ def build_llm_scorer(provider: LLMProvider, model: str | None = None) -> LLMScor
         messages = [
             Message(
                 role="system",
-                content="You score academic papers on a numeric rubric. Reply with only a number.",
+                content="You score research sources on a numeric rubric. Reply with only a number.",
             ),
             Message(
                 role="user",
-                content=f"Paper title: {paper.title}\nAbstract: {paper.abstract[:800]}\n\n{prompt}\nScore:",
+                content=f"Title: {paper.title}\nText: {paper.abstract[:800]}\n\n{prompt}\nScore:",
             ),
         ]
         response = provider.complete(messages, model=model, temperature=0.0, max_tokens=10)

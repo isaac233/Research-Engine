@@ -31,6 +31,7 @@ class SourceRegistry:
         crossref_mailto: str | None = None,
         openalex_mailto: str | None = None,
         serp_endpoint: str | None = None,
+        serp_blocklist: tuple[str, ...] = (),
     ) -> None:
         self.enabled = enabled or set(self.DEFAULT_SOURCES)
         self._adapters: dict[str, SourceAdapter] = {}
@@ -38,6 +39,7 @@ class SourceRegistry:
         self._crossref_mailto = crossref_mailto
         self._openalex_mailto = openalex_mailto
         self._serp_endpoint = serp_endpoint
+        self._serp_blocklist = serp_blocklist
 
     def get(self, source: str) -> SourceAdapter | None:
         if source not in self.enabled:
@@ -71,7 +73,9 @@ class SourceRegistry:
         if source == "openalex":
             return OpenAlexAdapter(mailto=self._openalex_mailto)
         if source == "serp":
-            return SERPAdapter(endpoint=self._serp_endpoint)
+            return SERPAdapter(
+                endpoint=self._serp_endpoint, blocklist=self._serp_blocklist
+            )
         if source == "web_crawl":
             return WebCrawlAdapter()
         raise ValueError(f"Unknown discovery source: {source}")

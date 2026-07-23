@@ -32,19 +32,20 @@ def test_missing_endpoint_returns_error() -> None:
     assert "endpoint" in (result.error or "").lower()
 
 
-def test_robots_disallow_blocks() -> None:
+def test_robots_disallow_blocks_result_fetch() -> None:
+    """The configured endpoint is an operator-chosen search API (robots
+    skipped), but fetching a *result* URL still honors robots.txt."""
+
     class DisallowRobots(RobotsChecker):
         def can_fetch(self, url: str, user_agent: str = "*") -> tuple[bool, str]:
             return False, "disallowed"
 
     adapter = SERPAdapter(
         endpoint="https://search.example/?q={query}",
-        browser=FakeBrowser(""),
+        browser=FakeBrowser("<title>Page</title>"),
         robots=DisallowRobots(),
     )
-    result = adapter.search("query")
-    assert result.ok is False
-    assert "robots" in (result.error or "").lower()
+    assert adapter.fetch_by_id("https://blocked.example/page") is None
 
 
 def test_parses_results_from_html() -> None:
@@ -82,3 +83,110 @@ def test_health_requires_endpoint() -> None:
     health = adapter.health()
     assert health["ok"] is False
     assert health["endpoint_configured"] is False
+
+
+def test_parses_searxng_json() -> None:
+    """SearXNG /search?format=json returns {results:[{title,url,content}]}."""
+    payload = (
+        '{"query":"q","number_of_results":2,"results":['
+        '{"url":"https://a.test/1","title":"First Hit","content":"snippet one","engine":"google"},'
+        '{"url":"https://b.test/2","title":"Second Hit","content":"snippet two","engine":"bing"}]}'
+    )
+    adapter = SERPAdapter(
+        endpoint="http://localhost:8080/search?q={query}&format=json",
+        browser=FakeBrowser(payload),
+    )
+    result = adapter.search("q")
+    assert result.ok is True
+    assert len(result.papers) == 2
+    assert result.papers[0].title == "First Hit"
+    assert result.papers[0].url == "https://a.test/1"
+    assert result.papers[0].abstract == "snippet one"
+    assert result.papers[0].source == "serp"
+
+
+def test_searxng_json_respects_limit() -> None:
+    payload = (
+        '{"results":['
+        '{"url":"https://a.test/1","title":"A","content":"x"},'
+        '{"url":"https://a.test/2","title":"B","content":"y"},'
+        '{"url":"https://a.test/3","title":"C","content":"z"}]}'
+    )
+    adapter = SERPAdapter(endpoint="http://localhost:8080/search?q={query}&format=json",
+                          browser=FakeBrowser(payload))
+    result = adapter.search("q", limit=2)
+    assert len(result.papers) == 2
+
+
+def test_non_json_still_parses_as_html() -> None:
+    """A malformed/HTML body must not crash; falls back to the HTML parser."""
+    html = '<h3>Only Hit</h3> <a href="https://c.test/1">link</a>'
+    adapter = SERPAdapter(endpoint="https://search.example/?q={query}",
+                          browser=FakeBrowser(html))
+    result = adapter.search("q")
+    assert result.ok is True
+    assert result.papers[0].url == "https://c.test/1"
+
+
+def test_parses_whoogle_json_href_alias() -> None:
+    """Whoogle JSON uses 'href' for the URL (vs SearXNG's 'url')."""
+    payload = (
+        '{"query":"q","results":['
+        '{"href":"https://w.test/1","title":"Whoogle Hit","content":"snip","text":"full"}]}'
+    )
+    adapter = SERPAdapter(endpoint="http://localhost:5000/search?q={query}&format=json",
+                          browser=FakeBrowser(payload))
+    result = adapter.search("q")
+    assert result.ok is True
+    assert len(result.papers) == 1
+    assert result.papers[0].url == "https://w.test/1"
+    assert result.papers[0].title == "Whoogle Hit"
+    assert result.papers[0].abstract == "snip"
+
+
+def test_default_browser_policy_trusts_configured_endpoint() -> None:
+    adapter = SERPAdapter(endpoint="http://localhost:8080/search?q={query}&format=json")
+    allowed, reason = adapter.browser.policy.allow(
+        "http://localhost:8080/search?q=test&format=json"
+    )
+    assert allowed is True, reason
+    # Other local URLs stay blocked.
+    blocked, _ = adapter.browser.policy.allow("http://localhost:9999/")
+    assert blocked is False
+
+
+def test_trusted_endpoint_skips_robots() -> None:
+    """Operator's own local search instance: its robots.txt targets external
+    crawlers, not the operator. Trusted origin => no robots gate."""
+
+    class DisallowRobots(RobotsChecker):
+        def can_fetch(self, url: str, user_agent: str = "*") -> tuple[bool, str]:
+            return False, "disallowed"
+
+    body = '{"results": [{"title": "T", "url": "https://example.com/a", "content": "c"}]}'
+    adapter = SERPAdapter(
+        endpoint="http://localhost:8080/search?q={query}&format=json",
+        browser=FakeBrowser(body),
+        robots=DisallowRobots(),
+    )
+    result = adapter.search("query")
+    assert result.ok is True
+    assert len(result.papers) == 1
+
+
+def test_blocklist_filters_results() -> None:
+    """Benchmark leakage guard: URLs matching a blocklist substring are dropped."""
+    body = (
+        '{"results": ['
+        '{"title": "Leak", "url": "https://huggingface.co/datasets/x/DeepResearch-Bench-Dataset", "content": "c"},'
+        '{"title": "Good", "url": "https://example.com/report", "content": "c"}'
+        ']}'
+    )
+    adapter = SERPAdapter(
+        endpoint="http://localhost:8080/search?q={query}&format=json",
+        browser=FakeBrowser(body),
+        blocklist=("huggingface.co/datasets", "zhipuai-infra.cn"),
+    )
+    result = adapter.search("query")
+    assert result.ok is True
+    assert [p.title for p in result.papers] == ["Good"]

@@ -102,6 +102,10 @@ class LLMRubricCriterion:
 
     name: str
     prompt: str
+    # Optional calibrated rubric for snippet-thin sources (web search results
+    # carry ~150-char snippets that can never "directly address" a query).
+    # Empty string = always use `prompt`.
+    snippet_prompt: str = ""
     minimum_score: float = 3.0
     maximum_score: float = 5.0
     match_mode: MatchMode = MatchMode.SHOULD
@@ -114,6 +118,7 @@ class LLMRubricCriterion:
             "kind": self.kind.value,
             "name": self.name,
             "prompt": self.prompt,
+            "snippet_prompt": self.snippet_prompt,
             "minimum_score": self.minimum_score,
             "maximum_score": self.maximum_score,
             "match_mode": self.match_mode.value,
@@ -126,6 +131,7 @@ class LLMRubricCriterion:
         return cls(
             name=data["name"],
             prompt=data["prompt"],
+            snippet_prompt=data.get("snippet_prompt", ""),
             minimum_score=float(data.get("minimum_score", 3.0)),
             maximum_score=float(data.get("maximum_score", 5.0)),
             match_mode=MatchMode(data.get("match_mode", "should")),
@@ -177,8 +183,33 @@ def default_academic_criteria() -> CriterionSet:
                 name="has_full_text",
                 field="has_full_text",
                 expected=True,
+                match_mode=MatchMode.SHOULD,
+                weight=1.5,
+                rationale=(
+                    "Prefer papers with resolvable full text, but do not exclude "
+                    "abstract-only records — extraction degrades gracefully"
+                ),
+            ),
+            BooleanCriterion(
+                name="has_abstract",
+                field="abstract",
+                expected=True,
+                match_mode=MatchMode.SHOULD,
+                weight=2.0,
+                rationale=(
+                    "Title-only records (common on Crossref) give extraction "
+                    "nothing to read; rank readable papers above stubs"
+                ),
+            ),
+            BooleanCriterion(
+                name="readable",
+                field="is_readable",
+                expected=True,
                 match_mode=MatchMode.MUST,
-                rationale="Only include papers we can resolve to full text",
+                rationale=(
+                    "A source with neither abstract nor full text cannot be "
+                    "extracted or cited — a relevant-sounding title is not evidence"
+                ),
             ),
             NumericCriterion(
                 name="recent_enough",
@@ -190,11 +221,24 @@ def default_academic_criteria() -> CriterionSet:
             ),
             LLMRubricCriterion(
                 name="relevance",
-                prompt="Rate how directly this paper addresses the research query on a scale of 1-5.",
+                prompt=(
+                    "Research query: {query}\n"
+                    "Rate how directly this paper addresses the research query "
+                    "on a scale of 1-5 (1 = unrelated topic, 5 = directly on-topic)."
+                ),
+                snippet_prompt=(
+                    "Research query: {query}\n"
+                    "You see only a title and a short search-result snippet. "
+                    "Rate how topically relevant this source is to the research "
+                    "query on a scale of 1-5 (1 = unrelated topic, 5 = clearly "
+                    "about the query's topic). Judge topic match only — do NOT "
+                    "require the snippet itself to contain the answer; a short "
+                    "snippet cannot."
+                ),
                 minimum_score=3.0,
                 maximum_score=5.0,
-                match_mode=MatchMode.SHOULD,
-                rationale="Relevance judged by local LLM rubric",
+                match_mode=MatchMode.MUST,
+                rationale="Off-topic sources poison the whole campaign; gate on LLM relevance",
             ),
         ],
     )

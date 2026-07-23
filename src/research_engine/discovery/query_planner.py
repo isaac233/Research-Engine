@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,9 +24,30 @@ class QueryPlanner:
     ACADEMIC_SOURCES = {"semantic_scholar", "crossref", "arxiv", "openalex"}
     WEB_SOURCES = {"serp", "web_crawl"}
     DEFAULT_LIMIT = 10
+    # arXiv only hosts physics/math/CS/stats/q-bio/q-fin preprints; keyword
+    # queries for other domains match stray terms and poison discovery.
+    # ponytail: keyword heuristic; screening's LLM relevance gate is the backstop.
+    ARXIV_DOMAIN_TERMS = frozenset({
+        "algorithm", "algorithms", "astro", "astronomy", "bayesian", "bioinformatics",
+        "compiler", "computation", "computational", "computing", "cosmology", "cryptography",
+        "dataset", "datasets", "deep", "eigenvalue", "embedding", "embeddings", "genomics",
+        "gpu", "gradient", "graph", "hamiltonian", "inference", "language", "learning",
+        "llm", "llms", "machine", "math", "mathematical", "mathematics", "matrix", "model",
+        "models", "network", "networks", "neural", "optimization", "particle", "physics",
+        "protein", "quantum", "regression", "reinforcement", "robotics", "simulation",
+        "software", "statistical", "statistics", "stochastic", "theorem", "topology",
+        "training", "transformer", "transformers",
+    })
 
-    def __init__(self, enabled_sources: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        enabled_sources: set[str] | None = None,
+        subquery_fn: Callable[[str], list[str]] | None = None,
+    ) -> None:
         self.enabled_sources = enabled_sources or set(self.ACADEMIC_SOURCES)
+        # Optional facet decomposition: expands one query into many web sub-queries
+        # so the web lane surfaces far more evidence (the volume lever).
+        self.subquery_fn = subquery_fn
 
     def plan(self, query: str, context: str = "", max_sources: int = 50) -> QueryPlan:
         """Build a ranked query plan from a research request."""
@@ -36,7 +58,16 @@ class QueryPlanner:
         keywords = self._extract_keywords(combined)
         queries: list[SourceQuery] = []
 
-        for source in sorted(self.enabled_sources):
+        active_sources = set(self.enabled_sources)
+        # Drop arXiv for off-domain topics, but never empty the plan.
+        if (
+            "arxiv" in active_sources
+            and len(active_sources) > 1
+            and not self._looks_arxiv_domain(combined)
+        ):
+            active_sources.discard("arxiv")
+
+        for source in sorted(active_sources):
             if source in self.ACADEMIC_SOURCES:
                 queries.append(
                     SourceQuery(
@@ -75,6 +106,24 @@ class QueryPlanner:
                     )
                 )
 
+        # Facet decomposition: fan the query out into many distinct web sub-queries
+        # (the evidence-volume lever). Each becomes a serp search so discovery
+        # surfaces far more relevant candidates than a single query would.
+        if self.subquery_fn is not None and active_sources & self.WEB_SOURCES:
+            web_source = "serp" if "serp" in active_sources else "web_crawl"
+            seen_q = {q.query.lower() for q in queries}
+            for sub in self.subquery_fn(query):
+                if sub.strip() and sub.lower() not in seen_q:
+                    seen_q.add(sub.lower())
+                    queries.append(
+                        SourceQuery(
+                            source=web_source,
+                            query=sub,
+                            rationale="Facet sub-query for comprehensive web coverage",
+                            priority=2,
+                        )
+                    )
+
         # Unblocking / problem-solving phrasing.
         if any(kw in query.lower() for kw in ("how to", "find a", "missing", "need a", "cannot find")):
             queries.insert(
@@ -92,6 +141,11 @@ class QueryPlanner:
             keywords=keywords,
             rationale=f"Generated {len(queries)} source-specific queries for: {query[:80]}",
         )
+
+    def _looks_arxiv_domain(self, text: str) -> bool:
+        """True when the query reads like a physics/math/CS/stats topic."""
+        words = {w.strip(".,;:!?\"'()[]-") for w in text.lower().split()}
+        return bool(words & self.ARXIV_DOMAIN_TERMS)
 
     def _extract_keywords(self, text: str) -> list[str]:
         """Naive keyword extraction: drop stop words and short tokens."""
